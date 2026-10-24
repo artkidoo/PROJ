@@ -1,0 +1,6 @@
+{
+  "name": "LYRICAL ENT — Brand & Label Studio",
+  "description": "Central branding, creative production, artist management, music release planning, document generation, and digital operations workspace for LYRICAL ENT record label.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

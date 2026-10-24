@@ -1,0 +1,980 @@
+LYRICAL ENT — CREATIVE POWERHOUSE UPGRADE
+VERSION 2.0 — ADVANCED CREATIVE SYSTEM, MUSIC CAMPAIGNS & BRAND MANAGEMENT
+
+IMPORTANT:
+Upgrade the existing LYRICAL ENT — Brand & Label Studio application.
+
+Do not rebuild the project from scratch.
+Do not remove working features.
+Do not destroy the existing brand identity, logo system, document generator, Blogger XML generator, export center, or other completed functionality.
+
+First inspect the existing codebase, components, dependencies, and current functionality. Then improve the existing systems and integrate the new features into the current architecture.
+
+The goal is to transform this application into a premium, professional, highly creative record-label operating system with a powerful graphic design studio.
+
+The current creative designs are too plain. I want a dramatic improvement in the quality, diversity, usefulness, and flexibility of the design templates.
+
+DESIGN DIRECTION:
+- Premium record-label aesthetic.
+- Black, white, and grayscale as the core LYRICAL ENT identity.
+- Allow individual campaigns to use other suitable creative color palettes.
+- Professional Photoshop-style visual composition.
+- Strong typography, editorial layouts, cinematic compositions, creative cropping, textures, lighting effects, layered elements, and sophisticated visual hierarchy.
+- Different templates must have genuinely different compositions, not just different colors and text.
+- Avoid generic AI-looking designs, repetitive layouts, excessive gradients, and predictable template designs.
+- The interface should feel like a professional creative studio.
+- All designs must have editable text, images, colors, typography, and relevant layout options wherever technically possible.
+- Prioritize real functionality over decorative buttons and mockup screens.
+
+
+==================================================
+1. ADVANCED CREATIVE TEMPLATE LIBRARY
+==================================================
+
+Transform the current Launch Creative Studio into a comprehensive Creative Template Library.
+
+Create separate template categories with filters, search, previews, favorites, and editable design settings.
+
+Required categories:
+
+A. BRAND LAUNCH
+B. PRE-LAUNCH CAMPAIGNS
+C. LAUNCH DAY DESIGNS
+D. POST-LAUNCH CAMPAIGNS
+E. MUSIC PROMOTION
+F. ARTIST BRANDING
+G. SOCIAL MEDIA CONTENT
+H. HOLIDAY AND CELEBRATION DESIGNS
+I. COMPANY ANNOUNCEMENTS
+J. BUSINESS PROMOTION
+K. PRESS AND MEDIA
+L. EVENT PROMOTION
+M. MOTION GRAPHICS
+N. QUOTES AND MOTIVATIONAL DESIGNS
+O. CUSTOM DESIGN PACKS
+
+Do not stop at creating category cards. Every category must contain usable design templates.
+
+Create a substantial initial library of genuinely distinct templates. Aim for at least 60 usable template variations across the categories, prioritizing quality and variety over filler.
+
+Every template should have:
+- A visual thumbnail or preview.
+- A clear template name.
+- A category.
+- Supported aspect ratios.
+- Editable text fields.
+- Editable image placeholders.
+- Color and typography controls.
+- Duplicate design functionality.
+- Save and reopen functionality.
+- Export functionality.
+- A way to create a variation without starting over.
+
+Templates should have different visual structures, compositions, and typography treatments.
+
+Examples:
+- Editorial cover.
+- Cinematic portrait.
+- Minimal luxury.
+- Underground music poster.
+- Urban street aesthetic.
+- High-fashion campaign.
+- Black-and-white magazine spread.
+- Bold typographic poster.
+- Grainy film aesthetic.
+- Documentary-style portrait.
+- Clean corporate announcement.
+- Experimental typography.
+- Minimalist product advertisement.
+- Dramatic spotlight composition.
+- Collage and cutout composition.
+- Premium artist announcement.
+- Concert-poster aesthetic.
+- Contemporary music editorial.
+
+Use appropriate design assets and image placeholders, but never present placeholder imagery as the user's finished artwork.
+
+If an external AI image-generation API is unavailable, create functional editable templates using local graphics, SVG, canvas, typography, shapes, and image uploads. Do not pretend that a real image-generation service is connected when it is not.
+
+
+==================================================
+2. YEAR-ROUND CELEBRATION DESIGN SYSTEM
+==================================================
+
+Create a dedicated section named:
+
+"CELEBRATION CALENDAR"
+
+I want to prepare professional graphics for celebrations throughout the entire year, rather than searching for design ideas whenever a celebration arrives.
+
+Include an annual calendar with relevant occasions, searchable by:
+- Month.
+- Celebration.
+- Country or region.
+- Audience.
+- Design category.
+- Upcoming date.
+- Campaign status.
+
+Include Nigerian occasions and globally recognized celebrations.
+
+Examples include:
+- New Year's Day.
+- Valentine's Day.
+- International Women's Day.
+- Mother's Day.
+- Father's Day.
+- World Music Day.
+- Children's Day.
+- Workers' Day.
+- International Youth Day.
+- International Men's Day.
+- Christmas.
+- Easter.
+- Eid al-Fitr.
+- Eid al-Adha.
+- Independence Day.
+- Black Friday.
+- World Photography Day.
+- World Mental Health Day.
+- Customer appreciation days.
+- Other relevant cultural, social, professional, and entertainment occasions.
+
+The calendar must be configurable. Celebration dates should not be hardcoded incorrectly, particularly for occasions whose dates change every year.
+
+For movable holidays, calculate dates correctly or use a maintainable calendar-data source. Clearly distinguish confirmed dates from unverified dates.
+
+For each celebration, offer several design directions where relevant:
+
+1. Corporate greeting.
+2. Luxury editorial.
+3. Minimal typography.
+4. Social media poster.
+5. Brand promotional design.
+6. Artist-themed celebration.
+7. Creative photo composition.
+8. Story format.
+9. Square post.
+10. Landscape banner.
+
+Allow the user to choose a celebration, select a design direction, customize the artwork, save it, and export it.
+
+Add an annual preparation workflow:
+- Upcoming celebrations.
+- Designs already prepared.
+- Draft designs.
+- Approved designs.
+- Published designs.
+- Missing designs.
+
+Allow users to prepare designs weeks ahead of each celebration.
+
+Do not simply display a calendar full of dates. Connect the calendar directly to the creative template system.
+
+Every occasion should have relevant editable design templates, not merely a generic greeting card with the occasion name changed.
+
+
+==================================================
+3. COMPLETE MUSIC RELEASE PROMOTIONAL PACKS
+==================================================
+
+Create a dedicated section called:
+
+"MUSIC PROMOTION PACK STUDIO"
+
+This must be one of the strongest features of LYRICAL ENT.
+
+Whenever an artist is preparing to release a song, the system should help create a complete promotional campaign from announcement to post-release promotion.
+
+The user should be able to create a campaign by entering only the essential information:
+
+- Artist name.
+- Song title.
+- Release date.
+- Cover artwork.
+- Genre or creative direction.
+- Optional artist photo.
+- Streaming or pre-save link, when available.
+- Music video link, when available.
+- Campaign colors.
+- Optional campaign slogan.
+
+Do not force the user to complete a long form before beginning.
+
+Use these details to populate relevant designs automatically. Keep all text editable.
+
+Create three main campaign stages.
+
+A. PRE-RELEASE PACK
+
+Include designs such as:
+- Official announcement.
+- Coming soon.
+- Anticipation poster.
+- Release date announcement.
+- Countdown designs.
+- Cover-art reveal.
+- Behind-the-scenes announcement.
+- Artist portrait campaign.
+- Short teaser graphic.
+- Track preview announcement.
+- Pre-save or pre-add announcement where applicable.
+- WhatsApp promotional flyer.
+- Instagram post.
+- Instagram story.
+- TikTok/Reels cover.
+- Facebook post.
+- YouTube community post.
+- Collaborator announcement.
+- Press announcement.
+
+B. RELEASE-DAY PACK
+
+Include:
+- Official OUT NOW poster.
+- Streaming-platform announcement.
+- Cover artwork promotional composition.
+- Artist portrait with release information.
+- Music video premiere announcement.
+- YouTube thumbnail.
+- Audiomack promotion.
+- Spotify promotion.
+- Apple Music promotion.
+- General streaming-platform promotion.
+- WhatsApp sharing flyer.
+- Instagram story.
+- Instagram feed design.
+- Facebook announcement.
+- TikTok/Reels cover.
+- Fan engagement post.
+- Lyric quote graphic.
+- Listening party announcement.
+- Collaborator repost graphic.
+
+Do not invent official platform logos or imply a song is available on a service unless the user selects that service.
+
+C. POST-RELEASE PACK
+
+Include:
+- Thank-you-for-the-support graphic.
+- Streaming milestone announcement.
+- Music video milestone announcement.
+- Fan appreciation design.
+- Favourite lyric graphic.
+- Audience reaction design.
+- Music review or testimonial design.
+- Behind-the-song story.
+- Artist quote design.
+- Performance clip announcement.
+- Continue-streaming reminder.
+- Music video reminder.
+- Playlist placement announcement.
+- Press coverage announcement.
+- Week-one recap.
+- Release anniversary graphic.
+
+Milestones and press coverage must only be populated with real information supplied by the user.
+
+Do not fabricate streaming numbers, chart positions, press coverage, awards, or testimonials.
+
+D. AUTOMATIC PROMOTIONAL PACK GENERATOR
+
+After the user enters the song information, generate a campaign workspace containing the available designs for all three stages.
+
+The user must be able to:
+- Preview every design.
+- Edit individual designs.
+- Change the creative direction.
+- Replace the artist image.
+- Replace the cover artwork.
+- Edit the copy.
+- Generate alternate compositions.
+- Duplicate a design.
+- Mark designs approved.
+- Export selected designs.
+- Export the entire promotional pack as a ZIP.
+
+Provide several creative directions for each campaign, such as:
+- Luxury.
+- Urban.
+- Cinematic.
+- Minimal.
+- Street culture.
+- Editorial.
+- Dark underground.
+- Clean commercial.
+- Experimental typography.
+
+Do not generate identical layouts with different colors.
+
+E. PROMOTIONAL PACK EXPORT
+
+A completed pack should be organized into folders such as:
+
+ARTIST - SONG TITLE/
+    01_PRE_RELEASE/
+    02_RELEASE_DAY/
+    03_POST_RELEASE/
+    04_STORIES_AND_REELS/
+    05_YOUTUBE_AND_VIDEO/
+    06_PRESS_AND_MEDIA/
+    07_MOTION_ASSETS/
+    CAMPAIGN_NOTES/
+
+Include an asset manifest and campaign notes when appropriate.
+
+Only include files that were actually generated.
+
+If an optional design or motion asset has not been created, do not include a fake file or claim it is finished.
+
+
+==================================================
+4. MOTION GRAPHICS AND ANIMATED PROMOTIONAL ASSETS
+==================================================
+
+Add a dedicated "MOTION STUDIO" section.
+
+Provide useful motion-design templates for:
+- Song announcement.
+- Coming soon.
+- Countdown.
+- Cover-art reveal.
+- OUT NOW.
+- Streaming announcement.
+- Artist introduction.
+- Music video premiere.
+- Lyric animation.
+- Fan appreciation.
+- Logo animation.
+- Event announcement.
+- Brand launch.
+- Social media advertisement.
+
+Include controls for:
+- Duration.
+- Aspect ratio.
+- Text.
+- Background image.
+- Artist portrait.
+- Cover artwork.
+- Animation preset.
+- Entry and exit effects.
+- Text timing.
+- Basic motion speed.
+- Background music upload, where supported.
+- Preview and export.
+
+Support formats and sizes appropriate to the selected use case, including vertical, square, and landscape compositions.
+
+Provide practical motion presets such as:
+- Cinematic reveal.
+- Typewriter.
+- Slow zoom.
+- Film-frame transition.
+- Beat-style text animation.
+- Glitch typography.
+- Sliding title.
+- Fade transitions.
+- Parallax-style movement where feasible.
+
+IMPORTANT TECHNICAL REQUIREMENT:
+
+Do not create fake motion exports.
+
+Determine what the current application can reliably render and export.
+
+If animated GIF or video rendering is supported, implement it properly.
+
+If MP4 rendering requires additional dependencies or browser capabilities, explain the limitation and implement a practical alternative, such as animated preview and GIF export where supported.
+
+Keep still-image exports available even if video rendering is unavailable.
+
+Never label a static PNG as an MP4 or a completed animation.
+
+
+==================================================
+5. REBUILD THE BUSINESS CARD DESIGNER
+==================================================
+
+The current business card designer is not good enough.
+
+Redesign it into a premium Business Identity Studio.
+
+Create multiple genuinely different layouts, including:
+- Executive black.
+- White editorial.
+- Luxury monochrome.
+- Minimalist typography.
+- Creative agency.
+- Music executive.
+- Artist manager.
+- Producer.
+- Artist.
+- Photographer.
+- Creative director.
+- Modern corporate.
+- Monogram-focused.
+- High-contrast typography.
+- Front-and-back luxury card.
+
+The business card must look professionally art-directed, not like a form placed on a rectangle.
+
+Features:
+- Front and back editing.
+- Live preview.
+- Multiple layout templates.
+- Editable name and title.
+- Company or label name.
+- Phone and email.
+- Website.
+- Social media details.
+- Logo and monogram.
+- QR code, if requested.
+- Custom typography.
+- Alignment controls.
+- Spacing controls.
+- Background and text colors.
+- Optional uploaded portrait or graphic.
+- Save design.
+- Duplicate design.
+- Switch templates without losing user information.
+
+Provide:
+- Standard preview.
+- Print-ready layout.
+- Correct physical dimensions.
+- 3 mm bleed where applicable.
+- Crop marks outside the final trim area.
+- Appropriate print resolution.
+- PDF export.
+- PNG export.
+
+The front and back must be composed separately and correctly.
+
+Do not stretch the logo or QR code.
+
+Do not cut off text or place crop marks inside the actual card design.
+
+The exported PDF must contain the actual business card artwork, not just a screenshot of the editor.
+
+Preserve the existing brand identity while offering different card styles.
+
+
+==================================================
+6. SIMPLIFY ARTIST MANAGEMENT AND ROSTER
+==================================================
+
+The Artist Management and Artist Roster areas contain too much information.
+
+Simplify them.
+
+The roster should be clean, quick, and easy to use.
+
+For each artist, keep only essential fields:
+- Artist name.
+- Artist image.
+- Role or genre, optional.
+- Status.
+- Short description, optional.
+- Contact or management details, optional.
+- Associated releases.
+
+Avoid long artist forms, unnecessary statistics, excessive tabs, and complicated management dashboards.
+
+Allow a user to add, edit, archive, and delete artist records.
+
+For the initial demo, use only ONE clearly labeled sample artist for testing.
+
+Do not fill the roster with invented artists.
+
+Keep the roster connected to the music release system so the user can select an artist when creating a new release.
+
+The goal is a simple, practical artist roster, not a complicated talent-management database.
+
+
+==================================================
+7. REDESIGN THE MUSIC RELEASE SYSTEM
+==================================================
+
+The existing music release system feels too plain.
+
+Transform it into a visually engaging Release Command Center.
+
+Make it feel like a connected creative workflow, not a basic data-entry table.
+
+Use a clean release dashboard with:
+- Upcoming releases.
+- Draft releases.
+- Releases being prepared.
+- Release-day campaigns.
+- Released music.
+- Archived releases.
+
+Each release should have a strong visual card containing:
+- Cover artwork.
+- Artist name.
+- Song title.
+- Release date.
+- Current release stage.
+- Campaign completion indicator.
+- Quick actions.
+
+Clicking a release should open a dedicated release workspace.
+
+The workspace should have a visual workflow:
+
+01 — RELEASE DETAILS
+02 — ARTWORK AND ASSETS
+03 — PRE-RELEASE PROMOTION
+04 — RELEASE-DAY PROMOTION
+05 — POST-RELEASE PROMOTION
+06 — DISTRIBUTION LINKS
+07 — FINAL REVIEW
+
+The user should be able to move between stages naturally.
+
+Show which stages are complete and which still need attention.
+
+Provide clear progress indicators without inventing completion status.
+
+When a user creates a release, allow them to generate a promotional pack directly from that release.
+
+When a release date is entered, use it to organize the campaign stages.
+
+Allow the user to change the release date and update campaign scheduling accordingly.
+
+Allow the user to save incomplete releases as drafts.
+
+Keep essential information easy to edit.
+
+Support:
+- Cover artwork upload.
+- Song title.
+- Artist selection.
+- Release date.
+- Genre.
+- Producer and credits, optional.
+- Distribution links.
+- Music video link.
+- Campaign status.
+- Promotional pack.
+- Release notes.
+
+Do not make the user fill every optional field.
+
+Provide a clean overview, useful quick actions, and a clear route from release creation to campaign export.
+
+Do not fabricate distribution status, streaming figures, or platform integrations.
+
+
+==================================================
+8. EXPAND THE CREATIVE CAMPAIGN STUDIO
+==================================================
+
+Rebuild the Creative Campaign Studio so it offers more than a few presets.
+
+Include multiple campaign types:
+
+- Artist launch.
+- Song release.
+- EP or album rollout.
+- Music video rollout.
+- Record label announcement.
+- New artist signing.
+- Event or listening party.
+- Brand promotion.
+- Seasonal campaign.
+- Celebration campaign.
+- Audience engagement.
+- Press campaign.
+- Company launch.
+
+For each campaign, provide a visual campaign workspace with:
+- Campaign name.
+- Campaign objective.
+- Selected creative direction.
+- Campaign artwork.
+- Multiple design assets.
+- Asset status.
+- Preview.
+- Edit controls.
+- Export controls.
+
+Allow users to select multiple templates and use shared campaign details across them.
+
+Example:
+If the user enters an artist name, song title, and cover image once, the campaign can reuse those details in all selected designs.
+
+However, every design must remain individually editable.
+
+Add a campaign asset board that allows users to see all campaign creatives together.
+
+Support selecting, rearranging, duplicating, and exporting assets.
+
+Provide campaign pack ZIP export with an organized folder structure.
+
+Avoid creating an overly complicated project-management system. The focus must remain on creative production.
+
+
+==================================================
+9. RESPONSIVE GRID SYSTEM ACROSS THE ENTIRE APP
+==================================================
+
+Apply a consistent, professional grid system across every page of the application.
+
+This includes:
+- Dashboard.
+- Brand Identity.
+- Asset Library.
+- Business Card Designer.
+- Creative Template Library.
+- Celebration Calendar.
+- Motion Studio.
+- Artist Management.
+- Music Releases.
+- Campaign Studio.
+- Corporate Documents.
+- Blogger Website Studio.
+- Export Center.
+- Settings.
+- Every modal, gallery, and preview panel.
+
+Use a responsive CSS grid system with consistent spacing, alignment, card proportions, and visual hierarchy.
+
+On desktop, use multi-column grids where appropriate.
+
+On tablets, use fewer columns.
+
+On mobile, use a compact grid or stacked layout where needed.
+
+IMPORTANT:
+Do not force a desktop-width layout onto a small phone screen.
+
+The requirement is that grid-based layouts work consistently across all devices without horizontal overflow, clipped cards, overlapping buttons, or unreadable text.
+
+Use a consistent spacing scale, card radius, typography hierarchy, and alignment system.
+
+Ensure:
+- Cards resize correctly.
+- Buttons remain accessible.
+- Form controls fit the viewport.
+- Galleries are responsive.
+- Preview panels adapt to screen size.
+- Tables have mobile-friendly alternatives.
+- Modals fit small screens.
+- Navigation works on phones.
+- Touch targets are large enough.
+- Long text wraps correctly.
+
+Test at approximately:
+- 360 px mobile width.
+- 390 px mobile width.
+- 768 px tablet width.
+- 1024 px tablet/small desktop width.
+- 1440 px desktop width.
+
+Do not remove useful features on mobile merely to make the interface fit.
+
+The Blogger XML theme must also use a consistent responsive grid system.
+
+Ensure Blogger layouts remain attractive on desktop, tablet, and mobile.
+
+Test the generated XML structure, CSS responsiveness, navigation, post cards, artist cards, release cards, news sections, and media sections.
+
+Preserve Blogger Layout v3 compatibility and exactly one native Blog1 widget.
+
+Do not introduce XML errors or invalid Blogger widget structures.
+
+
+==================================================
+10. EXPAND BLOGGER WEBSITE CONFIGURATION
+==================================================
+
+Expand the Blogger Website Studio settings so the user has more control over the generated public website.
+
+Create organized configuration sections.
+
+A. BRAND AND HEADER
+- Site name.
+- Tagline.
+- Logo.
+- Favicon.
+- Header layout.
+- Logo size.
+- Header background.
+- Navigation style.
+
+B. THEME AND COLORS
+- Primary color.
+- Secondary color.
+- Background color.
+- Text color.
+- Accent color.
+- Light or dark appearance.
+- Typography selections.
+- Heading scale.
+- Body text scale.
+- Border and card styling.
+
+C. LAYOUT
+- Content width.
+- Page spacing.
+- Grid density.
+- Number of columns by device.
+- Sidebar options.
+- Card aspect ratio.
+- Featured content layout.
+- Footer layout.
+
+D. HOMEPAGE SECTIONS
+- Featured release.
+- Latest releases.
+- Artist roster.
+- News and press.
+- Music videos.
+- About the label.
+- Contact section.
+- Optional sections that can be enabled or disabled.
+- Section ordering.
+
+E. MUSIC SETTINGS
+- Music card design.
+- Cover artwork ratio.
+- Player appearance.
+- Streaming buttons.
+- Download button visibility.
+- Platform links.
+- Release metadata display.
+
+Downloads must only be enabled for audio that the label or artist has permission to distribute.
+
+F. ARTIST PAGES
+- Artist image.
+- Artist biography.
+- Releases.
+- Social links.
+- Featured content.
+- Contact or booking information.
+
+G. NEWS AND BLOG
+- News layout.
+- Featured post.
+- Post card design.
+- Pagination settings.
+- Category and label display.
+- Featured image behavior.
+
+H. FOOTER AND CONTACT
+- Contact information.
+- Social links.
+- Copyright text.
+- Optional newsletter section.
+- Footer columns.
+- Footer branding.
+
+I. SEO AND SHARING
+- Site description.
+- Default page title format.
+- Social sharing metadata.
+- Favicon.
+- Search-friendly headings.
+- Open Graph metadata where supported.
+- Structured data where appropriate and valid.
+
+J. RESPONSIVE SETTINGS
+- Mobile navigation.
+- Desktop navigation.
+- Responsive card settings.
+- Image behavior.
+- Mobile typography.
+- Mobile spacing.
+
+K. BLOGGER DEPLOYMENT
+- XML preview.
+- XML source.
+- XML validation.
+- Download generated XML.
+- Download installation guide.
+- Backup reminder.
+- Clear installation instructions.
+
+IMPORTANT:
+All these settings must affect the generated XML and preview where technically applicable.
+
+Do not build a settings panel where changing values has no effect.
+
+Clearly distinguish settings that are implemented from settings that are only planned.
+
+Keep the generated theme compatible with Blogger's actual Layout v3 requirements.
+
+Preserve native Blogger posts and pagination.
+
+Do not replace the native Blog1 widget with a fake custom post feed.
+
+Do not claim the public Blogger site has been deployed simply because XML has been generated.
+
+
+==================================================
+11. MAKE ALL DOWNLOAD AND EXPORT BUTTONS WORK
+==================================================
+
+Audit every download, export, save, and generation button across the application.
+
+Check:
+- SVG download.
+- PNG download.
+- JPEG download.
+- Business card PDF.
+- Business card PNG.
+- Brand guidelines PDF.
+- Corporate document PDF.
+- Corporate document exports.
+- Launch creative exports.
+- Campaign pack ZIP.
+- Music promotional pack ZIP.
+- Motion exports.
+- Blogger XML download.
+- Blogger installation guide.
+- Master Brand ZIP.
+- Asset Library downloads.
+
+Every visible action must perform its advertised function.
+
+If a feature is unavailable, do not show a fake successful download.
+
+Implement the actual export or clearly explain what is required.
+
+Use appropriate libraries already present in the project where possible.
+
+Avoid adding unnecessary dependencies.
+
+For ZIP exports:
+- Create actual downloadable files.
+- Use the correct folder structure.
+- Include only existing generated assets.
+- Use safe filenames.
+- Handle empty folders and missing optional files correctly.
+- Show meaningful error messages when generation fails.
+
+For image exports:
+- Export the actual artwork, not merely the surrounding application interface.
+- Preserve aspect ratio.
+- Avoid stretched images.
+- Avoid clipped text.
+- Ensure exported artwork corresponds to the preview.
+
+For PDF exports:
+- Ensure text and artwork fit correctly.
+- Preserve page dimensions.
+- Avoid empty pages and cut-off content.
+- Use correct physical dimensions for print documents.
+
+For every export operation:
+1. Validate required inputs.
+2. Generate the actual file.
+3. Trigger a real browser download.
+4. Display a success message only after success.
+5. Display an understandable error if it fails.
+
+Do not use alert messages to pretend that a file has been downloaded.
+
+Do not leave dead buttons, placeholder links, empty handlers, or buttons that only change their own labels.
+
+Audit all existing features, not only the newly added ones.
+
+
+==================================================
+12. DATA PERSISTENCE AND PROJECT CONTINUITY
+==================================================
+
+Review the current persistence architecture before making changes.
+
+Saved designs, release records, campaign settings, and brand settings should remain available after refreshing the application, within the limitations of the configured storage system.
+
+If localStorage is currently used, maintain compatibility where practical and add safe handling for invalid or older stored data.
+
+Do not silently erase existing user data.
+
+Provide clear save status where appropriate.
+
+If a feature needs cloud storage or a backend that is not currently connected, identify that requirement rather than pretending data is stored remotely.
+
+Keep asset references stable so saved designs can be reopened correctly.
+
+Use shared data models for artists, releases, campaign assets, and uploaded media where practical.
+
+Avoid creating disconnected duplicate systems that require users to enter the same information repeatedly.
+
+
+==================================================
+13. QUALITY CONTROL AND TESTING
+==================================================
+
+After implementation, inspect the whole application.
+
+Do not stop after building the UI.
+
+Run the existing TypeScript checks and production build.
+
+Fix errors introduced by this upgrade.
+
+Test:
+- Creating and saving a design.
+- Reopening a saved design.
+- Editing text and images.
+- Switching templates.
+- Creating a celebration design.
+- Creating a music release.
+- Generating pre-release, release-day, and post-release assets.
+- Exporting individual designs.
+- Exporting promotional packs.
+- Exporting business cards.
+- Exporting corporate documents.
+- Exporting the Blogger XML.
+- Exporting the Master Brand ZIP.
+- Responsive behavior on small and large screens.
+- Empty states and missing images.
+- Invalid input.
+- Export failures.
+- Existing brand identity functionality.
+
+Check that the generated Blogger XML remains valid and preserves native Blogger functionality.
+
+Do not claim a test passed unless it was actually executed.
+
+At the end, provide a concise implementation report listing:
+1. Features implemented.
+2. Files or components changed.
+3. Export functions actually tested.
+4. Responsive tests actually performed.
+5. Known limitations.
+6. Features that still require external services.
+7. Any remaining errors.
+
+PRIORITY ORDER:
+
+Priority 1: Improve the actual design quality and template diversity.
+
+Priority 2: Build the complete pre-release, release-day, and post-release promotional pack workflow.
+
+Priority 3: Rebuild the Music Release System and Creative Campaign Studio.
+
+Priority 4: Rebuild the Business Card Designer.
+
+Priority 5: Add the annual Celebration Calendar and its design templates.
+
+Priority 6: Simplify Artist Management.
+
+Priority 7: Improve Blogger configuration and responsive grids.
+
+Priority 8: Audit and repair every download and export function.
+
+Make the implementation practical, maintainable, and visually outstanding.
+
+Do not add unrelated features.
+
+Do not replace working functionality unnecessarily.
+
+Do not stop after creating mockups.
+
+IMPLEMENT THE FUNCTIONAL FEATURES, TEST THEM, AND REPORT THE ACTUAL RESULTS.
