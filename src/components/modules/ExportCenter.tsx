@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
+import { MusicRelease } from '../../types';
 import { 
   triggerSvgDownload, 
   triggerPngDownload 
@@ -36,8 +37,33 @@ export const ExportCenter: React.FC = () => {
     documents, 
     brandAssets, 
     bloggerSettings,
-    brandGuidelines 
+    brandGuidelines,
+    activeWorkspace
   } = useApp();
+
+  const filteredArtists = useMemo(() => {
+    return artists.filter(a => 
+      a.workspaceId === activeWorkspace.id || 
+      (!a.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [artists, activeWorkspace.id]);
+
+  const filteredReleases = useMemo(() => {
+    return releases.filter(r => 
+      r.workspaceId === activeWorkspace.id || 
+      (!r.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [releases, activeWorkspace.id]);
+
+  const filteredDocuments = useMemo(() => {
+    return documents.filter(d => 
+      d.workspaceId === activeWorkspace.id || 
+      (!d.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [documents, activeWorkspace.id]);
+
+  const wsName = activeWorkspace.name;
+  const wsSlug = wsName.toLowerCase().replace(/\s+/g, '_');
 
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [isZipping, setIsZipping] = useState(false);
@@ -53,7 +79,7 @@ export const ExportCenter: React.FC = () => {
   const handleDownloadMasterZip = async () => {
     setIsZipping(true);
     try {
-      await generateMasterBrandZip(brandGuidelines, documents, zipOptions);
+      await generateMasterBrandZip(brandGuidelines, filteredDocuments, zipOptions);
     } catch (err) {
       console.error('ZIP generation error', err);
     } finally {
@@ -68,7 +94,7 @@ export const ExportCenter: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lyrical_ent_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `${wsSlug}_backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -96,7 +122,7 @@ export const ExportCenter: React.FC = () => {
   // 3. Export Releases Catalog CSV
   const handleExportReleasesCsv = () => {
     let csv = `ID,Title,Type,Artist,PlannedDate,Status,ISRC,UPC,Producer,Rights\n`;
-    releases.forEach(r => {
+    filteredReleases.forEach((r: MusicRelease) => {
       csv += `"${r.id}","${r.title}","${r.type}","${r.artistName}","${r.plannedReleaseDate}","${r.distributionStatus}","${r.isrc || ''}","${r.upc || ''}","${r.producer}","${r.rightsInfo.replace(/"/g, '""')}"\n`;
     });
 
@@ -104,19 +130,19 @@ export const ExportCenter: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lyrical_ent_catalog_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `${wsSlug}_catalog_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   // 4. Export Blogger Theme XML
   const handleExportThemeXml = () => {
-    const xml = generateBloggerThemeXml(bloggerSettings, releases[0], artists[0]);
+    const xml = generateBloggerThemeXml(bloggerSettings, filteredReleases[0] || releases[0], filteredArtists[0] || artists[0]);
     const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'lyrical_ent_official_blogger_theme_v3.xml';
+    a.download = `${wsSlug}_official_blogger_theme_v3.xml`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -188,7 +214,7 @@ export const ExportCenter: React.FC = () => {
             {[
               { key: 'includeIdentity', label: '01_BRAND_IDENTITY', desc: 'Vector SVGs & Marks' },
               { key: 'includeGuidelines', label: '02_BRAND_GUIDELINES', desc: 'Constitution & Palette' },
-              { key: 'includeDocuments', label: '03_CORPORATE_DOCS', desc: `${documents.length} Dispatches & Signatures` },
+              { key: 'includeDocuments', label: '03_CORPORATE_DOCS', desc: `${filteredDocuments.length} Dispatches & Signatures` },
               { key: 'includeCompanyProfile', label: '04_COMPANY_PROFILE', desc: 'Executive Dossier' },
               { key: 'includeLaunchCreative', label: '05_LAUNCH_CREATIVE', desc: 'Playbook & Copy Presets' },
               { key: 'includeWebsite', label: '06_WEBSITE', desc: 'Blogger Layout v3 XML' }
@@ -230,12 +256,12 @@ export const ExportCenter: React.FC = () => {
             </div>
             <h3 className="text-sm font-semibold text-white">Official Brand Guidelines (PDF)</h3>
             <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-              Multi-page formal brand manual covering the LE monogram, exclusion zones, print/digital minimum sizes, monochrome palette, and typography standards.
+              Multi-page formal brand manual covering the {wsName.substring(0, 2).toUpperCase()} monogram, exclusion zones, print/digital minimum sizes, monochrome palette, and typography standards.
             </p>
           </div>
 
           <button
-            onClick={() => generateBrandGuidelinesPdf(brandGuidelines)}
+            onClick={() => generateBrandGuidelinesPdf(brandGuidelines, activeWorkspace)}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold bg-white text-black hover:bg-neutral-200 rounded transition-colors"
           >
             <Download size={13} strokeWidth={2.5} />
@@ -251,7 +277,7 @@ export const ExportCenter: React.FC = () => {
             </div>
             <h3 className="text-sm font-semibold text-white">Full Workspace JSON Backup</h3>
             <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-              Complete archive containing all {artists.length} artists, {releases.length} releases, {documents.length} corporate documents, brand assets, and operations logs.
+              Complete archive containing all {filteredArtists.length} artists, {filteredReleases.length} releases, {filteredDocuments.length} corporate documents, brand assets, and operations logs.
             </p>
           </div>
 
@@ -317,7 +343,7 @@ export const ExportCenter: React.FC = () => {
             </div>
             <h3 className="text-sm font-semibold text-white">Primary Stacked Logo Pack</h3>
             <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-              Official LYRICAL ENT stacked primary mark combining the LE monogram and typography. Available in vector SVG and 1200px PNG.
+              Official {wsName.toUpperCase()} stacked primary mark combining the {wsName.substring(0, 2).toUpperCase()} monogram and typography. Available in vector SVG and 1200px PNG.
             </p>
           </div>
 
@@ -346,9 +372,9 @@ export const ExportCenter: React.FC = () => {
               <span>BRAND SEAL</span>
               <Layers size={15} />
             </div>
-            <h3 className="text-sm font-semibold text-white">LE Monogram Emblem Pack</h3>
+            <h3 className="text-sm font-semibold text-white">{wsName.substring(0, 2).toUpperCase()} Monogram Emblem Pack</h3>
             <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-              Precision geometric LE monogram for vinyl runout matrix etching, social profiles, apparel embroidery, and watermarking.
+              Precision geometric {wsName.substring(0, 2).toUpperCase()} monogram for vinyl runout matrix etching, social profiles, apparel embroidery, and watermarking.
             </p>
           </div>
 
@@ -401,7 +427,7 @@ export const ExportCenter: React.FC = () => {
             </div>
             <h3 className="text-sm font-semibold text-white">Restore Snapshot (JSON)</h3>
             <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-              Upload a previously exported LYRICAL ENT backup file to restore records across devices or recover state.
+              Upload a previously exported {wsName.toUpperCase()} backup file to restore records across devices or recover state.
             </p>
           </div>
 

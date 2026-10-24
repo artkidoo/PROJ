@@ -32,8 +32,21 @@ export const MusicPromotionStudio: React.FC = () => {
     campaignDesigns, 
     deleteReleaseProject, 
     updateCampaignDesign,
+    activeWorkspace,
     logActivity 
   } = useApp();
+
+  const filteredProjects = useMemo(() => {
+    return releaseProjects.filter(p => 
+      p.workspaceId === activeWorkspace.id || 
+      (!p.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [releaseProjects, activeWorkspace.id]);
+
+  const filteredCampaignDesigns = useMemo(() => {
+    const projectIds = new Set(filteredProjects.map(p => p.id));
+    return campaignDesigns.filter(d => projectIds.has(d.projectId));
+  }, [campaignDesigns, filteredProjects]);
 
   const [viewMode, setViewMode] = useState<'list' | 'project' | 'create' | 'edit'>('list');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -48,22 +61,22 @@ export const MusicPromotionStudio: React.FC = () => {
   };
 
   const activeProject = useMemo(() => 
-    releaseProjects.find(p => p.id === selectedProjectId), 
-    [releaseProjects, selectedProjectId]
+    filteredProjects.find(p => p.id === selectedProjectId), 
+    [filteredProjects, selectedProjectId]
   );
 
   const filteredDesigns = useMemo(() => {
     if (!selectedProjectId) return [];
-    let designs = campaignDesigns.filter(d => d.projectId === selectedProjectId);
+    let designs = filteredCampaignDesigns.filter(d => d.projectId === selectedProjectId);
     if (categoryFilter !== 'All') {
       designs = designs.filter(d => d.category === categoryFilter);
     }
     return designs;
-  }, [campaignDesigns, selectedProjectId, categoryFilter]);
+  }, [filteredCampaignDesigns, selectedProjectId, categoryFilter]);
 
   const activeDesign = useMemo(() => 
-    campaignDesigns.find(d => d.id === activeDesignId), 
-    [campaignDesigns, activeDesignId]
+    filteredCampaignDesigns.find(d => d.id === activeDesignId), 
+    [filteredCampaignDesigns, activeDesignId]
   );
 
   const handleCreateComplete = (project: ReleaseProject) => {
@@ -125,7 +138,7 @@ Contains 22 coordinated promotional assets.
 
       // In a real environment, we would render each canvas to a blob
       // Here we will add the JSON definition for demonstration or a mock SVG
-      const projectDesigns = campaignDesigns.filter(d => d.projectId === activeProject.id);
+      const projectDesigns = filteredCampaignDesigns.filter(d => d.projectId === activeProject.id);
       
       projectDesigns.forEach(d => {
         const fileName = `${d.name.toLowerCase().replace(/\s+/g, '_')}.json`;
@@ -226,8 +239,8 @@ Contains 22 coordinated promotional assets.
         />
       ) : viewMode === 'list' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {releaseProjects.length > 0 ? (
-            releaseProjects.map(project => (
+          {filteredProjects.length > 0 ? (
+            filteredProjects.map(project => (
               <div 
                 key={project.id}
                 className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden hover:border-neutral-600 transition-all group"

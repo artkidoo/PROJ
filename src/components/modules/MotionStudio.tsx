@@ -42,7 +42,7 @@ const MOTION_TEMPLATES: MotionTemplate[] = [
 ];
 
 export const MotionStudio: React.FC = () => {
-  const { releases, artists } = useApp();
+  const { releases, artists, activeWorkspace } = useApp();
   const [templates] = useState<MotionTemplate[]>(MOTION_TEMPLATES);
   const [selectedTpl, setSelectedTpl] = useState<MotionTemplate>(MOTION_TEMPLATES[0]);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -86,7 +86,7 @@ export const MotionStudio: React.FC = () => {
     // Top Header
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 28px monospace';
-    ctx.fillText('LYRICAL ENT · MOTION ATELIER', 80, 130);
+    ctx.fillText(`${activeWorkspace.name.toUpperCase()} · MOTION ATELIER`, 80, 130);
 
     ctx.fillStyle = '#888888';
     ctx.font = '500 20px monospace';
@@ -111,12 +111,13 @@ export const MotionStudio: React.FC = () => {
     // Download Keyframe PNG
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = `lyrical_motion_${selectedTpl.preset.toLowerCase().replace(/\s+/g, '_')}_keyframe.png`;
+    const wsSlug = activeWorkspace.name.toLowerCase().replace(/\s+/g, '_');
+    a.download = `${wsSlug}_motion_${selectedTpl.preset.toLowerCase().replace(/\s+/g, '_')}_keyframe.png`;
     a.click();
 
     // Also download Motion Spec JSON
     const spec = {
-      label: 'LYRICAL ENT',
+      label: activeWorkspace.name.toUpperCase(),
       templateTitle: selectedTpl.title,
       preset: selectedTpl.preset,
       aspectRatio: selectedTpl.aspectRatio,
@@ -131,7 +132,8 @@ export const MotionStudio: React.FC = () => {
     const specUrl = URL.createObjectURL(specBlob);
     const specLink = document.createElement('a');
     specLink.href = specUrl;
-    specLink.download = `lyrical_motion_${selectedTpl.preset.toLowerCase().replace(/\s+/g, '_')}_spec.json`;
+    const wsSlug2 = activeWorkspace.name.toLowerCase().replace(/\s+/g, '_');
+    specLink.download = `${wsSlug2}_motion_${selectedTpl.preset.toLowerCase().replace(/\s+/g, '_')}_spec.json`;
     specLink.click();
     URL.revokeObjectURL(specUrl);
 
@@ -248,14 +250,14 @@ export const MotionStudio: React.FC = () => {
                   : 'opacity-90'
               }`}
             >
-              <div className="w-12 h-12 sm:w-14 sm:h-14 border-2 border-white flex items-center justify-center mx-auto font-mono font-black text-lg sm:text-xl bg-black text-white shadow-xl">
-                LE
+              <div className="w-12 h-12 sm:w-14 sm:h-14 border-2 border-white flex items-center justify-center mx-auto font-mono font-black text-lg sm:text-xl bg-black text-white shadow-xl uppercase">
+                {activeWorkspace.name.substring(0, 2)}
               </div>
               <h1 className="font-mono font-black text-xl sm:text-2xl lg:text-3xl text-white uppercase tracking-tight break-words max-w-lg">
                 {customText}
               </h1>
               <p className="font-mono text-xs sm:text-sm text-neutral-300 uppercase tracking-widest">
-                {artistName} · LYRICAL ENT SOUND LABS
+                {artistName} · {activeWorkspace.name.toUpperCase()} SOUND LABS
               </p>
               <div className="font-mono text-[10px] text-neutral-500 uppercase">
                 MOTION PATTERN: {selectedTpl.preset}

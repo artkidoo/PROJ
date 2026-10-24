@@ -32,15 +32,20 @@ const DELIVERABLE_PRESETS = [
 ];
 
 export const CreativeCampaignStudio: React.FC = () => {
-  const { campaigns, releases, artists, addCampaign, updateCampaign, deleteCampaign } = useApp();
+  const { campaigns, releases, artists, addCampaign, updateCampaign, deleteCampaign, activeWorkspace } = useApp();
+  
+  const workspaceCampaigns = campaigns.filter(c => c.workspaceId === activeWorkspace.id);
+  const workspaceReleases = releases.filter(r => r.workspaceId === activeWorkspace.id);
+  const workspaceArtists = artists.filter(a => a.workspaceId === activeWorkspace.id);
+
   const [activeStudioView, setActiveStudioView] = useState<'briefs' | 'templates'>('briefs');
-  const [selectedCampId, setSelectedCampId] = useState<string | null>(campaigns[0]?.id || null);
+  const [selectedCampId, setSelectedCampId] = useState<string | null>(workspaceCampaigns[0]?.id || null);
   const [isNewCampaignModalOpen, setIsNewCampaignModalOpen] = useState(false);
   const [isAddDeliverableModalOpen, setIsAddDeliverableModalOpen] = useState(false);
 
   // Form states for Campaign
   const [title, setTitle] = useState('');
-  const [artistId, setArtistId] = useState(artists[0]?.id || '');
+  const [artistId, setArtistId] = useState(workspaceArtists[0]?.id || '');
   const [releaseId, setReleaseId] = useState('');
   const [type, setType] = useState<CreativeCampaign['type']>('Single Launch');
   const [budget, setBudget] = useState(7500);
@@ -53,14 +58,14 @@ export const CreativeCampaignStudio: React.FC = () => {
   const [delDueDate, setDelDueDate] = useState('');
   const [delAssignee, setDelAssignee] = useState('Studio Art Director');
 
-  const selectedCampaign = campaigns.find(c => c.id === selectedCampId) || campaigns[0];
+  const selectedCampaign = workspaceCampaigns.find(c => c.id === selectedCampId) || workspaceCampaigns[0];
 
   const handleCreateCampaign = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !artistId || !launchDate) return;
 
-    const artistObj = artists.find(a => a.id === artistId);
-    const relObj = releases.find(r => r.id === releaseId);
+    const artistObj = workspaceArtists.find(a => a.id === artistId);
+    const relObj = workspaceReleases.find(r => r.id === releaseId);
 
     const initialDeliverables: CampaignDeliverable[] = DELIVERABLE_PRESETS.slice(0, 4).map((p, idx) => ({
       id: `del-${Date.now()}-${idx}`,
@@ -81,7 +86,7 @@ export const CreativeCampaignStudio: React.FC = () => {
       budget: Number(budget) || 5000,
       status: 'In Production',
       launchDate,
-      notes: notes || 'Campaign rollout suite initiated.',
+      notes: notes || `${activeWorkspace.name} campaign rollout suite initiated.`,
       deliverables: initialDeliverables
     });
 
@@ -112,7 +117,7 @@ export const CreativeCampaignStudio: React.FC = () => {
   };
 
   const handleUpdateDeliverableStatus = (campaignId: string, delId: string, status: CampaignDeliverable['status']) => {
-    const camp = campaigns.find(c => c.id === campaignId);
+    const camp = workspaceCampaigns.find(c => c.id === campaignId);
     if (!camp) return;
 
     const updated = camp.deliverables.map(d => d.id === delId ? { ...d, status } : d);
@@ -120,7 +125,7 @@ export const CreativeCampaignStudio: React.FC = () => {
   };
 
   const handleDeleteDeliverable = (campaignId: string, delId: string) => {
-    const camp = campaigns.find(c => c.id === campaignId);
+    const camp = workspaceCampaigns.find(c => c.id === campaignId);
     if (!camp) return;
 
     const updated = camp.deliverables.filter(d => d.id !== delId);
@@ -129,7 +134,7 @@ export const CreativeCampaignStudio: React.FC = () => {
 
   const resetForm = () => {
     setTitle('');
-    setArtistId(artists[0]?.id || '');
+    setArtistId(workspaceArtists[0]?.id || '');
     setReleaseId('');
     setType('Single Launch');
     setBudget(7500);
@@ -174,7 +179,7 @@ export const CreativeCampaignStudio: React.FC = () => {
           }`}
         >
           <Layers size={13} />
-          <span>Active Campaign Briefs ({campaigns.length})</span>
+          <span>Active Campaign Briefs ({workspaceCampaigns.length})</span>
         </button>
 
         <button
@@ -194,11 +199,11 @@ export const CreativeCampaignStudio: React.FC = () => {
         <LaunchCreativeStudio />
       ) : (
         <>
-          {campaigns.length === 0 ? (
+          {workspaceCampaigns.length === 0 ? (
             <EmptyState
               icon={Megaphone}
               title="No Creative Campaigns Active"
-              description="Plan your next music single launch, video premiere, or album rollout brief."
+              description={`Plan your next music single launch, video premiere, or album rollout brief for ${activeWorkspace.name}.`}
               actionLabel="Create Campaign Brief"
               onAction={() => setIsNewCampaignModalOpen(true)}
             />
@@ -207,11 +212,11 @@ export const CreativeCampaignStudio: React.FC = () => {
           {/* Left Column: Campaign List (4 Cols) */}
           <div className="lg:col-span-4 space-y-3">
             <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider px-1">
-              ACTIVE CAMPAIGN BRIEFS ({campaigns.length})
+              ACTIVE CAMPAIGN BRIEFS ({workspaceCampaigns.length})
             </div>
 
             <div className="space-y-2">
-              {campaigns.map(camp => {
+              {workspaceCampaigns.map(camp => {
                 const isSelected = camp.id === selectedCampaign?.id;
                 const approvedCount = camp.deliverables.filter(d => d.status === 'Approved').length;
 
@@ -423,7 +428,7 @@ export const CreativeCampaignStudio: React.FC = () => {
                     onChange={e => setArtistId(e.target.value)}
                     className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 cursor-pointer"
                   >
-                    {artists.map(a => (
+                    {workspaceArtists.map(a => (
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>
@@ -437,7 +442,7 @@ export const CreativeCampaignStudio: React.FC = () => {
                     className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 cursor-pointer"
                   >
                     <option value="">Independent Campaign (None)</option>
-                    {releases.map(r => (
+                    {workspaceReleases.map(r => (
                       <option key={r.id} value={r.id}>{r.title} ({r.type})</option>
                     ))}
                   </select>

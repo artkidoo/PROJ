@@ -39,6 +39,8 @@ export interface CreativeTemplate {
     | 'Collage'
     | 'Concert Poster'
     | 'Brutalist'
+    | 'Clean Commercial'
+    | 'Corporate'
     | 'Experimental';
   headline: string;
   subtext: string;

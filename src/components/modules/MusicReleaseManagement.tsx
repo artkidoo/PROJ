@@ -22,8 +22,12 @@ import {
 } from 'lucide-react';
 
 export const MusicReleaseManagement: React.FC = () => {
-  const { releases, artists, addRelease, updateRelease, deleteRelease, searchQuery } = useApp();
-  const [selectedReleaseId, setSelectedReleaseId] = useState<string | null>(releases[0]?.id || null);
+  const { releases, artists, addRelease, updateRelease, deleteRelease, searchQuery, activeWorkspace } = useApp();
+  
+  const workspaceReleases = releases.filter(r => r.workspaceId === activeWorkspace.id);
+  const workspaceArtists = artists.filter(a => a.workspaceId === activeWorkspace.id);
+
+  const [selectedReleaseId, setSelectedReleaseId] = useState<string | null>(workspaceReleases[0]?.id || null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [filterType, setFilterType] = useState<string>('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -49,9 +53,9 @@ export const MusicReleaseManagement: React.FC = () => {
   const [budgetAllocated, setBudgetAllocated] = useState(10000);
   const [budgetSpent, setBudgetSpent] = useState(0);
 
-  const selectedRelease = releases.find(r => r.id === selectedReleaseId) || releases[0];
+  const selectedRelease = workspaceReleases.find(r => r.id === selectedReleaseId) || workspaceReleases[0];
 
-  const filteredReleases = releases.filter(r => {
+  const filteredReleases = workspaceReleases.filter(r => {
     const matchesSearch = searchQuery === '' || 
       r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.artistName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -61,7 +65,7 @@ export const MusicReleaseManagement: React.FC = () => {
   });
 
   const handleToggleChecklist = (releaseId: string, checkKey: keyof MusicRelease['checklist']) => {
-    const rel = releases.find(r => r.id === releaseId);
+    const rel = workspaceReleases.find(r => r.id === releaseId);
     if (!rel) return;
 
     const currentVal = rel.checklist[checkKey];
@@ -78,25 +82,29 @@ export const MusicReleaseManagement: React.FC = () => {
   };
 
   const handleOpenCreateModal = () => {
+    const isLyrical = activeWorkspace.id === 'ws-lyrical-ent' || activeWorkspace.name.toUpperCase() === 'LYRICAL ENT';
+    const workspaceShort = activeWorkspace.name.slice(0, 3).toUpperCase();
+    const year = new Date().getFullYear();
+
     setEditingId(null);
     setTitle('');
     setType('Single');
-    setArtistId(artists[0]?.id || '');
+    setArtistId(workspaceArtists[0]?.id || '');
     setFeaturedArtists('');
-    setProducer('LYRICAL ENT Studio A');
+    setProducer(`${activeWorkspace.name} Studio A`);
     setSongwriters('');
-    setCredits('Executive Producer: LYRICAL ENT LLC.');
+    setCredits(`Executive Producer: ${activeWorkspace.name} LLC.`);
     setPlannedReleaseDate(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]);
-    setArtworkUrl('/src/assets/images/vinyl_press_mockup_1792791744149.jpg');
-    setAudioLocation('LYRICAL Cloud Vault // Master_WAV.zip');
+    setArtworkUrl(isLyrical ? '/src/assets/images/vinyl_press_mockup_1792791744149.jpg' : '');
+    setAudioLocation(`${workspaceShort} Cloud Vault // Master_WAV.zip`);
     setDistributionStatus('Planning');
-    setIsrc(`US-LYR-${new Date().getFullYear().toString().slice(-2)}-${Math.floor(10000 + Math.random() * 90000)}`);
+    setIsrc(`US-${workspaceShort}-${year.toString().slice(-2)}-${Math.floor(10000 + Math.random() * 90000)}`);
     setUpc(`198${Math.floor(100000000 + Math.random() * 900000000)}`);
-    setRightsInfo(`(P) & (C) ${new Date().getFullYear()} LYRICAL ENT LLC.`);
+    setRightsInfo(`(P) & (C) ${year} ${activeWorkspace.name} LLC.`);
     setReleaseNotes('');
     setPublicUrl('');
     setBudgetAllocated(10000);
-    setBudgetSpent(2500);
+    setBudgetSpent(0);
     setIsModalOpen(true);
   };
 
@@ -127,7 +135,7 @@ export const MusicReleaseManagement: React.FC = () => {
     e.preventDefault();
     if (!title || !artistId || !plannedReleaseDate) return;
 
-    const artistObj = artists.find(a => a.id === artistId);
+    const artistObj = workspaceArtists.find(a => a.id === artistId);
     const artistName = artistObj ? artistObj.name : 'Unknown Artist';
 
     if (editingId) {
@@ -230,11 +238,11 @@ export const MusicReleaseManagement: React.FC = () => {
         </div>
       </div>
 
-      {releases.length === 0 ? (
+      {workspaceReleases.length === 0 ? (
         <EmptyState
           icon={Disc3}
           title="No Music Releases Scheduled"
-          description="Build your catalog pipeline. Schedule your first single, EP, or full album master."
+          description={`Build your ${activeWorkspace.name} catalog pipeline. Schedule your first single, EP, or full album master.`}
           actionLabel="Schedule First Release"
           onAction={handleOpenCreateModal}
         />
@@ -250,7 +258,7 @@ export const MusicReleaseManagement: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-            {[...releases].sort((a, b) => new Date(a.plannedReleaseDate).getTime() - new Date(b.plannedReleaseDate).getTime()).map(rel => (
+            {[...workspaceReleases].sort((a, b) => new Date(a.plannedReleaseDate).getTime() - new Date(b.plannedReleaseDate).getTime()).map(rel => (
               <div 
                 key={rel.id} 
                 onClick={() => {
@@ -554,7 +562,7 @@ export const MusicReleaseManagement: React.FC = () => {
                     className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 cursor-pointer"
                   >
                     <option value="">Select artist...</option>
-                    {artists.map(a => (
+                    {workspaceArtists.map(a => (
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>

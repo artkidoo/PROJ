@@ -6,6 +6,7 @@ import {
   LyricalHorizontalLogo, 
   LyricalSquareIcon, 
   LyricalFavicon,
+  WorkspaceLogo,
   triggerSvgDownload,
   triggerPngDownload,
   getRawSvgString
@@ -46,8 +47,11 @@ export const BrandIdentityManager: React.FC = () => {
     brandAssets, 
     addBrandAsset, 
     brandGuidelines, 
-    updateBrandGuidelines 
+    updateBrandGuidelines,
+    activeWorkspace
   } = useApp();
+
+  const workspaceBrandAssets = brandAssets.filter(a => a.workspaceId === activeWorkspace.id);
 
   const [activeTab, setActiveTab] = useState<'logos' | 'concepts' | 'guidelines' | 'assets'>('concepts');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -60,7 +64,7 @@ export const BrandIdentityManager: React.FC = () => {
   const [conceptTransparent, setConceptTransparent] = useState<boolean>(true);
   const [activePrimaryConceptId, setActivePrimaryConceptId] = useState<LogoConceptId>(() => {
     try {
-      return (localStorage.getItem('lyrical_ent_active_logo_concept') as LogoConceptId) || 'classic';
+      return (localStorage.getItem(`${activeWorkspace.id}_active_logo_concept`) as LogoConceptId) || 'classic';
     } catch {
       return 'classic';
     }
@@ -69,7 +73,7 @@ export const BrandIdentityManager: React.FC = () => {
   const handleSetPrimaryConcept = (id: LogoConceptId) => {
     setActivePrimaryConceptId(id);
     try {
-      localStorage.setItem('lyrical_ent_active_logo_concept', id);
+      localStorage.setItem(`${activeWorkspace.id}_active_logo_concept`, id);
     } catch {}
   };
 
@@ -130,10 +134,11 @@ export const BrandIdentityManager: React.FC = () => {
       description: 'Optimized for tight horizontal banners, streaming platform headers, navigation bars, and video lower-thirds.',
       type: 'horizontal' as const,
       component: (theme: 'black-on-white' | 'white-on-black') => (
-        <LyricalHorizontalLogo 
+        <WorkspaceLogo 
+          workspaceId={activeWorkspace.id} 
+          workspaceName={activeWorkspace.name} 
           height={38} 
           theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'}
-          showDescriptor={true} 
         />
       )
     },
@@ -186,7 +191,7 @@ export const BrandIdentityManager: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1C1C1C] pb-5">
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-1">
-            <span>LYRICAL ENT</span>
+            <span>{activeWorkspace.name}</span>
             <span>/</span>
             <span>OFFICIAL BRAND IDENTITY &amp; DESIGN SYSTEM</span>
           </div>
@@ -194,7 +199,7 @@ export const BrandIdentityManager: React.FC = () => {
             BRAND IDENTITY &amp; LOGO SYSTEM
           </h1>
           <p className="text-xs text-neutral-400 mt-1 max-w-2xl leading-relaxed">
-            Central repository of the official LYRICAL ENT logo system, geometric LE monogram, monochrome color architecture, and editable guidelines.
+            Central repository of the official {activeWorkspace.name} logo system, geometric monogram, and editable guidelines.
           </p>
         </div>
 
@@ -526,7 +531,7 @@ export const BrandIdentityManager: React.FC = () => {
                     <span>STATIONERY SUITE</span>
                   </div>
                   <h3 className="text-xl sm:text-2xl font-bold tracking-tight text-white font-mono uppercase">
-                    LYRICAL ENT Embossed Corporate Suite
+                    {activeWorkspace.name} Embossed Corporate Suite
                   </h3>
                   <p className="text-xs sm:text-sm text-neutral-400 mt-2.5 leading-relaxed">
                     Exquisite physical reproduction of the LE monogram and typography across matte charcoal business cards, official 120gsm uncompressed letterheads, and vinyl record sleeves.
@@ -566,7 +571,7 @@ export const BrandIdentityManager: React.FC = () => {
             <div>
               <h2 className="text-sm font-semibold text-white font-mono uppercase flex items-center gap-2">
                 <BookOpen size={16} />
-                <span>LYRICAL ENT Brand Identity Constitution</span>
+                <span>{activeWorkspace.name} Brand Identity Constitution</span>
               </h2>
               <p className="text-xs text-neutral-400 mt-0.5">
                 Official rules governing typography, logo exclusion zones, color distribution, and art direction
@@ -575,7 +580,7 @@ export const BrandIdentityManager: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => generateBrandGuidelinesPdf(brandGuidelines)}
+                onClick={() => generateBrandGuidelinesPdf(brandGuidelines, activeWorkspace)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white text-black hover:bg-neutral-200 rounded transition-colors"
                 title="Download official multi-page Brand Guidelines PDF"
               >
@@ -737,7 +742,12 @@ export const BrandIdentityManager: React.FC = () => {
                 {/* Exclusion Zone Box */}
                 <div className="p-8 border border-neutral-700 relative">
                   <div className="absolute top-1 left-2 text-[9px] font-mono text-neutral-500">EXCLUSION BOUNDARY</div>
-                  <LyricalHorizontalLogo height={42} theme="monochrome-white" showDescriptor={true} />
+                  <WorkspaceLogo 
+                    workspaceId={activeWorkspace.id} 
+                    workspaceName={activeWorkspace.name} 
+                    height={42} 
+                    theme="monochrome-white" 
+                  />
                 </div>
               </div>
 
@@ -1015,6 +1025,30 @@ export const BrandIdentityManager: React.FC = () => {
                     </a>
                   </td>
                 </tr>
+
+                {/* User-uploaded workspace assets */}
+                {workspaceBrandAssets.map((asset) => (
+                  <tr key={asset.id} className="hover:bg-[#141414] transition-colors group">
+                    <td className="py-3.5 pr-3">
+                      <div className="font-medium text-white flex items-center gap-2">
+                        <FileText size={14} className="text-neutral-500" />
+                        <span>{asset.name}</span>
+                      </div>
+                      <div className="text-[10px] text-neutral-500 font-mono">{asset.description}</div>
+                    </td>
+                    <td className="py-3 pr-3 font-mono text-neutral-400">{asset.fileType} {asset.dimensions && `/ ${asset.dimensions}`}</td>
+                    <td className="py-3 pr-3 font-mono text-neutral-400">{asset.category}</td>
+                    <td className="py-3 pr-3 font-mono text-neutral-300">{asset.status.toUpperCase()}</td>
+                    <td className="py-3 text-right">
+                      <button
+                        className="px-2.5 py-1 text-xs font-mono bg-[#1A1A1A] hover:bg-[#242424] text-white rounded border border-[#2B2B2B] inline-flex items-center gap-1"
+                      >
+                        <Download size={11} />
+                        <span>Download</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

@@ -12,6 +12,7 @@ import {
   AspectRatioType,
   TextureOverlayType 
 } from '../../types/designStudio';
+import { useApp } from '../../context/AppContext';
 import { 
   Sliders, 
   Layers, 
@@ -85,9 +86,12 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
   onSaveDesign,
   onClose
 }) => {
+  const { activeWorkspace } = useApp();
+
   // Current design state
   const [design, setDesign] = useState<CanvasDesign>({
     ...initialDesign,
+    workspaceId: initialDesign.workspaceId || activeWorkspace.id,
     textureOverlay: initialDesign.textureOverlay || 'none',
     textureOpacity: initialDesign.textureOpacity ?? 0.35
   });

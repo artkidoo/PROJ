@@ -12,6 +12,7 @@ export type CampaignCategory = 'Anticipation' | 'Release Day' | 'Post-Release';
 
 export interface ReleaseProject {
   id: string;
+  workspaceId?: string;
   artistName: string;
   songTitle: string;
   releaseType: ReleaseType;

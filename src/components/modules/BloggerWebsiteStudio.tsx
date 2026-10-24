@@ -27,33 +27,52 @@ import {
 } from 'lucide-react';
 
 export const BloggerWebsiteStudio: React.FC = () => {
-  const { bloggerSettings, updateBloggerSettings, artists, releases } = useApp();
+  const { bloggerSettings, updateBloggerSettings, artists, releases, activeWorkspace } = useApp();
+
+  const filteredArtists = useMemo(() => {
+    return artists.filter(a => 
+      a.workspaceId === activeWorkspace.id || 
+      (!a.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [artists, activeWorkspace.id]);
+
+  const filteredReleases = useMemo(() => {
+    return releases.filter(r => 
+      r.workspaceId === activeWorkspace.id || 
+      (!r.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [releases, activeWorkspace.id]);
+
+  const wsName = activeWorkspace.name;
+  const wsSlug = wsName.toLowerCase().replace(/\s+/g, '_');
+  const wsDomain = wsName.toLowerCase().replace(/\s+/g, '') + '.com';
+
   const [activeSubTab, setActiveSubTab] = useState<'preview' | 'settings' | 'code' | 'guide'>('preview');
   const [copied, setCopied] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Form states for theme settings
-  const [siteTitle, setSiteTitle] = useState(bloggerSettings.siteTitle);
+  const [siteTitle, setSiteTitle] = useState(bloggerSettings.siteTitle === 'LYRICAL ENT' ? wsName : bloggerSettings.siteTitle);
   const [tagline, setTagline] = useState(bloggerSettings.tagline);
   const [heroHeadline, setHeroHeadline] = useState(bloggerSettings.heroHeadline);
   const [heroSubheadline, setHeroSubheadline] = useState(bloggerSettings.heroSubheadline);
   const [heroButtonText, setHeroButtonText] = useState(bloggerSettings.heroButtonText || 'Explore Catalog');
   const [musicCardCols, setMusicCardCols] = useState<2 | 3 | 4>(bloggerSettings.musicCardColumns || 3);
-  const [featuredReleaseId, setFeaturedReleaseId] = useState(bloggerSettings.featuredReleaseId || 'rel-01');
-  const [featuredArtistId, setFeaturedArtistId] = useState(bloggerSettings.featuredArtistId || 'art-01');
+  const [featuredReleaseId, setFeaturedReleaseId] = useState(bloggerSettings.featuredReleaseId || (filteredReleases[0]?.id || 'rel-01'));
+  const [featuredArtistId, setFeaturedArtistId] = useState(bloggerSettings.featuredArtistId || (filteredArtists[0]?.id || 'art-01'));
   const [aboutLabelText, setAboutLabelText] = useState(bloggerSettings.aboutLabelText);
   const [missionText, setMissionText] = useState(bloggerSettings.missionText);
   const [visionText, setVisionText] = useState(bloggerSettings.visionText);
-  const [contactEmail, setContactEmail] = useState(bloggerSettings.contactEmail);
-  const [demoSubmissionEmail, setDemoSubmissionEmail] = useState(bloggerSettings.demoSubmissionEmail);
+  const [contactEmail, setContactEmail] = useState(bloggerSettings.contactEmail === 'contact@lyricalent.com' ? `contact@${wsDomain}` : bloggerSettings.contactEmail);
+  const [demoSubmissionEmail, setDemoSubmissionEmail] = useState(bloggerSettings.demoSubmissionEmail === 'demo@lyricalent.com' ? `demo@${wsDomain}` : bloggerSettings.demoSubmissionEmail);
   const [instagramUrl, setInstagramUrl] = useState(bloggerSettings.instagramUrl);
   const [spotifyUrl, setSpotifyUrl] = useState(bloggerSettings.spotifyUrl);
   const [youtubeUrl, setYoutubeUrl] = useState(bloggerSettings.youtubeUrl);
   const [xUrl, setXUrl] = useState(bloggerSettings.xUrl);
   const [featuredVideoTitle, setFeaturedVideoTitle] = useState(bloggerSettings.featuredVideoTitle);
 
-  const featuredRelease = releases.find(r => r.id === featuredReleaseId) || releases[0];
-  const featuredArtist = artists.find(a => a.id === featuredArtistId) || artists[0];
+  const featuredRelease = filteredReleases.find(r => r.id === featuredReleaseId) || filteredReleases[0] || releases[0];
+  const featuredArtist = filteredArtists.find(a => a.id === featuredArtistId) || filteredArtists[0] || artists[0];
 
   const handleSaveSettings = () => {
     updateBloggerSettings({
@@ -203,7 +222,7 @@ export const BloggerWebsiteStudio: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'lyrical_ent_official_blogger_theme_v3.xml';
+    a.download = `${wsSlug}_official_blogger_theme_v3.xml`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -402,7 +421,7 @@ export const BloggerWebsiteStudio: React.FC = () => {
                     onChange={e => setFeaturedReleaseId(e.target.value)}
                     className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 cursor-pointer font-mono"
                   >
-                    {releases.map(r => (
+                    {filteredReleases.map(r => (
                       <option key={r.id} value={r.id}>
                         {r.title} ({r.artistName})
                       </option>
@@ -419,7 +438,7 @@ export const BloggerWebsiteStudio: React.FC = () => {
                     onChange={e => setFeaturedArtistId(e.target.value)}
                     className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 cursor-pointer font-mono"
                   >
-                    {artists.map(a => (
+                    {filteredArtists.map(a => (
                       <option key={a.id} value={a.id}>
                         {a.name} ({a.genre})
                       </option>
@@ -644,7 +663,7 @@ export const BloggerWebsiteStudio: React.FC = () => {
               Official Blogger Installation &amp; Publishing Guide
             </h2>
             <p className="text-xs text-neutral-400 mt-0.5">
-              Follow these verified steps to deploy the LYRICAL ENT theme and publish releases on Google Blogger
+              Follow these verified steps to deploy the {wsName} theme and publish releases on Google Blogger
             </p>
           </div>
 
@@ -660,14 +679,14 @@ export const BloggerWebsiteStudio: React.FC = () => {
               <div className="p-4 bg-[#121212] border border-[#1E1E1E] rounded space-y-2">
                 <div className="text-white font-bold">2. RESTORE OR EDIT HTML</div>
                 <p className="text-neutral-400 font-sans leading-relaxed">
-                  Click <strong>Restore</strong> and upload the downloaded <code className="text-white">lyrical_ent_official_blogger_theme_v3.xml</code> file, OR click <strong>Edit HTML</strong>, select all existing markup (<kbd className="px-1 bg-black text-white">Ctrl+A</kbd>), paste the code from the XML Code tab, and click <strong>Save</strong>.
+                  Click <strong>Restore</strong> and upload the downloaded <code className="text-white">{wsSlug}_official_blogger_theme_v3.xml</code> file, OR click <strong>Edit HTML</strong>, select all existing markup (<kbd className="px-1 bg-black text-white">Ctrl+A</kbd>), paste the code from the XML Code tab, and click <strong>Save</strong>.
                 </p>
               </div>
 
               <div className="p-4 bg-[#121212] border border-[#1E1E1E] rounded space-y-2">
                 <div className="text-white font-bold">3. DISABLE DEFAULT MOBILE THEME</div>
                 <p className="text-neutral-400 font-sans leading-relaxed">
-                  In Blogger's Theme menu, ensure the mobile template is set to <strong>"Desktop"</strong> or <strong>"No, show desktop theme on mobile devices"</strong>. The LYRICAL ENT theme features built-in responsive CSS that automatically optimizes for mobile and tablet screens.
+                  In Blogger's Theme menu, ensure the mobile template is set to <strong>"Desktop"</strong> or <strong>"No, show desktop theme on mobile devices"</strong>. The {wsName} theme features built-in responsive CSS that automatically optimizes for mobile and tablet screens.
                 </p>
               </div>
             </div>

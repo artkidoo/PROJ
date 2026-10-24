@@ -1,0 +1,51 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Global Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Fail-Safe Workspace Ownership Check
+    function isWorkspaceOwner(workspaceId) {
+      return isSignedIn() && 
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)) &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
+    }
+
+    // Fail-Safe Cross-Service Workspace Membership Check (Enforcing Active Status)
+    function isWorkspaceMember(workspaceId) {
+      return isSignedIn() && (
+        (
+          firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)) &&
+          firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)).data.status == 'Active'
+        ) ||
+        isWorkspaceOwner(workspaceId)
+      );
+    }
+
+    // Explicit Creative Asset MIME Allowlist
+    function isValidCreativeAsset() {
+      return request.resource.contentType.matches(
+        '^(image/(jpeg|png|svg\\+xml|webp|gif|avif)|audio/(mpeg|wav|x-wav|aac|flac|mp4|m4a|ogg)|video/(mp4|webm|quicktime)|application/(pdf|json|xml|zip|x-zip-compressed|font-woff)|font/(ttf|otf|woff|woff2)|text/(plain|xml))$'
+      );
+    }
+
+    // Workspace Private Files Path (Multi-Tenant Authorization, Volumetric & Content-Type Guards)
+    match /workspaces/{workspaceId}/{allPaths=**} {
+      allow read: if isWorkspaceMember(workspaceId);
+      
+      allow create, update: if isWorkspaceMember(workspaceId) && 
+        request.resource.size < 50 * 1024 * 1024 && // Enforce 50MB maximum asset size limit
+        isValidCreativeAsset();                     // Strict MIME allowlist validation
+        
+      allow delete: if isWorkspaceMember(workspaceId);
+    }
+
+    // Default Deny Everything Else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

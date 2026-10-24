@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { LyricalMonogram, LyricalHorizontalLogo, LyricalPrimaryLogo } from '../brand/LogoSystem';
+import { WorkspaceLogo } from '../brand/LogoSystem';
 import { 
   Download, 
   Sparkles, 
@@ -35,81 +35,82 @@ interface CreativePreset {
   defaultDate: string;
 }
 
-const TEMPLATE_PRESETS: CreativePreset[] = [
+const getDynamicPresets = (workspaceName: string): CreativePreset[] => [
   {
     id: 'brand_announcement',
     name: 'Brand Announcement',
     category: 'Corporate Reveal',
-    defaultHeadline: 'A NEW ERA IN SOUND',
-    defaultSubtitle: 'LYRICAL ENT officially launches its flagship Sound Lab and sovereign artist development roster.',
-    defaultArtist: 'LYRICAL ENT',
+    defaultHeadline: 'A NEW ERA IN CREATIVE',
+    defaultSubtitle: `${workspaceName} officially launches its flagship production studio and bespoke creative services.`,
+    defaultArtist: workspaceName,
     defaultTagline: 'LONDON · LOS ANGELES',
-    defaultDate: 'GLOBAL LAUNCH 2026'
+    defaultDate: `EST. ${new Date().getFullYear()}`
   },
   {
     id: 'logo_reveal',
     name: 'Logo & Monogram Reveal',
     category: 'Identity Showcase',
-    defaultHeadline: 'THE ARCHITECTURE OF SOUND',
-    defaultSubtitle: 'Introducing the official LE monogram — engineered with mathematical precision for contemporary vinyl, digital soundwaves, and visual identity.',
-    defaultArtist: 'LE EMBLEM',
+    defaultHeadline: 'THE ARCHITECTURE OF BRAND',
+    defaultSubtitle: `Introducing the official ${workspaceName} visual identity — engineered with mathematical precision for contemporary design systems.`,
+    defaultArtist: 'BRAND MARK',
     defaultTagline: 'REGISTERED TRADEMARK',
-    defaultDate: 'ESTABLISHED 2026'
+    defaultDate: `VERSION ${new Date().getFullYear()}.1`
   },
   {
     id: 'company_intro',
     name: 'Company Introduction',
     category: 'Press & Media',
-    defaultHeadline: 'REDEFINING CONTEMPORARY ENTERTAINMENT',
-    defaultSubtitle: 'Independent record label, Dolby Atmos production sound lab, and worldwide master rights management.',
-    defaultArtist: 'LYRICAL ENT LLC',
-    defaultTagline: 'SONIC ARCHITECTURE & A&R',
-    defaultDate: 'LONDON · LOS ANGELES'
+    defaultHeadline: 'REDEFINING CREATIVE EXCELLENCE',
+    defaultSubtitle: 'Independent creative agency, multidisciplinary production house, and global asset management.',
+    defaultArtist: `${workspaceName} LLC`,
+    defaultTagline: 'DESIGN ARCHITECTURE',
+    defaultDate: 'STRATEGIC PARTNERS'
   },
   {
     id: 'artist_signing',
-    name: 'Artist Signing Reveal',
+    name: 'Talent / Artist Reveal',
     category: 'Roster Announcement',
-    defaultHeadline: 'WELCOME TO THE ROSTER',
-    defaultSubtitle: 'LYRICAL ENT is proud to announce the exclusive worldwide signing of recording artist Sariyah Cole.',
-    defaultArtist: 'SARIYAH COLE',
-    defaultTagline: 'EXCLUSIVE MASTER RECORDING AGREEMENT',
-    defaultDate: 'DEBUT SINGLE FORTHCOMING'
+    defaultHeadline: 'WELCOME TO THE TEAM',
+    defaultSubtitle: `${workspaceName} is proud to announce the exclusive worldwide partnership with our newest creative talent.`,
+    defaultArtist: 'TALENT NAME',
+    defaultTagline: 'EXCLUSIVE PARTNERSHIP',
+    defaultDate: 'PROJECT FORTHCOMING'
   },
   {
     id: 'coming_soon',
-    name: 'Coming-Soon Music Release',
-    category: 'Release Rollout',
+    name: 'Coming-Soon Project',
+    category: 'Project Rollout',
     defaultHeadline: 'COMING SOON',
-    defaultSubtitle: 'The highly anticipated debut studio single engineered at London Sound Lab A.',
-    defaultArtist: 'SARIYAH COLE — "MONOCHROME STATE"',
-    defaultTagline: 'PRE-SAVE ON ALL PLATFORMS',
-    defaultDate: '07 · 11 · 2026'
+    defaultSubtitle: 'The highly anticipated creative project engineered at our primary production lab.',
+    defaultArtist: 'PROJECT TITLE',
+    defaultTagline: 'SIGN UP FOR UPDATES',
+    defaultDate: 'Q4 2026'
   },
   {
     id: 'out_now',
-    name: 'Out-Now Music Release',
-    category: 'Release Rollout',
-    defaultHeadline: 'OUT NOW WORLDWIDE',
-    defaultSubtitle: 'Stream in uncompressed 24-bit/96kHz lossless audio and Dolby Atmos spatial sound on all DSP platforms.',
-    defaultArtist: 'SARIYAH COLE — "MONOCHROME STATE"',
+    name: 'Project Launch / Live',
+    category: 'Project Rollout',
+    defaultHeadline: 'LIVE WORLDWIDE',
+    defaultSubtitle: 'Full project deliverables and creative assets are now available for global distribution.',
+    defaultArtist: 'PROJECT TITLE',
     defaultTagline: 'AVAILABLE EVERYWHERE',
-    defaultDate: 'NOW STREAMING'
+    defaultDate: 'LAUNCHED'
   },
   {
     id: 'social_quote',
-    name: 'General Editorial / Lyric Card',
+    name: 'Editorial / Quote Card',
     category: 'Social Media',
-    defaultHeadline: '“IN THE SILENCE BETWEEN FREQUENCIES, WE BUILD TIMELESS SOUND.”',
-    defaultSubtitle: 'A philosophy of uncompromising sonic clarity, high-contrast visual identity, and true artistic ownership.',
-    defaultArtist: 'LYRICAL ENT EDITORIAL',
-    defaultTagline: 'STUDIO NOTE NO. 04',
-    defaultDate: 'Q4 2026'
+    defaultHeadline: '“DESIGN IS THE SILENT AMBASSADOR OF YOUR BRAND.”',
+    defaultSubtitle: 'A philosophy of uncompromising visual clarity, high-contrast identity, and true creative ownership.',
+    defaultArtist: `${workspaceName} EDITORIAL`,
+    defaultTagline: 'CREATIVE NOTE NO. 01',
+    defaultDate: '2026'
   }
 ];
 
 export const LaunchCreativeStudio: React.FC = () => {
-  const { artists, releases } = useApp();
+  const { artists, releases, activeWorkspace } = useApp();
+  const TEMPLATE_PRESETS = getDynamicPresets(activeWorkspace.name);
 
   const [selectedPresetId, setSelectedPresetId] = useState<CreativeTemplateType>('brand_announcement');
   const [format, setFormat] = useState<CreativeFormat>('1:1 Square');
@@ -205,20 +206,21 @@ export const LaunchCreativeStudio: React.FC = () => {
     ctx.textAlign = 'left';
     ctx.fillStyle = primaryColor;
     ctx.font = 'bold 36px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText('LYRICAL ENT', 100, 140);
+    ctx.fillText(activeWorkspace.name.toUpperCase(), 100, 140);
 
     ctx.fillStyle = secondaryColor;
     ctx.font = '500 18px "JetBrains Mono", monospace';
-    ctx.fillText('RECORD LABEL & PRODUCTION LAB', 100, 175);
+    ctx.fillText('CREATIVE PRODUCTION · ASSET MANAGEMENT', 100, 175);
 
     // Top Right Monogram mark
+    const monogram = activeWorkspace.name.slice(0, 2).toUpperCase();
     if (isLight) {
       ctx.fillStyle = '#000000';
       ctx.fillRect(targetWidth - 190, 95, 90, 90);
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 46px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText('LE', targetWidth - 145, 158);
+      ctx.fillText(monogram, targetWidth - 145, 158);
     } else {
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 4;
@@ -226,7 +228,7 @@ export const LaunchCreativeStudio: React.FC = () => {
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 46px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText('LE', targetWidth - 145, 158);
+      ctx.fillText(monogram, targetWidth - 145, 158);
     }
 
     // 3. Central Monogram Watermark or Accent
@@ -241,7 +243,8 @@ export const LaunchCreativeStudio: React.FC = () => {
       ctx.textAlign = 'center';
       ctx.fillStyle = primaryColor;
       ctx.font = 'bold 160px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText('LE', centerX, centerY + 58);
+      const monogram = activeWorkspace.name.slice(0, 2).toUpperCase();
+      ctx.fillText(monogram, centerX, centerY + 58);
     }
 
     // 4. Middle / Bottom Typography
@@ -319,7 +322,7 @@ export const LaunchCreativeStudio: React.FC = () => {
     const mime = fileType === 'jpeg' ? 'image/jpeg' : 'image/png';
     const ext = fileType === 'jpeg' ? 'jpg' : 'png';
     const a = document.createElement('a');
-    a.download = `LYRICAL_${selectedPresetId.toUpperCase()}_${format.replace(/\s+/g, '_')}.${ext}`;
+    a.download = `${activeWorkspace.name.toUpperCase().replace(/\s+/g, '_')}_${selectedPresetId.toUpperCase()}_${format.replace(/\s+/g, '_')}.${ext}`;
     a.href = canvas.toDataURL(mime, 0.95);
     a.click();
   };
@@ -549,15 +552,16 @@ export const LaunchCreativeStudio: React.FC = () => {
             {/* Top Brand Bar */}
             <div className="flex items-start justify-between border-b border-current/20 pb-3">
               <div>
-                <div className="text-sm font-extrabold tracking-widest uppercase">LYRICAL ENT</div>
+                <div className="text-sm font-extrabold tracking-widest uppercase">{activeWorkspace.name}</div>
                 <div className="text-[8px] font-mono opacity-60 uppercase tracking-wider">
-                  Record Label &amp; Production Lab
+                  Creative Production &amp; Management
                 </div>
               </div>
-              <LyricalMonogram
-                size={30}
-                framed={true}
-                theme={theme === 'minimal_white' ? 'monochrome-black' : 'monochrome-white'}
+              <WorkspaceLogo 
+                workspaceId={activeWorkspace.id} 
+                workspaceName={activeWorkspace.name} 
+                height={30} 
+                theme={theme === 'minimal_white' ? 'monochrome-black' : 'monochrome-white'} 
               />
             </div>
 
@@ -565,7 +569,7 @@ export const LaunchCreativeStudio: React.FC = () => {
             {selectedPresetId === 'logo_reveal' && (
               <div className="my-auto flex justify-center">
                 <div className="w-24 h-24 border-2 border-current flex items-center justify-center text-4xl font-extrabold font-mono">
-                  LE
+                  {activeWorkspace.name.slice(0, 2).toUpperCase()}
                 </div>
               </div>
             )}

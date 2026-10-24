@@ -1,0 +1,239 @@
+{
+  "entities": {
+    "PlatformUser": {
+      "title": "Platform User",
+      "description": "Registered user of Keedohub platform",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Multi-tenant workspace container for brands and creative agencies",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "ownerId"]
+    },
+    "WorkspaceMembership": {
+      "title": "Workspace Membership",
+      "description": "User access mapping to workspaces with roles",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "workspaceId", "role"]
+    },
+    "Artist": {
+      "title": "Artist",
+      "description": "Roster artist managed within a workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "stageName": { "type": "string" },
+        "realName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string" },
+        "genres": { "type": "array" },
+        "avatarUrl": { "type": "string" },
+        "bio": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "stageName"]
+    },
+    "MusicRelease": {
+      "title": "Music Release",
+      "description": "Single, EP, or Album release project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "artistId": { "type": "string" },
+        "artistName": { "type": "string" },
+        "releaseType": { "type": "string" },
+        "releaseDate": { "type": "string" },
+        "status": { "type": "string" },
+        "upc": { "type": "string" },
+        "isrc": { "type": "string" },
+        "coverArtUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "title"]
+    },
+    "CreativeCampaign": {
+      "title": "Creative Campaign",
+      "description": "Marketing campaign for releases or brand activations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "releaseId": { "type": "string" },
+        "status": { "type": "string" },
+        "budget": { "type": "number" },
+        "targetAudience": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "title"]
+    },
+    "CorporateDocument": {
+      "title": "Corporate Document",
+      "description": "Contracts, NDAs, and official business documents",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "refCode": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "title"]
+    },
+    "BrandAsset": {
+      "title": "Brand Asset",
+      "description": "Logo, guideline, font or media asset in asset library",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileType": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "name"]
+    },
+    "OperationTask": {
+      "title": "Operation Task",
+      "description": "Label operation task with assignee and due date",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "assignee": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "title"]
+    },
+    "PressRelease": {
+      "title": "Press Release",
+      "description": "Media release dispatch for artists or releases",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "status": { "type": "string" },
+        "distributionDate": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "title"]
+    },
+    "MediaContact": {
+      "title": "Media Contact",
+      "description": "Press and PR contact record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "name": { "type": "string" },
+        "outlet": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "name"]
+    },
+    "CampaignDesign": {
+      "title": "Campaign Design",
+      "description": "Saved design canvas project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "preset": { "type": "string" },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "previewUrl": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "title"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/PlatformUser" },
+      "description": "Platform user profiles"
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "Workspace configuration and identity metadata"
+    },
+    "/workspaces/{workspaceId}/memberships/{membershipId}": {
+      "schema": { "$ref": "#/entities/WorkspaceMembership" },
+      "description": "Workspace team memberships and RBAC roles"
+    },
+    "/workspaces/{workspaceId}/artists/{artistId}": {
+      "schema": { "$ref": "#/entities/Artist" },
+      "description": "Roster artists belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/releases/{releaseId}": {
+      "schema": { "$ref": "#/entities/MusicRelease" },
+      "description": "Music releases belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/campaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/CreativeCampaign" },
+      "description": "Marketing campaigns belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/documents/{documentId}": {
+      "schema": { "$ref": "#/entities/CorporateDocument" },
+      "description": "Corporate documents belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/brandAssets/{assetId}": {
+      "schema": { "$ref": "#/entities/BrandAsset" },
+      "description": "Brand assets belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/OperationTask" },
+      "description": "Operations tasks belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/pressReleases/{pressId}": {
+      "schema": { "$ref": "#/entities/PressRelease" },
+      "description": "Press releases belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/mediaContacts/{contactId}": {
+      "schema": { "$ref": "#/entities/MediaContact" },
+      "description": "Media contacts belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/campaignDesigns/{designId}": {
+      "schema": { "$ref": "#/entities/CampaignDesign" },
+      "description": "Saved designs belonging to workspace"
+    }
+  }
+}

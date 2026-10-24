@@ -47,7 +47,7 @@ import { HonestCanvasThumbnail } from '../common/HonestCanvasThumbnail';
 import { buildHonestDesignForTemplate } from '../../utils/templateDesignBuilder';
 
 export const CreativeTemplateLibrary: React.FC = () => {
-  const { releases, artists } = useApp();
+  const { releases, artists, activeWorkspace } = useApp();
 
   // Active top view: 'families' | 'categories' | 'saved'
   const [activeView, setActiveView] = useState<'families' | 'categories' | 'saved'>('families');
@@ -78,6 +78,13 @@ export const CreativeTemplateLibrary: React.FC = () => {
     } catch {}
     return [];
   });
+
+  const filteredSavedDesigns = useMemo(() => {
+    return savedDesigns.filter(d => 
+      d.workspaceId === activeWorkspace.id || 
+      (!d.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [savedDesigns, activeWorkspace.id]);
 
   const [selectedFamily, setSelectedFamily] = useState<string>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -244,7 +251,7 @@ export const CreativeTemplateLibrary: React.FC = () => {
           }`}
         >
           <FolderHeart size={13} />
-          <span>Saved Designs ({savedDesigns.length})</span>
+          <span>Saved Designs ({filteredSavedDesigns.length})</span>
         </button>
       </div>
 
@@ -384,7 +391,7 @@ export const CreativeTemplateLibrary: React.FC = () => {
       {/* VIEW 3: SAVED USER DESIGNS */}
       {activeView === 'saved' && (
         <div className="space-y-4 font-mono">
-          {savedDesigns.length === 0 ? (
+          {filteredSavedDesigns.length === 0 ? (
             <div className="border border-dashed border-[#242424] rounded-lg p-12 text-center space-y-3">
               <Sparkles size={32} className="mx-auto text-neutral-600" />
               <h3 className="text-sm font-bold text-white uppercase">No Saved Designs Yet</h3>
@@ -394,7 +401,7 @@ export const CreativeTemplateLibrary: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {savedDesigns.map(design => (
+              {filteredSavedDesigns.map(design => (
                 <div
                   key={design.id}
                   className="bg-[#0C0C0C] border border-[#222222] hover:border-white rounded-lg p-4 flex flex-col justify-between space-y-3"

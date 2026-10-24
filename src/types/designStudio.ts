@@ -77,6 +77,7 @@ export interface CanvasElement {
 
 export interface CanvasDesign {
   id: string;
+  workspaceId?: string; // Multi-tenancy support
   name: string;
   aspectRatio: AspectRatioType;
   width: number;

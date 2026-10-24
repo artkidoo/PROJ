@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { OperationTask } from '../../types';
+import { OperationTask, MusicRelease, CreativeCampaign } from '../../types';
 import { EmptyState } from '../common/EmptyState';
 import { 
   CheckSquare, 
@@ -17,7 +17,29 @@ import {
 } from 'lucide-react';
 
 export const Operations: React.FC = () => {
-  const { tasks, releases, campaigns, addTask, updateTask, deleteTask, currentRole } = useApp();
+  const { tasks, releases, campaigns, addTask, updateTask, deleteTask, currentRole, activeWorkspace } = useApp();
+
+  const filteredReleases = useMemo(() => {
+    return releases.filter(r => 
+      r.workspaceId === activeWorkspace.id || 
+      (!r.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [releases, activeWorkspace.id]);
+
+  const filteredCampaigns = useMemo(() => {
+    return campaigns.filter(c => 
+      c.workspaceId === activeWorkspace.id || 
+      (!c.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [campaigns, activeWorkspace.id]);
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(t => 
+      t.workspaceId === activeWorkspace.id || 
+      (!t.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [tasks, activeWorkspace.id]);
+
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
 
@@ -30,11 +52,11 @@ export const Operations: React.FC = () => {
   const [notes, setNotes] = useState('');
 
   // Total allocated vs spent across all releases
-  const totalAllocatedBudget = releases.reduce((sum, r) => sum + (r.budgetAllocated || 0), 0) + 
-    campaigns.reduce((sum, c) => sum + (c.budget || 0), 0);
-  const totalSpentBudget = releases.reduce((sum, r) => sum + (r.budgetSpent || 0), 0);
+  const totalAllocatedBudget = filteredReleases.reduce((sum: number, r: MusicRelease) => sum + (r.budgetAllocated || 0), 0) + 
+    filteredCampaigns.reduce((sum: number, c: CreativeCampaign) => sum + (c.budget || 0), 0);
+  const totalSpentBudget = filteredReleases.reduce((sum: number, r: MusicRelease) => sum + (r.budgetSpent || 0), 0);
 
-  const filteredTasks = tasks.filter(t => {
+  const displayTasks = filteredTasks.filter((t: OperationTask) => {
     return activeCategory === 'All' || t.category === activeCategory;
   });
 
@@ -91,7 +113,7 @@ export const Operations: React.FC = () => {
             <CheckSquare size={14} />
           </div>
           <div className="text-2xl font-bold font-mono text-white tabular-nums">
-            {tasks.filter(t => t.status !== 'Done').length}
+            {filteredTasks.filter((t: OperationTask) => t.status !== 'Done').length}
           </div>
           <div className="text-[10px] text-neutral-500 font-mono mt-1">IN QUEUE</div>
         </div>
@@ -102,7 +124,7 @@ export const Operations: React.FC = () => {
             <CheckCircle2 size={14} />
           </div>
           <div className="text-2xl font-bold font-mono text-white tabular-nums">
-            {tasks.filter(t => t.status === 'Done').length}
+            {filteredTasks.filter((t: OperationTask) => t.status === 'Done').length}
           </div>
           <div className="text-[10px] text-neutral-500 font-mono mt-1">SIGN OFFS</div>
         </div>
@@ -150,7 +172,7 @@ export const Operations: React.FC = () => {
       {/* Task Kanban Columns: Todo, In Progress, In Review, Done */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {(['Todo', 'In Progress', 'In Review', 'Done'] as OperationTask['status'][]).map(colStatus => {
-          const colTasks = filteredTasks.filter(t => t.status === colStatus);
+          const colTasks = displayTasks.filter((t: OperationTask) => t.status === colStatus);
 
           return (
             <div key={colStatus} className="border border-[#1E1E1E] rounded-lg bg-[#0E0E0E] p-4 flex flex-col min-h-[400px]">
@@ -169,7 +191,7 @@ export const Operations: React.FC = () => {
                     No tasks in {colStatus.toLowerCase()}
                   </div>
                 ) : (
-                  colTasks.map(task => (
+                  colTasks.map((task: OperationTask) => (
                     <div 
                       key={task.id}
                       className="p-3 bg-[#121212] border border-[#1E1E1E] rounded-md hover:border-[#333333] transition-colors group"

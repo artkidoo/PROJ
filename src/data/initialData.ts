@@ -9,8 +9,51 @@ import {
   PressRelease,
   MediaContact,
   BloggerThemeSettings,
-  BrandGuidelinesData 
+  BrandGuidelinesData,
+  PlatformUser,
+  Workspace,
+  WorkspaceMembership
 } from '../types';
+
+export const INITIAL_PLATFORM_USER: PlatformUser = {
+  id: 'user-01',
+  name: 'Ojo Abdulkareem',
+  email: 'ojoabdulkareem53@gmail.com',
+  status: 'Active',
+  avatarUrl: '/src/assets/images/user_avatar_placeholder.jpg',
+  createdAt: '2024-01-01T00:00:00Z'
+};
+
+export const INITIAL_WORKSPACES: Workspace[] = [
+  {
+    id: 'ws-lyrical-ent',
+    name: 'LYRICAL ENT',
+    type: 'Label',
+    ownerId: 'user-01',
+    createdAt: '2024-01-01T00:00:00Z',
+    brand: {
+      name: 'LYRICAL ENT',
+      primaryColor: '#FFFFFF',
+      secondaryColor: '#000000',
+      accentColor: '#171717',
+      typography: {
+        displayFont: 'Plus Jakarta Sans',
+        bodyFont: 'Plus Jakarta Sans'
+      }
+    }
+  }
+];
+
+export const INITIAL_MEMBERSHIPS: WorkspaceMembership[] = [
+  {
+    id: 'mem-01',
+    userId: 'user-01',
+    workspaceId: 'ws-lyrical-ent',
+    role: 'Owner',
+    status: 'Active',
+    joinedAt: '2024-01-01T00:00:00Z'
+  }
+];
 
 export const INITIAL_ARTISTS: Artist[] = [
   {

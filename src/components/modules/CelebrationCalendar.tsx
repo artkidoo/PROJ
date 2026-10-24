@@ -277,6 +277,7 @@ const CELEBRATIONS: CelebrationItem[] = [
 ];
 
 export const CelebrationCalendar: React.FC = () => {
+  const { activeWorkspace } = useApp();
   const [celebrations, setCelebrations] = useState<CelebrationItem[]>(CELEBRATIONS);
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
@@ -347,7 +348,7 @@ export const CelebrationCalendar: React.FC = () => {
     // Header badge
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 24px monospace';
-    ctx.fillText('LYRICAL ENT · CELEBRATION ARCHIVE', 90, 130);
+    ctx.fillText(`${activeWorkspace.name.toUpperCase()} · CELEBRATION ARCHIVE`, 90, 130);
 
     ctx.fillStyle = '#A3A3A3';
     ctx.font = '500 18px monospace';
@@ -396,7 +397,7 @@ export const CelebrationCalendar: React.FC = () => {
     // Footer
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 26px monospace';
-    ctx.fillText('LYRICAL ENT RECORDS', 90, 1070);
+    ctx.fillText(`${activeWorkspace.name.toUpperCase()} RECORDS`, 90, 1070);
 
     ctx.fillStyle = '#888888';
     ctx.font = '400 18px monospace';
@@ -409,7 +410,8 @@ export const CelebrationCalendar: React.FC = () => {
 
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = `lyrical_ent_${activeCel.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_card.png`;
+    const wsSlug = activeWorkspace.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    a.download = `${wsSlug}_${activeCel.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_card.png`;
     a.click();
     showToast(`High-Res card exported for ${activeCel.name}`);
     setActiveCel(null);

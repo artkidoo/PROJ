@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { CorporateDocument, DocumentType, DocumentItem } from '../../types';
 import { EmptyState } from '../common/EmptyState';
-import { LyricalMonogram, LyricalHorizontalLogo } from '../brand/LogoSystem';
+import { WorkspaceLogo } from '../brand/LogoSystem';
 import { generateCorporateDocumentPdf } from '../../utils/pdfGenerator';
 import { BusinessCardDesigner } from './BusinessCardDesigner';
 import { StaffIdCardDesigner } from './StaffIdCardDesigner';
@@ -27,9 +27,12 @@ import {
 } from 'lucide-react';
 
 export const CorporateDocuments: React.FC = () => {
-  const { documents, addDocument, updateDocument, deleteDocument, currentRole } = useApp();
+  const { documents, addDocument, updateDocument, deleteDocument, currentRole, activeWorkspace, currentUser } = useApp();
+  
+  const workspaceDocuments = documents.filter(d => d.workspaceId === activeWorkspace.id);
+  
   const [activeSection, setActiveSection] = useState<'documents' | 'business_cards' | 'staff_id' | 'email_signatures'>('documents');
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(documents[0]?.id || null);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(workspaceDocuments[0]?.id || null);
   const [activeTabFilter, setActiveTabFilter] = useState<'all' | 'financial' | 'legal' | 'administrative'>('all');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
 
@@ -51,7 +54,7 @@ export const CorporateDocuments: React.FC = () => {
     { description: 'Master Recording & Production Services', quantity: 1, unitPrice: 5000, total: 5000 }
   ]);
 
-  const selectedDoc = documents.find(d => d.id === selectedDocId) || documents[0];
+  const selectedDoc = workspaceDocuments.find(d => d.id === selectedDocId) || workspaceDocuments[0];
 
   const handlePrint = () => {
     window.print();
@@ -59,7 +62,7 @@ export const CorporateDocuments: React.FC = () => {
 
   const handleDownloadText = (doc: CorporateDocument) => {
     let content = `====================================================\n`;
-    content += `LYRICAL ENT — OFFICIAL RECORD LABEL DOCUMENT\n`;
+    content += `${activeWorkspace.name.toUpperCase()} — OFFICIAL DOCUMENT\n`;
     content += `Reference: ${doc.referenceNo}\n`;
     content += `Date: ${doc.date}\n`;
     content += `Document Type: ${doc.type.toUpperCase()}\n`;
@@ -89,7 +92,7 @@ export const CorporateDocuments: React.FC = () => {
 
     content += `\n====================================================\n`;
     content += `AUTHORIZED BY: ${doc.authorName} (${doc.authorRole})\n`;
-    content += `LYRICAL ENT LLC · All rights reserved.\n`;
+    content += `${activeWorkspace.name} · All rights reserved.\n`;
 
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -101,17 +104,18 @@ export const CorporateDocuments: React.FC = () => {
   };
 
   const openNewDocModal = (type: DocumentType = 'official_letter') => {
+    const workspaceShort = activeWorkspace.name.slice(0, 3).toUpperCase();
     setEditingDocId(null);
     setDocType(type);
     setTitle(type === 'invoice' ? 'Production Master Invoice' : type === 'quotation' ? 'Creative Project Quotation' : 'Official Label Communication');
-    setReferenceNo(`LYR-${type.slice(0, 3).toUpperCase()}-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
+    setReferenceNo(`${workspaceShort}-${type.slice(0, 3).toUpperCase()}-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
     setDate(new Date().toISOString().split('T')[0]);
     setRecipientName('');
     setRecipientOrg('');
     setRecipientAddress('');
     setRecipientEmail('');
     setSubject('');
-    setBodyContent('This document serves as formal corporate communication from LYRICAL ENT LLC.');
+    setBodyContent(`This document serves as formal corporate communication from ${activeWorkspace.name} LLC.`);
     setNotes('');
     setPaymentTerms('Net 30 Days from date of invoice.');
     setItems([{ description: 'Recording & Label Services', quantity: 1, unitPrice: 3500, total: 3500 }]);
@@ -166,7 +170,7 @@ export const CorporateDocuments: React.FC = () => {
         recipientOrg,
         recipientAddress,
         recipientEmail,
-        authorName: 'Ojo Abdulkareem',
+        authorName: currentUser.name,
         authorRole: currentRole,
         status: 'Draft',
         subject,
@@ -200,7 +204,7 @@ export const CorporateDocuments: React.FC = () => {
     setItems(prev => prev.filter((_, idx) => idx !== index));
   };
 
-  const filteredDocs = documents.filter(doc => {
+  const filteredDocs = workspaceDocuments.filter(doc => {
     if (activeTabFilter === 'financial') {
       return ['invoice', 'receipt', 'quotation'].includes(doc.type);
     }
@@ -258,7 +262,7 @@ export const CorporateDocuments: React.FC = () => {
           }`}
         >
           <FileText size={13} />
-          <span>A4 Official Documents &amp; Letters ({documents.length})</span>
+          <span>A4 Official Documents &amp; Letters ({workspaceDocuments.length})</span>
         </button>
 
         <button
@@ -306,11 +310,11 @@ export const CorporateDocuments: React.FC = () => {
       {activeSection === 'documents' && (
         <>
 
-      {documents.length === 0 ? (
+      {workspaceDocuments.length === 0 ? (
         <EmptyState
           icon={FileText}
           title="No Corporate Documents in Archive"
-          description="Create your first official LYRICAL ENT letterhead, executive memo, or commercial invoice."
+          description={`Create your first official ${activeWorkspace.name} letterhead, executive memo, or commercial invoice.`}
           actionLabel="Create Letterhead Document"
           onAction={() => openNewDocModal('official_letter')}
         />
@@ -399,7 +403,7 @@ export const CorporateDocuments: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={() => generateCorporateDocumentPdf(selectedDoc)}
+                      onClick={() => generateCorporateDocumentPdf(selectedDoc, activeWorkspace)}
                       className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-white text-black hover:bg-neutral-200 rounded transition-colors"
                       title="Download high-resolution official A4 PDF document"
                     >
@@ -424,14 +428,19 @@ export const CorporateDocuments: React.FC = () => {
                   <div>
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between border-b-2 border-black pb-6 gap-4">
                       <div>
-                        <LyricalHorizontalLogo height={44} theme="monochrome-black" showDescriptor={true} />
+                        <WorkspaceLogo 
+                          workspaceId={activeWorkspace.id} 
+                          workspaceName={activeWorkspace.name} 
+                          height={44} 
+                          theme="monochrome-black" 
+                        />
                       </div>
 
                       <div className="text-right text-[11px] font-mono text-neutral-800 space-y-0.5">
-                        <div className="font-semibold text-black">LYRICAL ENT LLC</div>
+                        <div className="font-semibold text-black uppercase">{activeWorkspace.name}</div>
                         <div>Production Sound Lab & Global Offices</div>
                         <div>London · Los Angeles</div>
-                        <div>contact@lyricalent.com · www.lyricalent.com</div>
+                        <div>{activeWorkspace.brand.name.toLowerCase().replace(' ', '')}@platform.com</div>
                       </div>
                     </div>
 
@@ -536,15 +545,21 @@ export const CorporateDocuments: React.FC = () => {
                     <div className="grid grid-cols-2 gap-8 text-xs font-mono">
                       <div>
                         <div className="text-[10px] text-neutral-500 mb-6">AUTHORIZED SIGNATORY:</div>
-                        <div className="font-serif italic text-base text-black mb-1">Ojo Abdulkareem</div>
+                        <div className="font-serif italic text-base text-black mb-1">{currentUser.name}</div>
                         <div className="font-bold text-black">{selectedDoc.authorName}</div>
                         <div className="text-neutral-700">{selectedDoc.authorRole}</div>
-                        <div className="text-neutral-500 text-[10px] mt-1">LYRICAL ENT LLC Executive Office</div>
+                        <div className="text-neutral-500 text-[10px] mt-1">{activeWorkspace.name} Executive Office</div>
                       </div>
 
                       <div className="text-right flex flex-col justify-end items-end">
                         <div className="flex flex-col items-center mb-1">
-                          <LyricalMonogram size={48} framed={true} theme="monochrome-black" />
+                          <WorkspaceLogo 
+                            workspaceId={activeWorkspace.id} 
+                            workspaceName={activeWorkspace.name} 
+                            height={40} 
+                            theme="monochrome-black" 
+                            className="scale-75 origin-right"
+                          />
                           <span className="font-mono text-[8px] font-bold tracking-widest text-black mt-1 uppercase">OFFICIAL SEAL</span>
                         </div>
                         <div className="text-[10px] text-neutral-500 font-mono">
@@ -570,7 +585,7 @@ export const CorporateDocuments: React.FC = () => {
               {editingDocId ? 'Edit Corporate Document' : 'Draft New Corporate Document'}
             </h3>
             <p className="text-xs text-neutral-400 mb-5">
-              Generate official letterheads, statements, split sheets, or invoices for LYRICAL ENT
+              Generate official letterheads, statements, split sheets, or invoices for {activeWorkspace.name}
             </p>
 
             <form onSubmit={handleSaveDoc} className="space-y-4">

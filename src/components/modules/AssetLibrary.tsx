@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
+import { BrandAsset } from '../../types';
 import { 
   FolderArchive, 
   Search, 
@@ -31,12 +32,24 @@ interface AssetItem {
 }
 
 export const AssetLibrary: React.FC = () => {
-  const { searchQuery, brandAssets, releases, artists, campaigns } = useApp();
+  const { searchQuery, brandAssets, activeWorkspace } = useApp();
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
 
+  const filteredBrandAssets = useMemo(() => {
+    return brandAssets.filter(b => 
+      b.workspaceId === activeWorkspace.id || 
+      (!b.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [brandAssets, activeWorkspace.id]);
+
+  const wsName = activeWorkspace.name;
+
   // Aggregated library assets
-  const libraryAssets: AssetItem[] = [
+  const libraryAssets: AssetItem[] = useMemo(() => {
+    const isLyrical = activeWorkspace.id === 'ws-lyrical-ent' || activeWorkspace.name.toUpperCase() === 'LYRICAL ENT';
+    
+    const staticAssets: AssetItem[] = isLyrical ? [
     {
       id: 'ast-01',
       name: 'LYRICAL ENT Master Wordmark Vector (Black & White)',
@@ -142,7 +155,37 @@ export const AssetLibrary: React.FC = () => {
       uploadedDate: '2026-03-01',
       metadata: 'Fully tested Blogger layout v3 theme preserving native Blog1 widget.'
     }
-  ];
+    ] : [
+      {
+        id: 'ast-dynamic-01',
+        name: `${activeWorkspace.name} Master Identity Asset`,
+        category: 'Brand Identity',
+        fileFormat: 'SVG / Vector',
+        fileSize: '12 KB',
+        version: 'v1.0',
+        status: 'Approved',
+        uploadedDate: new Date().toISOString().split('T')[0],
+        metadata: `Official master identity file for ${activeWorkspace.name}.`,
+        logoType: 'primary'
+      }
+    ];
+
+    // Map brandAssets from context to AssetItem interface
+    const contextAssets: AssetItem[] = filteredBrandAssets.map((ba: BrandAsset) => ({
+      id: ba.id,
+      name: ba.name,
+      category: ba.category === 'Primary Logo' || ba.category === 'Secondary Logo' || ba.category === 'Monogram' || ba.category === 'Icon' || ba.category === 'Palette' || ba.category === 'Typography' ? 'Brand Identity' : (ba.category === 'Guideline' ? 'Brand Identity' : 'Archive'),
+      fileFormat: ba.fileType,
+      fileSize: ba.fileSize || 'Unknown',
+      version: ba.version,
+      status: ba.status === 'Approved' ? 'Approved' : (ba.status === 'Review' ? 'Review' : 'Draft'),
+      uploadedDate: ba.uploadedAt.split('T')[0],
+      metadata: ba.description,
+      downloadUrl: ba.downloadUrl
+    }));
+
+    return [...staticAssets, ...contextAssets];
+  }, [activeWorkspace.id, filteredBrandAssets]);
 
   const CATEGORIES = [
     'All',

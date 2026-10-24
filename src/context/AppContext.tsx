@@ -12,10 +12,17 @@ import {
   PressRelease, 
   MediaContact, 
   BloggerThemeSettings,
-  BrandGuidelinesData 
+  BrandGuidelinesData,
+  PlatformUser,
+  Workspace,
+  WorkspaceMembership,
+  CreativeProject
 } from '../types';
 import { ReleaseProject, CampaignDesign } from '../types/campaign';
 import { 
+  INITIAL_PLATFORM_USER,
+  INITIAL_WORKSPACES,
+  INITIAL_MEMBERSHIPS,
   INITIAL_ARTISTS, 
   INITIAL_RELEASES, 
   INITIAL_CAMPAIGNS, 
@@ -28,8 +35,29 @@ import {
   INITIAL_BLOGGER_SETTINGS,
   INITIAL_BRAND_GUIDELINES 
 } from '../data/initialData';
+import { 
+  auth, 
+  googleProvider, 
+  db, 
+  handleFirestoreError, 
+  OperationType 
+} from '../lib/firebase';
+import { 
+  signInWithPopup, 
+  signOut as firebaseSignOut, 
+  onAuthStateChanged, 
+  User as FirebaseUser 
+} from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 
 interface AppContextType {
+  // Firebase Auth & Session
+  firebaseUser: FirebaseUser | null;
+  isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  loginWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
+
   activeModule: AppModule;
   setActiveModule: (module: AppModule) => void;
   currentRole: UserRole;
@@ -51,6 +79,14 @@ interface AppContextType {
   brandGuidelines: BrandGuidelinesData;
   releaseProjects: ReleaseProject[];
   campaignDesigns: CampaignDesign[];
+
+  // Workspace state
+  currentUser: PlatformUser;
+  workspaces: Workspace[];
+  memberships: WorkspaceMembership[];
+  activeWorkspace: Workspace;
+  setActiveWorkspace: (workspace: Workspace) => void;
+  switchWorkspace: (workspaceId: string) => void;
 
   // Actions
   addArtist: (artist: Omit<Artist, 'id' | 'createdAt' | 'updatedAt'>) => Artist;
@@ -240,6 +276,116 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  // Firebase Auth State
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<PlatformUser>(INITIAL_PLATFORM_USER);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      setIsAuthLoading(false);
+      if (user) {
+        const liveUser: PlatformUser = {
+          id: user.uid,
+          name: user.displayName || 'Keedohub Member',
+          email: user.email || 'user@keedohub.com',
+          status: 'Active',
+          avatarUrl: user.photoURL || undefined,
+          createdAt: new Date().toISOString()
+        };
+        setCurrentUser(liveUser);
+
+        // Sync authenticated user profile to Firestore
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          await setDoc(userDocRef, {
+            uid: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || 'Keedohub Member',
+            photoURL: user.photoURL || '',
+            role: 'Executive',
+            createdAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (err) {
+          console.warn('Firestore user profile sync warning:', err);
+        }
+      } else {
+        setCurrentUser(INITIAL_PLATFORM_USER);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const loginWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err: any) {
+      if (
+        err?.code === 'auth/popup-closed-by-user' || 
+        err?.code === 'auth/cancelled-popup-request' ||
+        err?.code === 'auth/popup-blocked'
+      ) {
+        console.info('Google Sign-In popup closed or cancelled by user.');
+        return;
+      }
+      console.error('Google Sign-In Error:', err);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await firebaseSignOut(auth);
+    } catch (err) {
+      console.error('Sign-Out Error:', err);
+    }
+  };
+
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY}_workspaces`);
+      return stored ? JSON.parse(stored) : INITIAL_WORKSPACES;
+    } catch {
+      return INITIAL_WORKSPACES;
+    }
+  });
+
+  const [memberships] = useState<WorkspaceMembership[]>(INITIAL_MEMBERSHIPS);
+  
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(() => {
+    try {
+      const storedId = localStorage.getItem(`${STORAGE_KEY}_activeWorkspaceId`);
+      const ws = workspaces.find(w => w.id === storedId) || workspaces[0];
+      return ws;
+    } catch {
+      return workspaces[0];
+    }
+  });
+
+  // Migration logic for existing data
+  useEffect(() => {
+    const defaultWsId = INITIAL_WORKSPACES[0].id;
+    
+    setArtists(prev => prev.map(a => a.workspaceId ? a : { ...a, workspaceId: defaultWsId }));
+    setReleases(prev => prev.map(r => r.workspaceId ? r : { ...r, workspaceId: defaultWsId }));
+    setCampaigns(prev => prev.map(c => c.workspaceId ? c : { ...c, workspaceId: defaultWsId }));
+    setDocuments(prev => prev.map(d => d.workspaceId ? d : { ...d, workspaceId: defaultWsId }));
+    setBrandAssets(prev => prev.map(b => b.workspaceId ? b : { ...b, workspaceId: defaultWsId }));
+    setTasks(prev => prev.map(t => t.workspaceId ? t : { ...t, workspaceId: defaultWsId }));
+    setPressReleases(prev => prev.map(p => p.workspaceId ? p : { ...p, workspaceId: defaultWsId }));
+    setMediaContacts(prev => prev.map(m => m.workspaceId ? m : { ...m, workspaceId: defaultWsId }));
+  }, []);
+
+  const switchWorkspace = (workspaceId: string) => {
+    const ws = workspaces.find(w => w.id === workspaceId);
+    if (ws) {
+      setActiveWorkspace(ws);
+      localStorage.setItem(`${STORAGE_KEY}_activeWorkspaceId`, workspaceId);
+      logActivity('Switched Workspace', 'dashboard', `Moved to ${ws.name} workspace`);
+    }
+  };
+
   // Sync to local storage
   useEffect(() => {
     try {
@@ -256,6 +402,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(`${STORAGE_KEY}_brandGuidelines`, JSON.stringify(brandGuidelines));
       localStorage.setItem(`${STORAGE_KEY}_releaseProjects`, JSON.stringify(releaseProjects));
       localStorage.setItem(`${STORAGE_KEY}_campaignDesigns`, JSON.stringify(campaignDesigns));
+      localStorage.setItem(`${STORAGE_KEY}_workspaces`, JSON.stringify(workspaces));
+      localStorage.setItem(`${STORAGE_KEY}_activeWorkspaceId`, activeWorkspace.id);
     } catch (e) {
       console.warn('Storage sync error:', e);
     }
@@ -277,6 +425,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addArtist = (artistData: Omit<Artist, 'id' | 'createdAt' | 'updatedAt'>): Artist => {
     const newArtist: Artist = {
       ...artistData,
+      workspaceId: activeWorkspace.id,
       id: `art-${Date.now().toString().slice(-5)}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -300,6 +449,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addRelease = (releaseData: Omit<MusicRelease, 'id' | 'createdAt'>): MusicRelease => {
     const newRelease: MusicRelease = {
       ...releaseData,
+      workspaceId: activeWorkspace.id,
       id: `rel-${Date.now().toString().slice(-5)}`,
       createdAt: new Date().toISOString()
     };
@@ -322,6 +472,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addCampaign = (campaignData: Omit<CreativeCampaign, 'id' | 'createdAt'>): CreativeCampaign => {
     const newCamp: CreativeCampaign = {
       ...campaignData,
+      workspaceId: activeWorkspace.id,
       id: `camp-${Date.now().toString().slice(-5)}`,
       createdAt: new Date().toISOString()
     };
@@ -343,6 +494,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addDocument = (docData: Omit<CorporateDocument, 'id' | 'createdAt' | 'updatedAt'>): CorporateDocument => {
     const newDoc: CorporateDocument = {
       ...docData,
+      workspaceId: activeWorkspace.id,
       id: `doc-${Date.now().toString().slice(-5)}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -365,6 +517,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addBrandAsset = (assetData: Omit<BrandAsset, 'id' | 'uploadedAt'>): BrandAsset => {
     const newAsset: BrandAsset = {
       ...assetData,
+      workspaceId: activeWorkspace.id,
       id: `brand-${Date.now().toString().slice(-5)}`,
       uploadedAt: new Date().toISOString()
     };
@@ -386,6 +539,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addTask = (taskData: Omit<OperationTask, 'id' | 'createdAt'>): OperationTask => {
     const newTask: OperationTask = {
       ...taskData,
+      workspaceId: activeWorkspace.id,
       id: `tsk-${Date.now().toString().slice(-5)}`,
       createdAt: new Date().toISOString()
     };
@@ -405,6 +559,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addPressRelease = (prData: Omit<PressRelease, 'id'>): PressRelease => {
     const newPr: PressRelease = {
       ...prData,
+      workspaceId: activeWorkspace.id,
       id: `pr-${Date.now().toString().slice(-5)}`
     };
     setPressReleases(prev => [newPr, ...prev]);
@@ -423,6 +578,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addMediaContact = (contactData: Omit<MediaContact, 'id'>): MediaContact => {
     const newContact: MediaContact = {
       ...contactData,
+      workspaceId: activeWorkspace.id,
       id: `med-${Date.now().toString().slice(-5)}`
     };
     setMediaContacts(prev => [newContact, ...prev]);
@@ -440,6 +596,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addReleaseProject = (projectData: Omit<ReleaseProject, 'id' | 'createdAt' | 'updatedAt'>): ReleaseProject => {
     const newProject: ReleaseProject = {
       ...projectData,
+      workspaceId: activeWorkspace.id,
       id: `proj-${Date.now().toString().slice(-5)}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -566,6 +723,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        firebaseUser,
+        isAuthenticated: !!firebaseUser,
+        isAuthLoading,
+        loginWithGoogle,
+        logout,
         activeModule,
         setActiveModule,
         currentRole,
@@ -625,7 +787,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isQuickActionOpen,
         setIsQuickActionOpen,
         quickActionTarget,
-        openQuickAction
+        openQuickAction,
+        currentUser,
+        workspaces,
+        memberships,
+        activeWorkspace,
+        setActiveWorkspace,
+        switchWorkspace
       }}
     >
       {children}

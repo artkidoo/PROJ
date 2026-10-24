@@ -29,10 +29,14 @@ export const ArtistManagement: React.FC = () => {
     updateArtist, 
     deleteArtist, 
     searchQuery,
-    setActiveModule 
+    setActiveModule,
+    activeWorkspace
   } = useApp();
 
-  const [selectedArtistId, setSelectedArtistId] = useState<string | null>(artists[0]?.id || null);
+  const workspaceArtists = artists.filter(a => a.workspaceId === activeWorkspace.id);
+  const workspaceReleases = releases.filter(r => r.workspaceId === activeWorkspace.id);
+
+  const [selectedArtistId, setSelectedArtistId] = useState<string | null>(workspaceArtists[0]?.id || null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingArtist, setEditingArtist] = useState<Artist | null>(null);
 
@@ -44,9 +48,9 @@ export const ArtistManagement: React.FC = () => {
   const [status, setStatus] = useState<Artist['status']>('Active');
   const [avatarUrl, setAvatarUrl] = useState('');
 
-  const selectedArtist = artists.find(a => a.id === selectedArtistId) || artists[0];
+  const selectedArtist = workspaceArtists.find(a => a.id === selectedArtistId) || workspaceArtists[0];
 
-  const filteredArtists = artists.filter(artist => {
+  const filteredArtists = workspaceArtists.filter(artist => {
     const matchesSearch = searchQuery === '' || 
       artist.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       artist.genre.toLowerCase().includes(searchQuery.toLowerCase());
@@ -54,11 +58,12 @@ export const ArtistManagement: React.FC = () => {
   });
 
   const openAddModal = () => {
+    const isLyrical = activeWorkspace.id === 'ws-lyrical-ent' || activeWorkspace.name.toUpperCase() === 'LYRICAL ENT';
     setEditingArtist(null);
     setName('');
     setGenre('Neo-Soul / Alternative R&B');
     setBio('');
-    setEmail('management@lyricalent.com');
+    setEmail(isLyrical ? 'management@lyricalent.com' : `mgmt@${activeWorkspace.name.toLowerCase().replace(/\s+/g, '')}.com`);
     setStatus('Active');
     setAvatarUrl('');
     setIsModalOpen(true);
@@ -93,12 +98,12 @@ export const ArtistManagement: React.FC = () => {
         name,
         moniker: name.toUpperCase(),
         genre,
-        bio: bio || 'Artist roster profile managed under LYRICAL ENT development program.',
+        bio: bio || `Artist roster profile managed under ${activeWorkspace.name} development program.`,
         email,
         status,
         avatarUrl: avatarUrl || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
-        careerGoals: 'Produce and release projects under LYRICAL ENT',
-        developmentNotes: 'Active label roster artist',
+        careerGoals: `Produce and release projects under ${activeWorkspace.name}`,
+        developmentNotes: `Active ${activeWorkspace.name} roster artist`,
         projectHistory: [],
         releaseIds: [],
         isConfidential: false
@@ -118,14 +123,14 @@ export const ArtistManagement: React.FC = () => {
     if (confirm(`Remove ${name} from label roster?`)) {
       deleteArtist(id);
       if (selectedArtistId === id) {
-        setSelectedArtistId(artists.filter(a => a.id !== id)[0]?.id || null);
+        setSelectedArtistId(workspaceArtists.filter(a => a.id !== id)[0]?.id || null);
       }
     }
   };
 
   // Associated releases for selected artist
   const artistReleases = selectedArtist 
-    ? releases.filter(r => r.artistId === selectedArtist.id || r.artistName.toLowerCase() === selectedArtist.name.toLowerCase()) 
+    ? workspaceReleases.filter(r => r.artistId === selectedArtist.id || r.artistName.toLowerCase() === selectedArtist.name.toLowerCase()) 
     : [];
 
   return (
@@ -156,11 +161,11 @@ export const ArtistManagement: React.FC = () => {
         </button>
       </div>
 
-      {artists.length === 0 ? (
+      {workspaceArtists.length === 0 ? (
         <EmptyState
           icon={Users}
           title="No Artists on Roster"
-          description="Add your first recording artist or development talent to the roster."
+          description={`Add your first recording artist or development talent to the ${activeWorkspace.name} roster.`}
           actionLabel="Add First Artist"
           onAction={openAddModal}
         />
@@ -176,7 +181,7 @@ export const ArtistManagement: React.FC = () => {
             <div className="space-y-2.5">
               {filteredArtists.map(artist => {
                 const isSelected = artist.id === selectedArtist?.id;
-                const relCount = releases.filter(r => r.artistId === artist.id || r.artistName.toLowerCase() === artist.name.toLowerCase()).length;
+                const relCount = workspaceReleases.filter(r => r.artistId === artist.id || r.artistName.toLowerCase() === artist.name.toLowerCase()).length;
 
                 return (
                   <div

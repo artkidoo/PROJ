@@ -398,6 +398,91 @@ export function getRawSvgString(
   }
 }
 
+// --------------------------------------------------------------------------
+// KEEDOHUB — PLATFORM BRANDING
+// --------------------------------------------------------------------------
+
+/**
+ * KEEDOHUB Primary Platform Logo
+ * Red and Black Professional Creative Agency Brand
+ */
+export const KeedohubLogo: React.FC<{
+  height?: number;
+  className?: string;
+  theme?: 'dark' | 'light';
+}> = ({ height = 32, className = '', theme = 'dark' }) => {
+  const red = '#FF1E1E';
+  const text = theme === 'dark' ? '#FFFFFF' : '#000000';
+  const width = height * 4.5;
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 180 40"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`select-none shrink-0 ${className}`}
+      aria-label="KEEDOHUB Platform Logo"
+    >
+      <text
+        x="0"
+        y="30"
+        fontFamily="'Plus Jakarta Sans', -apple-system, sans-serif"
+        fontSize="24"
+        fontWeight="900"
+        letterSpacing="-0.04em"
+      >
+        <tspan fill={text}>KEEDO</tspan>
+        <tspan fill={red}>HUB</tspan>
+      </text>
+      
+      {/* Platform Indicator */}
+      <rect x="0" y="34" width="100%" height="2" fill={red} fillOpacity="0.2" />
+    </svg>
+  );
+};
+
+/**
+ * WorkspaceLogo Component
+ * Dynamically switches between LYRICAL ENT and other customer brands
+ */
+export const WorkspaceLogo: React.FC<{
+  workspaceId: string;
+  workspaceName: string;
+  height?: number;
+  className?: string;
+  theme?: LogoTheme;
+}> = ({ workspaceId, workspaceName, height = 36, className = '', theme = 'monochrome-white' }) => {
+  // If it's the legacy Lyrical Ent workspace, use its specific identity
+  if (workspaceId === 'ws-lyrical-ent' || workspaceName.toUpperCase() === 'LYRICAL ENT') {
+    return <LyricalHorizontalLogo height={height} className={className} theme={theme} showDescriptor={true} />;
+  }
+
+  // Fallback for other workspaces: Generic but professional typographic logo
+  const isLight = theme === 'light' || theme === 'monochrome-black';
+  const textColor = isLight ? '#000000' : '#FFFFFF';
+  
+  return (
+    <div className={`flex items-center gap-3 ${className}`} style={{ height }}>
+      <div 
+        className="h-full aspect-square flex items-center justify-center font-black border-2"
+        style={{ borderColor: textColor, color: textColor, fontSize: height * 0.5 }}
+      >
+        {workspaceName.slice(0, 1).toUpperCase()}
+      </div>
+      <div className="flex flex-col justify-center leading-none">
+        <span className="font-bold tracking-tighter uppercase" style={{ color: textColor, fontSize: height * 0.45 }}>
+          {workspaceName}
+        </span>
+        <span className="text-[8px] font-mono tracking-[0.3em] uppercase opacity-50" style={{ color: textColor }}>
+          WORKSPACE
+        </span>
+      </div>
+    </div>
+  );
+};
+
 /**
  * Real download utility: triggers client-side file download of SVG file
  */
@@ -413,6 +498,7 @@ export function triggerSvgDownload(
   anchor.href = url;
   anchor.download = filename || `lyrical_ent_${type}_${theme}.svg`;
   anchor.click();
+  anchor.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -447,6 +533,7 @@ export function triggerPngDownload(
           anchor.href = pngUrl;
           anchor.download = filename || `lyrical_ent_${type}_${theme}_${canvas.width}x${canvas.height}.png`;
           anchor.click();
+          anchor.remove();
           URL.revokeObjectURL(pngUrl);
         }
       }, 'image/png');

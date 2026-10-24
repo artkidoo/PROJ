@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { LyricalMonogram, LyricalPrimaryLogo, LyricalHorizontalLogo } from '../brand/LogoSystem';
+import { WorkspaceLogo } from '../brand/LogoSystem';
 import { 
   LyricalLogoConcept, 
   LogoConceptId, 
@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 
 export const BusinessCardDesigner: React.FC = () => {
-  const { currentRole } = useApp();
+  const { currentRole, activeWorkspace } = useApp();
 
   const [template, setTemplate] = useState<BusinessCardTemplateId>('executive_black');
   const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
@@ -38,17 +38,20 @@ export const BusinessCardDesigner: React.FC = () => {
   const [cardLogoConcept, setCardLogoConcept] = useState<LogoConceptId>('classic');
   const [cardOrnament, setCardOrnament] = useState<'corner_brackets' | 'waveform' | 'studio_mic' | 'none'>('corner_brackets');
 
+  const wsName = activeWorkspace.name;
+  const wsDomain = wsName.toLowerCase().replace(/\s+/g, '') + '.com';
+
   // Form Fields
   const [formData, setFormData] = useState<BusinessCardData>({
     fullName: 'Ojo Abdulkareem',
     position: 'Managing Director & Head of Label',
     department: 'Executive Operations & A&R',
     phone: '+44 (0) 20 7946 0921',
-    email: 'kareem@lyricalent.com',
-    website: 'www.lyricalent.com',
-    socialHandle: '@lyricalent',
+    email: `kareem@${wsDomain}`,
+    website: `www.${wsDomain}`,
+    socialHandle: `@${wsName.toLowerCase().replace(/\s+/g, '')}`,
     showQr: true,
-    qrContent: 'https://www.lyricalent.com'
+    qrContent: `https://www.${wsDomain}`
   });
 
   const cardRef = useRef<HTMLDivElement>(null);
@@ -90,7 +93,7 @@ export const BusinessCardDesigner: React.FC = () => {
         // Top Brand text
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 36px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LYRICAL ENT', 80, 130);
+        ctx.fillText(wsName.toUpperCase(), 80, 130);
 
         ctx.fillStyle = '#888888';
         ctx.font = '500 16px "JetBrains Mono", monospace';
@@ -125,7 +128,7 @@ export const BusinessCardDesigner: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 50px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LE', 933, 150);
+        ctx.fillText(wsName.substring(0, 2).toUpperCase(), 933, 150);
 
       } else if (template === 'white_minimal') {
         // Pure White background
@@ -140,7 +143,7 @@ export const BusinessCardDesigner: React.FC = () => {
         // Brand
         ctx.fillStyle = '#000000';
         ctx.font = 'bold 34px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LYRICAL ENT', 90, 140);
+        ctx.fillText(wsName.toUpperCase(), 90, 140);
 
         ctx.fillStyle = '#666666';
         ctx.font = '500 15px "JetBrains Mono", monospace';
@@ -174,7 +177,7 @@ export const BusinessCardDesigner: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 46px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LE', 918, 153);
+        ctx.fillText(wsName.substring(0, 2).toUpperCase(), 918, 153);
 
       } else { // monogram_signature
         // Dual tone
@@ -193,11 +196,11 @@ export const BusinessCardDesigner: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 64px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LE', 150, 225);
+        ctx.fillText(wsName.substring(0, 2).toUpperCase(), 150, 225);
 
         ctx.font = 'bold 16px "JetBrains Mono", monospace';
-        ctx.fillText('LYRICAL', 150, 330);
-        ctx.fillText('STUDIO', 150, 355);
+        ctx.fillText(wsName.split(' ')[0].toUpperCase(), 150, 330);
+        ctx.fillText(wsName.split(' ')[1]?.toUpperCase() || 'STUDIO', 150, 355);
 
         // Main content
         ctx.textAlign = 'left';
@@ -252,10 +255,10 @@ export const BusinessCardDesigner: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 84px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LE', canvas.width / 2, canvas.height / 2 + 28);
+        ctx.fillText(wsName.substring(0, 2).toUpperCase(), canvas.width / 2, canvas.height / 2 + 28);
 
         ctx.font = 'bold 22px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LYRICAL ENT', canvas.width / 2, canvas.height - 90);
+        ctx.fillText(wsName.toUpperCase(), canvas.width / 2, canvas.height - 90);
 
         ctx.fillStyle = '#888888';
         ctx.font = '500 14px "JetBrains Mono", monospace';
@@ -271,15 +274,15 @@ export const BusinessCardDesigner: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 96px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LE', canvas.width / 2, canvas.height / 2 - 5);
+        ctx.fillText(wsName.substring(0, 2).toUpperCase(), canvas.width / 2, canvas.height / 2 - 5);
 
         ctx.fillStyle = '#000000';
         ctx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LYRICAL ENT', canvas.width / 2, canvas.height / 2 + 120);
+        ctx.fillText(wsName.toUpperCase(), canvas.width / 2, canvas.height / 2 + 120);
 
         ctx.fillStyle = '#777777';
         ctx.font = '500 15px "JetBrains Mono", monospace';
-        ctx.fillText('www.lyricalent.com', canvas.width / 2, canvas.height / 2 + 155);
+        ctx.fillText(`www.${wsDomain}`, canvas.width / 2, canvas.height / 2 + 155);
 
       } else { // monogram_signature
         ctx.fillStyle = '#0A0A0A';
@@ -289,12 +292,12 @@ export const BusinessCardDesigner: React.FC = () => {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#141414';
         ctx.font = 'bold 360px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LE', canvas.width / 2, canvas.height / 2 + 120);
+        ctx.fillText(wsName.substring(0, 2).toUpperCase(), canvas.width / 2, canvas.height / 2 + 120);
 
         // Foreground
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 32px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText('LYRICAL ENT', canvas.width / 2, canvas.height / 2 - 20);
+        ctx.fillText(wsName.toUpperCase(), canvas.width / 2, canvas.height / 2 - 20);
 
         ctx.fillStyle = '#AAAAAA';
         ctx.font = '500 16px "JetBrains Mono", monospace';
@@ -303,7 +306,8 @@ export const BusinessCardDesigner: React.FC = () => {
     }
 
     const a = document.createElement('a');
-    a.download = `LYRICAL_CARD_${template}_${side.toUpperCase()}_${formData.fullName.replace(/[^a-z0-9]/gi, '_')}.png`;
+    const wsSlug = wsName.toLowerCase().replace(/[^a-z0-9]/gi, '_');
+    a.download = `${wsSlug.toUpperCase()}_CARD_${template}_${side.toUpperCase()}_${formData.fullName.replace(/[^a-z0-9]/gi, '_')}.png`;
     a.href = canvas.toDataURL('image/png');
     a.click();
   };
@@ -598,7 +602,7 @@ export const BusinessCardDesigner: React.FC = () => {
                       {/* Top Brand */}
                       <div className="flex items-start justify-between border-b border-[#222222] pb-3">
                         <div>
-                          <div className="text-base font-extrabold tracking-widest text-white">LYRICAL ENT</div>
+                          <div className="text-base font-extrabold tracking-widest text-white uppercase">{wsName}</div>
                           <div className="text-[8px] font-mono text-neutral-400 uppercase tracking-wider">
                             Record Label &amp; Production Lab
                           </div>
@@ -634,7 +638,7 @@ export const BusinessCardDesigner: React.FC = () => {
                       {/* Top Brand */}
                       <div className="flex items-start justify-between">
                         <div>
-                          <div className="text-base font-extrabold tracking-widest text-black">LYRICAL ENT</div>
+                          <div className="text-base font-extrabold tracking-widest text-black uppercase">{wsName}</div>
                           <div className="text-[8px] font-mono text-neutral-600 uppercase tracking-wider">
                             Record Label &amp; Studio
                           </div>
@@ -669,9 +673,14 @@ export const BusinessCardDesigner: React.FC = () => {
                     <div className="w-full h-full flex">
                       {/* Left Stark Band */}
                       <div className="w-24 bg-black border-r border-[#262626] -m-6 p-4 flex flex-col items-center justify-between">
-                        <LyricalMonogram size={40} framed={true} theme="monochrome-white" />
-                        <div className="text-[8px] font-mono font-bold tracking-widest text-white rotate-180 [writing-mode:vertical-rl]">
-                          LYRICAL STUDIO
+                        <WorkspaceLogo 
+                          workspaceId={activeWorkspace.id} 
+                          workspaceName={activeWorkspace.name} 
+                          height={40} 
+                          theme="monochrome-white" 
+                        />
+                        <div className="text-[8px] font-mono font-bold tracking-widest text-white rotate-180 [writing-mode:vertical-rl] uppercase">
+                          {wsName}
                         </div>
                       </div>
 
@@ -708,10 +717,15 @@ export const BusinessCardDesigner: React.FC = () => {
                       </div>
 
                       <div className="relative z-10 flex flex-col items-center text-center">
-                        <LyricalMonogram size={56} framed={true} theme="monochrome-white" />
-                        <div className="mt-3 text-sm font-extrabold tracking-widest text-white">LYRICAL ENT</div>
+                        <WorkspaceLogo 
+                          workspaceId={activeWorkspace.id} 
+                          workspaceName={activeWorkspace.name} 
+                          height={50} 
+                          theme="monochrome-white" 
+                        />
+                        <div className="mt-3 text-sm font-extrabold tracking-widest text-white uppercase">{wsName}</div>
                         <div className="text-[8px] font-mono text-neutral-500 tracking-wider uppercase mt-0.5">
-                          London · Los Angeles · Entertainment Group
+                          Professional Creative Studio Operations
                         </div>
                       </div>
                     </>
@@ -719,21 +733,21 @@ export const BusinessCardDesigner: React.FC = () => {
 
                   {template === 'white_minimal' && (
                     <div className="w-full h-full border border-black p-4 flex flex-col items-center justify-center text-center">
-                      <div className="w-14 h-14 bg-black text-white flex items-center justify-center font-bold text-2xl font-mono mb-2">
-                        LE
+                      <div className="w-14 h-14 bg-black text-white flex items-center justify-center font-bold text-2xl font-mono mb-2 uppercase">
+                        {wsName.substring(0, 2)}
                       </div>
-                      <div className="text-sm font-extrabold tracking-widest text-black">LYRICAL ENT</div>
-                      <div className="text-[9px] font-mono text-neutral-600 mt-1">www.lyricalent.com</div>
+                      <div className="text-sm font-extrabold tracking-widest text-black uppercase">{wsName}</div>
+                      <div className="text-[9px] font-mono text-neutral-600 mt-1">{wsDomain}</div>
                     </div>
                   )}
 
                   {template === 'monogram_signature' && (
                     <div className="relative w-full h-full flex flex-col items-center justify-center">
-                      <div className="absolute text-7xl font-black text-neutral-800/40 select-none pointer-events-none">
-                        LE
+                      <div className="absolute text-7xl font-black text-neutral-800/40 select-none pointer-events-none uppercase">
+                        {wsName.substring(0, 2)}
                       </div>
                       <div className="relative z-10 text-center">
-                        <div className="text-sm font-extrabold tracking-widest text-white">LYRICAL ENT</div>
+                        <div className="text-sm font-extrabold tracking-widest text-white uppercase">{wsName}</div>
                         <div className="text-[8px] font-mono text-neutral-400 mt-1 uppercase tracking-widest">
                           Artist Development &amp; Sound Architecture
                         </div>

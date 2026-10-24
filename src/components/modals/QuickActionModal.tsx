@@ -17,8 +17,12 @@ export const QuickActionModal: React.FC = () => {
     addDocument,
     addCampaign,
     addTask,
-    currentRole
+    currentRole,
+    activeWorkspace,
+    currentUser
   } = useApp();
+
+  const workspaceArtists = artists.filter(a => a.workspaceId === activeWorkspace.id);
 
   const [activeTab, setActiveTab] = useState<'release' | 'artist' | 'document' | 'campaign' | 'task' | 'releaseProject'>('release');
 
@@ -98,20 +102,20 @@ export const QuickActionModal: React.FC = () => {
   const handleSubmitRelease = (e: React.FormEvent) => {
     e.preventDefault();
     if (!releaseTitle || !releaseArtistId || !releaseDate) return;
-    const selectedArtist = artists.find(a => a.id === releaseArtistId);
+    const selectedArtist = workspaceArtists.find(a => a.id === releaseArtistId);
 
     addRelease({
       title: releaseTitle,
       type: releaseType,
       artistId: releaseArtistId,
       artistName: selectedArtist?.name || 'Unknown Artist',
-      producer: producer || 'LYRICAL ENT Production Lab',
-      songwriters: songwriters || selectedArtist?.name || 'LYRICAL ENT',
-      credits: `Produced by ${producer || 'LYRICAL ENT'}. Executive Producer: LYRICAL ENT LLC.`,
+      producer: producer || `${activeWorkspace.name} Production Lab`,
+      songwriters: songwriters || selectedArtist?.name || activeWorkspace.name,
+      credits: `Produced by ${producer || activeWorkspace.name}. Executive Producer: ${activeWorkspace.name} LLC.`,
       plannedReleaseDate: releaseDate,
       distributionStatus: 'Planning',
-      isrc: isrc || `US-LYR-${new Date().getFullYear().toString().slice(-2)}-${Math.floor(10000 + Math.random() * 90000)}`,
-      rightsInfo: `(P) & (C) ${new Date().getFullYear()} LYRICAL ENT LLC. All rights reserved.`,
+      isrc: isrc || `US-${activeWorkspace.name.slice(0, 3).toUpperCase()}-${new Date().getFullYear().toString().slice(-2)}-${Math.floor(10000 + Math.random() * 90000)}`,
+      rightsInfo: `(P) & (C) ${new Date().getFullYear()} ${activeWorkspace.name} LLC. All rights reserved.`,
       releaseNotes: 'Created via Quick Action studio intake.',
       marketingAssetsCount: 0,
       checklist: {
@@ -136,8 +140,8 @@ export const QuickActionModal: React.FC = () => {
       name: artistName,
       moniker: moniker || artistName.toUpperCase(),
       genre,
-      bio: bio || 'Artist roster profile managed under LYRICAL ENT development program.',
-      email: email || 'management@lyricalent.com',
+      bio: bio || `Artist roster profile managed under ${activeWorkspace.name} development program.`,
+      email: email || `management@${activeWorkspace.name.toLowerCase().replace(' ', '')}.com`,
       status: 'Development',
       careerGoals: careerGoals || 'Build core audience and produce debut project.',
       developmentNotes: 'Initial onboarding assessment recorded.',
@@ -160,10 +164,10 @@ export const QuickActionModal: React.FC = () => {
       date: new Date().toISOString().split('T')[0],
       recipientName,
       recipientOrg,
-      authorName: 'Ojo Abdulkareem',
+      authorName: currentUser.name,
       authorRole: currentRole,
       status: 'Draft',
-      bodyContent: docBody || 'Official corporate record drafted in LYRICAL ENT Studio.',
+      bodyContent: docBody || `Official corporate record drafted in ${activeWorkspace.name} Studio.`,
       items: docType === 'invoice' || docType === 'quotation' ? [
         { description: 'Master Recording & Production Services', quantity: 1, unitPrice: 2500, total: 2500 }
       ] : undefined
@@ -175,7 +179,7 @@ export const QuickActionModal: React.FC = () => {
   const handleSubmitCampaign = (e: React.FormEvent) => {
     e.preventDefault();
     if (!campaignTitle || !campaignArtistId || !campaignLaunchDate) return;
-    const selectedArtist = artists.find(a => a.id === campaignArtistId);
+    const selectedArtist = workspaceArtists.find(a => a.id === campaignArtistId);
 
     addCampaign({
       title: campaignTitle,
@@ -185,7 +189,7 @@ export const QuickActionModal: React.FC = () => {
       budget: Number(campaignBudget) || 5000,
       status: 'Planning',
       launchDate: campaignLaunchDate,
-      notes: campaignNotes || 'Campaign brief generated in LYRICAL Studio.',
+      notes: campaignNotes || `Campaign brief generated in ${activeWorkspace.name} Studio.`,
       deliverables: [
         {
           id: `del-${Date.now()}-1`,
@@ -228,7 +232,7 @@ export const QuickActionModal: React.FC = () => {
       isOpen={isQuickActionOpen}
       onClose={handleClose}
       title="Create Workspace Record"
-      subtitle="LYRICAL ENT studio intake and record generation"
+      subtitle={`${activeWorkspace.name} studio intake and record generation`}
       maxWidth="2xl"
     >
       {/* Tab Switcher (Functional buttons, anti-pill segmented control) */}
@@ -342,7 +346,7 @@ export const QuickActionModal: React.FC = () => {
                 className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 cursor-pointer"
               >
                 <option value="">Select roster artist...</option>
-                {artists.map(a => (
+                {workspaceArtists.map(a => (
                   <option key={a.id} value={a.id}>{a.name} ({a.genre})</option>
                 ))}
               </select>
@@ -609,7 +613,7 @@ export const QuickActionModal: React.FC = () => {
                 className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 cursor-pointer"
               >
                 <option value="">Select artist...</option>
-                {artists.map(a => (
+                {workspaceArtists.map(a => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>

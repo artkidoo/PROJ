@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Platform Level Admin check (verified against database document)
+    function isPlatformAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Verified Workspace Ownership (Fail-safe existence check)
+    function isWorkspaceOwner(workspaceId) {
+      return isSignedIn() && (
+        (
+          exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+        ) ||
+        isPlatformAdmin()
+      );
+    }
+
+    // Verified Workspace Membership (Strict Active Status Validation)
+    function isWorkspaceMember(workspaceId) {
+      return isSignedIn() && (
+        (
+          exists(/databases/$(database)/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)).data.status == 'Active'
+        ) ||
+        isWorkspaceOwner(workspaceId)
+      );
+    }
+
+    // Default Deny Everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Platform Admin Roles Collection (System Protected)
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && request.auth.uid == adminId;
+      allow write: if false; // Only server/console can assign platform admin
+    }
+
+    // Platform User Profiles (Privacy Protected)
+    match /users/{userId} {
+      // Private profiles readable only by account owner or verified platform admin
+      allow read: if isOwner(userId) || isPlatformAdmin();
+      
+      // Prevent users from self-assigning privileged roles or admin status upon creation
+      allow create: if isOwner(userId) && 
+        (!request.resource.data.keys().hasAny(['role', 'isAdmin', 'isPlatformAdmin'])) &&
+        request.resource.data.uid == userId;
+        
+      // Prevent users from modifying their own privileged roles or admin status during profile updates
+      allow update: if isOwner(userId) && 
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isPlatformAdmin']));
+        
+      allow delete: if isPlatformAdmin();
+    }
+
+    // Workspaces Container
+    match /workspaces/{workspaceId} {
+      // Users can only read workspace metadata if they are an owner or active member
+      allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      
+      // Users can create a workspace setting themselves as owner
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid && isValidId(workspaceId);
+      
+      // Only workspace owner or platform admin can update or delete workspace settings
+      allow update, delete: if isWorkspaceOwner(workspaceId);
+
+      // Memberships Subcollection (Strict RBAC & Status Controls)
+      match /memberships/{membershipId} {
+        // Active members can view workspace team roster
+        allow read: if isWorkspaceMember(workspaceId);
+        // Only workspace owner or admin can invite/modify memberships; users cannot self-assign
+        allow create, update, delete: if isWorkspaceOwner(workspaceId);
+      }
+
+      // Workspace Owned Subcollections (Active Membership Required)
+      match /artists/{artistId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /releases/{releaseId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /campaigns/{campaignId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /documents/{documentId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /brandAssets/{assetId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /tasks/{taskId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /pressReleases/{pressId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /mediaContacts/{contactId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /campaignDesigns/{designId} { allow read, write: if isWorkspaceMember(workspaceId); }
+    }
+  }
+}

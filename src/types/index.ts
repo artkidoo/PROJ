@@ -28,8 +28,67 @@ export type AppModule =
   | 'operations'
   | 'export';
 
+/**
+ * KEEDOHUB — Platform Foundation Types
+ */
+
+export type UserStatus = 'Active' | 'Suspended' | 'Pending';
+export type MembershipStatus = 'Active' | 'Invited' | 'Revoked';
+export type WorkspaceRole = 'Owner' | 'Admin' | 'Member' | 'Guest';
+
+export interface PlatformUser {
+  id: string;
+  name: string;
+  email: string;
+  status: UserStatus;
+  avatarUrl?: string;
+  createdAt: string;
+}
+
+export interface WorkspaceBrand {
+  name: string;
+  logoUrl?: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor?: string;
+  typography?: {
+    displayFont?: string;
+    bodyFont?: string;
+  };
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  type: 'Label' | 'Agency' | 'Personal' | 'Enterprise';
+  brand: WorkspaceBrand;
+  ownerId: string;
+  createdAt: string;
+}
+
+export interface WorkspaceMembership {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  role: WorkspaceRole;
+  status: MembershipStatus;
+  joinedAt: string;
+}
+
+export interface CreativeProject {
+  id: string;
+  workspaceId: string;
+  name: string;
+  type: string;
+  status: 'Draft' | 'Active' | 'Paused' | 'Completed';
+  assignedTo?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Artist {
   id: string;
+  workspaceId?: string; // Multi-tenancy support
   name: string;
   moniker?: string;
   legalName?: string;
@@ -74,6 +133,7 @@ export interface ReleaseChecklist {
 
 export interface MusicRelease {
   id: string;
+  workspaceId?: string;
   title: string;
   type: ReleaseType;
   artistId: string;
@@ -110,6 +170,7 @@ export interface CampaignDeliverable {
 
 export interface CreativeCampaign {
   id: string;
+  workspaceId?: string;
   title: string;
   releaseId?: string;
   releaseTitle?: string;
@@ -153,6 +214,7 @@ export interface DocumentItem {
 
 export interface CorporateDocument {
   id: string;
+  workspaceId?: string;
   type: DocumentType;
   title: string;
   referenceNo: string;
@@ -176,6 +238,7 @@ export interface CorporateDocument {
 
 export interface BrandAsset {
   id: string;
+  workspaceId?: string;
   name: string;
   category: 'Primary Logo' | 'Secondary Logo' | 'Monogram' | 'Icon' | 'Favicon' | 'Typography' | 'Palette' | 'Guideline';
   fileType: 'SVG' | 'PNG' | 'PDF' | 'JSON';
@@ -192,6 +255,7 @@ export interface BrandAsset {
 
 export interface OperationTask {
   id: string;
+  workspaceId?: string;
   title: string;
   category: 'A&R' | 'Creative' | 'Legal' | 'Distribution' | 'Marketing' | 'Executive';
   priority: 'Urgent' | 'High' | 'Normal' | 'Low';
@@ -216,6 +280,7 @@ export interface ActivityLog {
 
 export interface PressRelease {
   id: string;
+  workspaceId?: string;
   title: string;
   subtitle: string;
   date: string;
@@ -232,6 +297,7 @@ export interface PressRelease {
 
 export interface MediaContact {
   id: string;
+  workspaceId?: string;
   outlet: string;
   contactName: string;
   role: string;

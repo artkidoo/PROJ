@@ -1,7 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { AppModule } from '../../types';
-import { LyricalMonogram } from '../brand/LogoSystem';
+import { KeedohubLogo, WorkspaceLogo } from '../brand/LogoSystem';
 import { 
   LayoutDashboard, 
   Layers, 
@@ -22,7 +22,9 @@ import {
   CreditCard,
   RefreshCw,
   Trash2,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  Building2
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -46,17 +48,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
     documents, 
     tasks,
     resetToSampleData,
-    clearAllData
+    clearAllData,
+    activeWorkspace,
+    workspaces,
+    switchWorkspace
   } = useApp();
 
-  const pendingTasks = tasks.filter(t => t.status !== 'Done').length;
-  const pendingDocs = documents.filter(d => d.status === 'Under Review' || d.status === 'Draft').length;
+  const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
+
+  const pendingTasks = tasks.filter(t => t.status !== 'Done' && t.workspaceId === activeWorkspace.id).length;
+  const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;
 
   const NAV_ITEMS: NavItem[] = [
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
     { id: 'brand', label: 'Brand Identity', icon: Layers },
-    { id: 'artists', label: 'Artist Roster', icon: Users, badgeCount: artists.length },
-    { id: 'releases', label: 'Music Releases', icon: Disc3, badgeCount: releases.length },
+    { id: 'artists', label: 'Artist Roster', icon: Users, badgeCount: artists.filter(a => a.workspaceId === activeWorkspace.id).length },
+    { id: 'releases', label: 'Music Releases', icon: Disc3, badgeCount: releases.filter(r => r.workspaceId === activeWorkspace.id).length },
     { id: 'campaigns', label: 'Campaign Studio', icon: Megaphone },
     { id: 'templates', label: 'Creative Templates', icon: Sparkles },
     { id: 'celebration', label: 'Celebration Calendar', icon: Calendar },
@@ -94,15 +101,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Brand Header */}
-        <div className="h-16 px-5 border-b border-[#1B1B1B] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* Official LE Monogram Mark */}
-            <LyricalMonogram size={32} framed={true} theme="monochrome-white" />
-            <div className="flex flex-col">
-              <span className="font-bold tracking-widest text-sm text-white font-mono leading-none">LYRICAL ENT</span>
-              <span className="text-[10px] tracking-wider text-neutral-400 font-mono mt-1">BRAND &amp; LABEL STUDIO</span>
-            </div>
+        {/* Keedohub Platform Header */}
+        <div className="px-5 py-4 border-b border-[#1B1B1B]">
+          <KeedohubLogo height={24} theme="dark" />
+        </div>
+ 
+        {/* Workspace Selector */}
+        <div className="px-3 py-4 border-b border-[#1B1B1B] bg-[#0A0A0A]">
+          <div className="relative">
+            <button 
+              onClick={() => setWorkspaceOpen(!workspaceOpen)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[#141414] hover:bg-[#1A1A1A] border border-[#222222] transition-colors group"
+            >
+              <WorkspaceLogo 
+                workspaceId={activeWorkspace.id} 
+                workspaceName={activeWorkspace.name} 
+                height={28} 
+                theme="monochrome-white" 
+              />
+              <ChevronDown size={14} className={`ml-auto text-neutral-500 transition-transform ${workspaceOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {workspaceOpen && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-[#141414] border border-[#222222] rounded-lg shadow-2xl z-50 overflow-hidden">
+                <div className="p-2 border-b border-[#222222] bg-[#0D0D0D]">
+                  <span className="text-[9px] font-mono text-neutral-500 uppercase px-2">Your Workspaces</span>
+                </div>
+                {workspaces.map(ws => (
+                  <button
+                    key={ws.id}
+                    onClick={() => {
+                      switchWorkspace(ws.id);
+                      setWorkspaceOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2 text-xs transition-colors hover:bg-[#1A1A1A] ${
+                      activeWorkspace.id === ws.id ? 'bg-[#1A1A1A] text-white' : 'text-neutral-400'
+                    }`}
+                  >
+                    <Building2 size={14} />
+                    <span className="truncate">{ws.name}</span>
+                    {activeWorkspace.id === ws.id && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#FF1E1E]" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { EmptyState } from '../common/EmptyState';
-import { LyricalHorizontalLogo } from '../brand/LogoSystem';
+import { WorkspaceLogo } from '../brand/LogoSystem';
 import { 
   Users, 
   Disc3, 
@@ -29,28 +29,36 @@ export const OverviewDashboard: React.FC = () => {
     activities, 
     openQuickAction, 
     setActiveModule,
-    resetToSampleData 
+    resetToSampleData,
+    activeWorkspace
   } = useApp();
 
-  // Calculate live operational metrics (zero fabricated statistics)
-  const totalArtists = artists.length;
-  const activeProjects = releases.filter(r => r.distributionStatus !== 'Live').length;
-  const upcomingReleases = releases.filter(r => {
+  // Filter data by active workspace
+  const workspaceArtists = artists.filter(a => a.workspaceId === activeWorkspace.id);
+  const workspaceReleases = releases.filter(r => r.workspaceId === activeWorkspace.id);
+  const workspaceCampaigns = campaigns.filter(c => c.workspaceId === activeWorkspace.id);
+  const workspaceDocuments = documents.filter(d => d.workspaceId === activeWorkspace.id);
+  const workspaceTasks = tasks.filter(t => t.workspaceId === activeWorkspace.id);
+
+  // Calculate live operational metrics
+  const totalArtists = workspaceArtists.length;
+  const activeProjects = workspaceReleases.filter(r => r.distributionStatus !== 'Live').length;
+  const upcomingReleases = workspaceReleases.filter(r => {
     if (r.distributionStatus === 'Live') return false;
     const releaseDate = new Date(r.plannedReleaseDate);
     const now = new Date();
     return releaseDate >= now;
   }).length;
   
-  const pendingApprovals = releases.filter(r => !r.checklist.artworkApproved || !r.checklist.splitSheetSigned || r.distributionStatus === 'Metadata Verification').length;
-  const documentsAwaitingReview = documents.filter(d => d.status === 'Under Review' || d.status === 'Draft').length;
-  const activeCampaigns = campaigns.filter(c => c.status === 'Active' || c.status === 'In Production' || c.status === 'In Review').length;
+  const pendingApprovals = workspaceReleases.filter(r => !r.checklist.artworkApproved || !r.checklist.splitSheetSigned || r.distributionStatus === 'Metadata Verification').length;
+  const documentsAwaitingReview = workspaceDocuments.filter(d => d.status === 'Under Review' || d.status === 'Draft').length;
+  const activeCampaigns = workspaceCampaigns.filter(c => c.status === 'Active' || c.status === 'In Production' || c.status === 'In Review').length;
 
-  const hasData = totalArtists > 0 || releases.length > 0 || documents.length > 0;
+  const hasData = totalArtists > 0 || workspaceReleases.length > 0 || workspaceDocuments.length > 0;
 
   // Sorted upcoming deadlines from releases and tasks
   const projectDeadlines = [
-    ...releases.filter(r => r.distributionStatus !== 'Live').map(r => ({
+    ...workspaceReleases.filter(r => r.distributionStatus !== 'Live').map(r => ({
       id: r.id,
       title: `${r.title} (${r.type}) — Planned Release`,
       date: r.plannedReleaseDate,
@@ -58,7 +66,7 @@ export const OverviewDashboard: React.FC = () => {
       status: r.distributionStatus,
       targetModule: 'releases' as const
     })),
-    ...tasks.filter(t => t.status !== 'Done').map(t => ({
+    ...workspaceTasks.filter(t => t.status !== 'Done').map(t => ({
       id: t.id,
       title: t.title,
       date: t.dueDate,
@@ -72,9 +80,9 @@ export const OverviewDashboard: React.FC = () => {
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-white font-mono">WORKSPACE OVERVIEW</h2>
+          <h2 className="text-xl font-bold tracking-tight text-white font-mono">{activeWorkspace.name} OVERVIEW</h2>
           <p className="text-xs text-neutral-400 mt-1">
-            LYRICAL ENT central operational intelligence and label status
+            {activeWorkspace.name} central operational intelligence and status
           </p>
         </div>
 
@@ -99,10 +107,15 @@ export const OverviewDashboard: React.FC = () => {
           <div className="lg:col-span-7 p-6 sm:p-8 flex flex-col justify-between">
             <div>
               <div className="mb-3">
-                <LyricalHorizontalLogo height={32} theme="monochrome-white" showDescriptor={true} />
+                <WorkspaceLogo 
+                  workspaceId={activeWorkspace.id} 
+                  workspaceName={activeWorkspace.name} 
+                  height={32} 
+                  theme="monochrome-white" 
+                />
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white font-mono uppercase">
-                SONIC ARCHITECTURE &amp; LABEL OPERATIONS
+                {activeWorkspace.name} · STUDIO OPERATIONS
               </h1>
               <p className="text-xs sm:text-sm text-neutral-400 mt-2.5 max-w-xl leading-relaxed">
                 Centralized production studio for catalog metadata, artist development, corporate contracts, creative rollout campaigns, and global music distribution.
@@ -289,8 +302,8 @@ export const OverviewDashboard: React.FC = () => {
               </button>
             </div>
 
-            {releases.length === 0 ? (
-              <p className="text-xs text-neutral-500 py-6 text-center font-mono">No releases currently scheduled.</p>
+            {workspaceReleases.length === 0 ? (
+              <p className="text-xs text-neutral-500 py-6 text-center font-mono">No releases currently scheduled for this workspace.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
@@ -304,7 +317,7 @@ export const OverviewDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#161616]">
-                    {releases.map(release => {
+                    {workspaceReleases.map(release => {
                       // Calculate checklist readiness percentage
                       const checks = Object.values(release.checklist);
                       const completedChecks = checks.filter(Boolean).length;
@@ -364,7 +377,7 @@ export const OverviewDashboard: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {artists.slice(0, 3).map(artist => (
+              {workspaceArtists.slice(0, 3).map(artist => (
                 <div 
                   key={artist.id}
                   onClick={() => setActiveModule('artists')}

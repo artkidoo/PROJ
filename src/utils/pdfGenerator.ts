@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { CorporateDocument, BrandGuidelinesData } from '../types';
+import { CorporateDocument, BrandGuidelinesData, Workspace } from '../types';
 
 export interface BusinessCardData {
   fullName: string;
@@ -14,9 +14,9 @@ export interface BusinessCardData {
 }
 
 /**
- * Generates an A4 corporate document PDF with LYRICAL ENT branding
+ * Generates an A4 corporate document PDF with dynamic workspace branding
  */
-export const generateCorporateDocumentPdf = (doc: CorporateDocument): void => {
+export const generateCorporateDocumentPdf = (doc: CorporateDocument, workspace: Workspace): void => {
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -41,19 +41,19 @@ export const generateCorporateDocumentPdf = (doc: CorporateDocument): void => {
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(18);
   pdf.setTextColor(0, 0, 0);
-  pdf.text('LYRICAL ENT', margin, margin + 10);
+  pdf.text(workspace.name, margin, margin + 10);
 
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(8);
   pdf.setTextColor(100, 100, 100);
-  pdf.text('RECORD LABEL · PRODUCTION SOUND LAB · ARTIST MANAGEMENT', margin, margin + 15);
+  pdf.text('CREATIVE PRODUCTION · ASSET MANAGEMENT · BRAND ARCHITECTURE', margin, margin + 15);
 
   // Company location on right
   pdf.setFontSize(8);
   pdf.setTextColor(40, 40, 40);
-  pdf.text('LYRICAL ENT LLC', pageWidth - margin, margin + 8, { align: 'right' });
+  pdf.text(`${workspace.name} LLC`, pageWidth - margin, margin + 8, { align: 'right' });
   pdf.text('London · Los Angeles · Global Operations', pageWidth - margin, margin + 12, { align: 'right' });
-  pdf.text('contact@lyricalent.com · www.lyricalent.com', pageWidth - margin, margin + 16, { align: 'right' });
+  pdf.text(`${workspace.brand.name.toLowerCase().replace(/\s+/g, '')}@platform.com`, pageWidth - margin, margin + 16, { align: 'right' });
 
   // Metadata Strip
   let currentY = margin + 30;
@@ -257,7 +257,7 @@ export const generateCorporateDocumentPdf = (doc: CorporateDocument): void => {
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(8);
   pdf.setTextColor(90, 90, 90);
-  pdf.text(`${doc.authorRole || 'Managing Director'} · LYRICAL ENT LLC`, margin, footerY + 22);
+  pdf.text(`${doc.authorRole || 'Managing Director'} · ${workspace.name} LLC`, margin, footerY + 22);
 
   // Official Seal box on right
   pdf.setDrawColor(0, 0, 0);
@@ -267,24 +267,25 @@ export const generateCorporateDocumentPdf = (doc: CorporateDocument): void => {
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(10);
   pdf.setTextColor(0, 0, 0);
-  pdf.text('LE', pageWidth - margin - 16, footerY + 12, { align: 'center' });
+  const monogram = workspace.name.slice(0, 2).toUpperCase();
+  pdf.text(monogram, pageWidth - margin - 16, footerY + 12, { align: 'center' });
 
   pdf.setFont('courier', 'bold');
   pdf.setFontSize(5.5);
   pdf.text('OFFICIAL SEAL', pageWidth - margin - 16, footerY + 16, { align: 'center' });
   pdf.setFontSize(4.5);
   pdf.setTextColor(100, 100, 100);
-  pdf.text('CATALOG REGISTRY', pageWidth - margin - 16, footerY + 19, { align: 'center' });
+  pdf.text('PLATFORM REGISTRY', pageWidth - margin - 16, footerY + 19, { align: 'center' });
 
   // Page number footer
   pdf.setFont('courier', 'normal');
   pdf.setFontSize(6.5);
   pdf.setTextColor(130, 130, 130);
-  pdf.text('LYRICAL ENT LLC · 100% PRIVATE & CONFIDENTIAL · NOT FOR UNAUTHORIZED REDISTRIBUTION', margin, pageHeight - 8);
+  pdf.text(`${workspace.name} LLC · 100% PRIVATE & CONFIDENTIAL · SECURED VIA KEEDOHUB`, margin, pageHeight - 8);
   pdf.text('PAGE 1 OF 1', pageWidth - margin, pageHeight - 8, { align: 'right' });
 
   // Save PDF
-  const filename = `${doc.referenceNo || 'LYRICAL_ENT_DOC'}.pdf`;
+  const filename = `${doc.referenceNo || workspace.name.replace(/\s+/g, '_')}.pdf`;
   pdf.save(filename);
 };
 
@@ -623,7 +624,7 @@ function drawCropMarks(pdf: jsPDF, bleed: number, cardW: number, cardH: number) 
 /**
  * Generates official Brand Guidelines multi-page PDF
  */
-export const generateBrandGuidelinesPdf = (guidelines: BrandGuidelinesData): void => {
+export const generateBrandGuidelinesPdf = (guidelines: BrandGuidelinesData, workspace: Workspace): void => {
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -660,7 +661,7 @@ export const generateBrandGuidelinesPdf = (guidelines: BrandGuidelinesData): voi
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(28);
   pdf.setTextColor(255, 255, 255);
-  pdf.text('LYRICAL ENT', margin, margin + 110);
+  pdf.text(workspace.name, margin, margin + 110);
 
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(14);
@@ -687,8 +688,8 @@ export const generateBrandGuidelinesPdf = (guidelines: BrandGuidelinesData): voi
   pdf.setFont('courier', 'normal');
   pdf.setFontSize(7.5);
   pdf.setTextColor(140, 140, 140);
-  pdf.text('CONFIDENTIAL DOCUMENT · STRICTLY ENFORCED · LYRICAL ENT LLC', margin, pageHeight - margin);
-  pdf.text('ISSUED: 2026', pageWidth - margin, pageHeight - margin, { align: 'right' });
+  pdf.text(`CONFIDENTIAL DOCUMENT · ${workspace.name} · SECURED VIA KEEDOHUB`, margin, pageHeight - margin);
+  pdf.text(`ISSUED: ${new Date().getFullYear()}`, pageWidth - margin, pageHeight - margin, { align: 'right' });
 
   // --- PAGE 2: LOGO SYSTEM & CLEAR SPACE ---
   pdf.addPage('a4', 'portrait');
@@ -950,10 +951,10 @@ export const generateBrandGuidelinesPdf = (guidelines: BrandGuidelinesData): voi
   pdf.setFont('courier', 'normal');
   pdf.setFontSize(8);
   pdf.setTextColor(60, 60, 60);
-  pdf.text('LYRICAL ENT LLC · Brand Governance Directorate', margin, py);
-  pdf.text('London Sound Labs: 42 Bermondsey St, London SE1 3UD', margin, py + 5);
-  pdf.text('Los Angeles Sound Labs: 7200 Santa Monica Blvd, West Hollywood, CA 90046', margin, py + 10);
-  pdf.text('Email: brand@lyricalent.com · Web: www.lyricalent.com', margin, py + 15);
+  pdf.text(`${workspace.name} LLC · Brand Governance Directorate`, margin, py);
+  pdf.text('Primary Operations: London · Los Angeles · Global', margin, py + 5);
+  pdf.text(`Email: branding@${workspace.brand.name.toLowerCase().replace(/\s+/g, '')}.com`, margin, py + 10);
+  pdf.text(`Managed via KEEDOHUB Platform`, margin, py + 15);
 
-  pdf.save('LYRICAL_ENT_BRAND_GUIDELINES_v2.4.pdf');
+  pdf.save(`${workspace.name.replace(/\s+/g, '_')}_BRAND_GUIDELINES.pdf`);
 };

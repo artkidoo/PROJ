@@ -18,11 +18,39 @@ import {
 } from 'lucide-react';
 
 export const PressMedia: React.FC = () => {
-  const { pressReleases, mediaContacts, artists, addPressRelease, updatePressRelease, deletePressRelease, addMediaContact, deleteMediaContact } = useApp();
+  const { 
+    pressReleases, 
+    mediaContacts, 
+    artists, 
+    addPressRelease, 
+    updatePressRelease, 
+    deletePressRelease, 
+    addMediaContact, 
+    deleteMediaContact,
+    activeWorkspace
+  } = useApp();
+
+  const filteredPrs = React.useMemo(() => {
+    return pressReleases.filter(p => 
+      p.workspaceId === activeWorkspace.id || 
+      (!p.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [pressReleases, activeWorkspace.id]);
+
+  const filteredContacts = React.useMemo(() => {
+    return mediaContacts.filter(m => 
+      m.workspaceId === activeWorkspace.id || 
+      (!m.workspaceId && activeWorkspace.id === 'ws-lyrical-ent')
+    );
+  }, [mediaContacts, activeWorkspace.id]);
+
   const [activeTab, setActiveTab] = useState<'releases' | 'contacts' | 'company_epk' | 'photos'>('releases');
-  const [selectedPrId, setSelectedPrId] = useState<string | null>(pressReleases[0]?.id || null);
+  const [selectedPrId, setSelectedPrId] = useState<string | null>(filteredPrs[0]?.id || null);
   const [isNewPrModalOpen, setIsNewPrModalOpen] = useState(false);
   const [isNewContactModalOpen, setIsNewContactModalOpen] = useState(false);
+
+  const wsName = activeWorkspace.name;
+  const wsDomain = wsName.toLowerCase().replace(/\s+/g, '') + '.com';
 
   // Form states for Press Release
   const [title, setTitle] = useState('');
@@ -31,9 +59,9 @@ export const PressMedia: React.FC = () => {
   const [leadParagraph, setLeadParagraph] = useState('');
   const [body, setBody] = useState('');
   const [quoteSpeaker, setQuoteSpeaker] = useState('Ojo Abdulkareem');
-  const [quoteTitle, setQuoteTitle] = useState('Managing Director, LYRICAL ENT');
+  const [quoteTitle, setQuoteTitle] = useState(`Managing Director, ${wsName}`);
   const [quoteBody, setQuoteBody] = useState('');
-  const [mediaContactEmail, setMediaContactEmail] = useState('press@lyricalent.com | LYRICAL ENT Press Office');
+  const [mediaContactEmail, setMediaContactEmail] = useState(`press@${wsDomain} | ${wsName} Press Office`);
 
   // Form states for Media Contact
   const [outlet, setOutlet] = useState('');
@@ -43,7 +71,7 @@ export const PressMedia: React.FC = () => {
   const [beat, setBeat] = useState('Alternative, Electronic, Visual Arts');
   const [tier, setTier] = useState<MediaContact['tier']>('Tier 1');
 
-  const selectedPr = pressReleases.find(p => p.id === selectedPrId) || pressReleases[0];
+  const selectedPr = filteredPrs.find(p => p.id === selectedPrId) || filteredPrs[0];
 
   const handleCreatePr = (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,10 +196,10 @@ export const PressMedia: React.FC = () => {
           {/* List (4 Cols) */}
           <div className="lg:col-span-4 space-y-2">
             <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider px-1">
-              PRESS DISPATCHES ({pressReleases.length})
+              PRESS DISPATCHES ({filteredPrs.length})
             </div>
 
-            {pressReleases.map(pr => {
+            {filteredPrs.map(pr => {
               const isSelected = pr.id === selectedPr?.id;
               return (
                 <div
@@ -255,7 +283,7 @@ export const PressMedia: React.FC = () => {
                   <div className="pt-6 border-t border-[#1C1C1C] text-xs font-mono text-neutral-400">
                     <div className="font-semibold text-white mb-1">MEDIA CONTACT:</div>
                     <div>{selectedPr.mediaContact}</div>
-                    <div className="text-[10px] text-neutral-500 mt-0.5">LYRICAL ENT Global Communications Dept.</div>
+                    <div className="text-[10px] text-neutral-500 mt-0.5">{wsName} Global Communications Dept.</div>
                   </div>
                 </div>
               </div>
@@ -272,7 +300,7 @@ export const PressMedia: React.FC = () => {
               <h2 className="text-sm font-semibold text-white tracking-tight">Accredited Journalists & Editors</h2>
               <p className="text-xs text-neutral-400 mt-0.5">Tier 1 music publications, curators, and culture writers</p>
             </div>
-            <span className="text-[11px] font-mono text-neutral-400">{mediaContacts.length} CONTACTS</span>
+            <span className="text-[11px] font-mono text-neutral-400">{filteredContacts.length} CONTACTS</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -288,7 +316,7 @@ export const PressMedia: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#161616]">
-                {mediaContacts.map(contact => (
+                {filteredContacts.map(contact => (
                   <tr key={contact.id} className="hover:bg-[#141414] transition-colors">
                     <td className="py-3 pr-3 font-semibold text-white">{contact.outlet}</td>
                     <td className="py-3 pr-3 text-neutral-300">
@@ -326,7 +354,7 @@ export const PressMedia: React.FC = () => {
           <div className="border-b border-[#1C1C1C] pb-5">
             <span className="text-xs font-mono text-neutral-400 uppercase">OFFICIAL LABEL DOSSIER</span>
             <h2 className="text-2xl font-bold tracking-tight text-white font-mono uppercase mt-1">
-              LYRICAL ENT — COMPANY PROFILE & EPK
+              {wsName} — COMPANY PROFILE & EPK
             </h2>
           </div>
 
@@ -334,10 +362,10 @@ export const PressMedia: React.FC = () => {
             <div className="lg:col-span-8 space-y-4 text-xs text-neutral-300 leading-relaxed">
               <h3 className="text-sm font-semibold text-white font-mono uppercase">EXECUTIVE BIOGRAPHY</h3>
               <p>
-                Founded on the premise that timeless recorded art demands architectural precision and unfettered creative autonomy, LYRICAL ENT is an independent record label, creative production house, and music publishing entity based between London and Los Angeles.
+                Founded on the premise that timeless recorded art demands architectural precision and unfettered creative autonomy, {wsName} is an independent record label, creative production house, and music publishing entity based between London and Los Angeles.
               </p>
               <p>
-                The label represents a curated roster of multidisciplinary recording artists whose work bridges contemporary soul, alternative R&B, avant-garde electronics, cinematic composition, and spatial audiovisual experiences. Operating state-of-the-art analog and digital recording facilities, LYRICAL ENT controls its own master engineering pipelines, artwork print production, and global distributor relationships.
+                The label represents a curated roster of multidisciplinary recording artists whose work bridges contemporary soul, alternative R&B, avant-garde electronics, cinematic composition, and spatial audiovisual experiences. Operating state-of-the-art analog and digital recording facilities, {wsName} controls its own master engineering pipelines, artwork print production, and global distributor relationships.
               </p>
 
               <h3 className="text-sm font-semibold text-white font-mono uppercase pt-4">LABEL PILLARS</h3>
@@ -362,8 +390,8 @@ export const PressMedia: React.FC = () => {
               <div><span className="text-neutral-400">Founded:</span> <span className="text-white">2024</span></div>
               <div><span className="text-neutral-400">Head of Label:</span> <span className="text-white">Ojo Abdulkareem</span></div>
               <div><span className="text-neutral-400">Operating Studios:</span> <span className="text-neutral-200">London Sound Lab A / LA Studio</span></div>
-              <div><span className="text-neutral-400">Catalog Registry:</span> <span className="text-neutral-200">US-LYR Prefix (IFPI)</span></div>
-              <div><span className="text-neutral-400">Press Queries:</span> <span className="text-white">press@lyricalent.com</span></div>
+              <div><span className="text-neutral-400">Catalog Registry:</span> <span className="text-neutral-200">US-{wsName.substring(0, 3).toUpperCase()} Prefix (IFPI)</span></div>
+              <div><span className="text-neutral-400">Press Queries:</span> <span className="text-white">press@${wsDomain}</span></div>
             </div>
           </div>
         </div>
@@ -390,7 +418,7 @@ export const PressMedia: React.FC = () => {
               />
               <div className="p-3">
                 <div className="text-xs font-semibold text-white truncate">Sariyah Cole — Studio Portrait #1</div>
-                <div className="text-[10px] text-neutral-400 font-mono mt-0.5">Credit: LYRICAL ENT Visuals · 2026</div>
+                <div className="text-[10px] text-neutral-400 font-mono mt-0.5">Credit: {wsName} Visuals · 2026</div>
                 <div className="mt-2 pt-2 border-t border-[#1C1C1C] flex items-center justify-between text-[10px] font-mono">
                   <span className="text-neutral-300">APPROVED FOR PRINT</span>
                   <a href="/src/assets/images/artist_showcase_portrait_1792791744296.jpg" download className="text-white hover:underline flex items-center gap-1">
@@ -430,7 +458,7 @@ export const PressMedia: React.FC = () => {
               />
               <div className="p-3">
                 <div className="text-xs font-semibold text-white truncate">12-Inch Vinyl Pressing — Packaging Master</div>
-                <div className="text-[10px] text-neutral-400 font-mono mt-0.5">Credit: LYRICAL ENT Archive · 2026</div>
+                <div className="text-[10px] text-neutral-400 font-mono mt-0.5">Credit: {wsName} Archive · 2026</div>
                 <div className="mt-2 pt-2 border-t border-[#1C1C1C] flex items-center justify-between text-[10px] font-mono">
                   <span className="text-neutral-300">APPROVED FOR SYNDICATION</span>
                   <a href="/src/assets/images/vinyl_press_mockup_1792791744149.jpg" download className="text-white hover:underline flex items-center gap-1">
@@ -459,7 +487,7 @@ export const PressMedia: React.FC = () => {
                   required
                   value={title}
                   onChange={e => setTitle(e.target.value)}
-                  placeholder="e.g. LYRICAL ENT SIGNS COMPOSER ELENA VANCE"
+                  placeholder={`e.g. ${wsName.toUpperCase()} SIGNS COMPOSER ELENA VANCE`}
                   className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400 uppercase"
                 />
               </div>
@@ -482,7 +510,7 @@ export const PressMedia: React.FC = () => {
                   required
                   value={leadParagraph}
                   onChange={e => setLeadParagraph(e.target.value)}
-                  placeholder="LONDON & LOS ANGELES — Record label LYRICAL ENT today announced..."
+                  placeholder={`LONDON & LOS ANGELES — Record label ${wsName} today announced...`}
                   className="w-full bg-[#141414] border border-[#242424] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-400"
                 />
               </div>
@@ -534,7 +562,7 @@ export const PressMedia: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-[#0E0E0E] border border-[#242424] rounded-lg p-6 shadow-2xl">
             <h3 className="text-base font-semibold text-white tracking-tight mb-1">Add Media Contact</h3>
-            <p className="text-xs text-neutral-400 mb-5">Register music journalist or editor in LYRICAL ENT press rolodex</p>
+            <p className="text-xs text-neutral-400 mb-5">Register music journalist or editor in {wsName} press rolodex</p>
 
             <form onSubmit={handleCreateContact} className="space-y-4">
               <div>

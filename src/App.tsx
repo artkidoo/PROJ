@@ -30,7 +30,7 @@ import { Operations } from './components/modules/Operations';
 import { ExportCenter } from './components/modules/ExportCenter';
 
 const MainLayout: React.FC = () => {
-  const { activeModule, currentRole } = useApp();
+  const { activeModule, currentRole, activeWorkspace } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const renderModule = () => {
@@ -97,17 +97,17 @@ const MainLayout: React.FC = () => {
         <footer className="border-t border-[#191919] bg-[#0A0A0A] px-6 py-4 mt-auto no-print">
           <div className="max-w-[1440px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-neutral-400 font-mono">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white tracking-widest">LYRICAL ENT</span>
+              <span className="font-black text-white tracking-tighter">KEEDO<span className="text-[#FF1E1E]">HUB</span></span>
               <span>·</span>
-              <span>BRAND &amp; LABEL STUDIO</span>
+              <span className="text-[10px] font-bold text-neutral-500">{activeWorkspace.name} WORKSPACE</span>
               <span>·</span>
               <span>EST. 2024</span>
             </div>
 
             <div className="flex items-center gap-4 text-[11px]">
-              <span>ACTIVE ROLE: <strong className="text-white font-medium">{currentRole.toUpperCase()}</strong></span>
+              <span>ACTIVE ROLE: <strong className="text-white font-medium uppercase">{currentRole}</strong></span>
               <span>·</span>
-              <span>LOCAL PERSISTENT ENCLAVE</span>
+              <span>PLATFORM v1.0</span>
             </div>
           </div>
         </footer>
