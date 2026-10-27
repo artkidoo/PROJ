@@ -450,33 +450,41 @@ export const KeedohubLogo: React.FC<{
 export const WorkspaceLogo: React.FC<{
   workspaceId: string;
   workspaceName: string;
+  brand?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    accentColor?: string;
+    tagline?: string;
+  };
+  clientCategory?: 'artist' | 'brand' | 'label';
   height?: number;
   className?: string;
   theme?: LogoTheme;
-}> = ({ workspaceId, workspaceName, height = 36, className = '', theme = 'monochrome-white' }) => {
+}> = ({ workspaceId, workspaceName, brand, clientCategory, height = 36, className = '', theme = 'monochrome-white' }) => {
   // If it's the legacy Lyrical Ent workspace, use its specific identity
   if (workspaceId === 'ws-lyrical-ent' || workspaceName.toUpperCase() === 'LYRICAL ENT') {
     return <LyricalHorizontalLogo height={height} className={className} theme={theme} showDescriptor={true} />;
   }
 
-  // Fallback for other workspaces: Generic but professional typographic logo
+  // Fallback for customer workspaces: Professional typographic logo tailored with their brand accent
   const isLight = theme === 'light' || theme === 'monochrome-black';
   const textColor = isLight ? '#000000' : '#FFFFFF';
+  const accentColor = brand?.accentColor || brand?.primaryColor || (clientCategory === 'artist' ? '#D97706' : clientCategory === 'brand' ? '#2563EB' : '#FF1E1E');
   
   return (
-    <div className={`flex items-center gap-3 ${className}`} style={{ height }}>
+    <div className={`flex items-center gap-2.5 ${className}`} style={{ height }}>
       <div 
-        className="h-full aspect-square flex items-center justify-center font-black border-2"
-        style={{ borderColor: textColor, color: textColor, fontSize: height * 0.5 }}
+        className="h-full aspect-square flex items-center justify-center font-black rounded border transition-colors shrink-0"
+        style={{ borderColor: `${accentColor}80`, color: textColor, backgroundColor: `${accentColor}20`, fontSize: height * 0.44 }}
       >
-        {workspaceName.slice(0, 1).toUpperCase()}
+        {workspaceName.slice(0, 2).toUpperCase()}
       </div>
-      <div className="flex flex-col justify-center leading-none">
-        <span className="font-bold tracking-tighter uppercase" style={{ color: textColor, fontSize: height * 0.45 }}>
+      <div className="flex flex-col justify-center leading-tight min-w-0">
+        <span className="font-bold tracking-tight uppercase truncate" style={{ color: textColor, fontSize: height * 0.42 }}>
           {workspaceName}
         </span>
-        <span className="text-[8px] font-mono tracking-[0.3em] uppercase opacity-50" style={{ color: textColor }}>
-          WORKSPACE
+        <span className="text-[8px] font-mono tracking-wider uppercase font-semibold truncate" style={{ color: accentColor }}>
+          {clientCategory === 'artist' ? 'ARTIST WORKSPACE' : clientCategory === 'brand' ? 'BRAND WORKSPACE' : 'CLIENT WORKSPACE'}
         </span>
       </div>
     </div>

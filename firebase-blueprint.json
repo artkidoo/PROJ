@@ -184,12 +184,34 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "workspaceId", "title"]
+    },
+    "ServicePackage": {
+      "title": "Service Package",
+      "description": "Standardized creative service or delivery package tier",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "tier": { "type": "string" },
+        "priceUsd": { "type": "number" },
+        "billingType": { "type": "string" },
+        "turnaroundDays": { "type": "number" },
+        "revisionLimit": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "deliverables": { "type": "array" }
+      },
+      "required": ["id", "name", "category", "priceUsd"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/PlatformUser" },
       "description": "Platform user profiles"
+    },
+    "/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/ServicePackage" },
+      "description": "Global catalog of available creative packages and retainers"
     },
     "/workspaces/{workspaceId}": {
       "schema": { "$ref": "#/entities/Workspace" },

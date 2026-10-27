@@ -24,8 +24,13 @@ import {
   Trash2,
   ChevronRight,
   ChevronDown,
-  Building2
+  Building2,
+  ArrowLeft,
+  Plus,
+  Briefcase,
+  ShieldCheck
 } from 'lucide-react';
+import { NewWorkspaceModal } from '../modals/NewWorkspaceModal';
 
 interface SidebarProps {
   mobileMenuOpen: boolean;
@@ -47,36 +52,87 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
     releases, 
     documents, 
     tasks,
+    productionProjects,
+    canAccessProductionCenter,
+    canAccessAdminCenter,
     resetToSampleData,
     clearAllData,
     activeWorkspace,
     workspaces,
-    switchWorkspace
+    switchWorkspace,
+    exitToPublic
   } = useApp();
 
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
+  const [isNewWorkspaceOpen, setIsNewWorkspaceOpen] = React.useState(false);
+
+  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist';
+  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand';
+  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E');
 
   const pendingTasks = tasks.filter(t => t.status !== 'Done' && t.workspaceId === activeWorkspace.id).length;
   const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;
+  const activeProductionCount = productionProjects.filter(p => p.stage !== 'Delivered').length;
 
-  const NAV_ITEMS: NavItem[] = [
-    { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
-    { id: 'brand', label: 'Brand Identity', icon: Layers },
-    { id: 'artists', label: 'Artist Roster', icon: Users, badgeCount: artists.filter(a => a.workspaceId === activeWorkspace.id).length },
-    { id: 'releases', label: 'Music Releases', icon: Disc3, badgeCount: releases.filter(r => r.workspaceId === activeWorkspace.id).length },
-    { id: 'campaigns', label: 'Campaign Studio', icon: Megaphone },
-    { id: 'templates', label: 'Creative Templates', icon: Sparkles },
-    { id: 'celebration', label: 'Celebration Calendar', icon: Calendar },
-    { id: 'promotion', label: 'Music Promo Studio', icon: Music },
-    { id: 'motion', label: 'Motion Studio', icon: Film },
-    { id: 'cards', label: 'Business Cards', icon: CreditCard },
-    { id: 'documents', label: 'Corporate Docs', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
-    { id: 'press', label: 'Press & Media', icon: Newspaper },
-    { id: 'blogger', label: 'Blogger Studio', icon: Globe },
-    { id: 'assets', label: 'Asset Library', icon: FolderArchive },
-    { id: 'operations', label: 'Operations', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
-    { id: 'export', label: 'Export & Handover', icon: Share2 }
-  ];
+  const getNavItems = (): NavItem[] => {
+    if (isArtist) {
+      return [
+        { id: 'dashboard', label: 'Project Status & Overview', icon: LayoutDashboard },
+        { id: 'releases', label: 'Music Projects & Releases', icon: Disc3, badgeCount: releases.filter(r => r.workspaceId === activeWorkspace.id).length },
+        { id: 'promotion', label: 'Promotional Artwork & Covers', icon: Music },
+        { id: 'motion', label: 'Motion & Video Deliverables', icon: Film },
+        { id: 'campaigns', label: 'Release Campaign Rollout', icon: Megaphone },
+        { id: 'assets', label: 'Master Files & Asset Vault', icon: FolderArchive },
+        { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
+        { id: 'export', label: 'Final Deliverables & Downloads', icon: Share2 }
+      ];
+    }
+
+    if (isBrand) {
+      return [
+        { id: 'dashboard', label: 'Project Status & Overview', icon: LayoutDashboard },
+        { id: 'brand', label: 'Brand Identity & Guidelines', icon: Layers },
+        { id: 'campaigns', label: 'Marketing Creatives & Social Kits', icon: Megaphone },
+        { id: 'documents', label: 'Business & Corporate Documents', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
+        { id: 'cards', label: 'Business Stationery & Cards', icon: CreditCard },
+        { id: 'assets', label: 'Brand Asset Vault', icon: FolderArchive },
+        { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
+        { id: 'export', label: 'Final Deliverables & Downloads', icon: Share2 }
+      ];
+    }
+
+    // Flagship Master Label Suite (ws-lyrical-ent) & Operator Control Room
+    const items: NavItem[] = [
+      { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
+      { id: 'production', label: 'Production Center', icon: Briefcase, badgeCount: activeProductionCount > 0 ? activeProductionCount : undefined }
+    ];
+
+    if (canAccessAdminCenter) {
+      items.push({ id: 'admin', label: 'Admin Control Center', icon: ShieldCheck, badgeCount: workspaces.length });
+    }
+
+    items.push(
+      { id: 'brand', label: 'Brand Identity', icon: Layers },
+      { id: 'artists', label: 'Artist Roster', icon: Users, badgeCount: artists.filter(a => a.workspaceId === activeWorkspace.id).length },
+      { id: 'releases', label: 'Music Releases', icon: Disc3, badgeCount: releases.filter(r => r.workspaceId === activeWorkspace.id).length },
+      { id: 'campaigns', label: 'Campaign Studio', icon: Megaphone },
+      { id: 'templates', label: 'Creative Templates', icon: Sparkles },
+      { id: 'celebration', label: 'Celebration Calendar', icon: Calendar },
+      { id: 'promotion', label: 'Music Promo Studio', icon: Music },
+      { id: 'motion', label: 'Motion Studio', icon: Film },
+      { id: 'cards', label: 'Business Cards', icon: CreditCard },
+      { id: 'documents', label: 'Corporate Docs', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
+      { id: 'press', label: 'Press & Media', icon: Newspaper },
+      { id: 'blogger', label: 'Blogger Studio', icon: Globe },
+      { id: 'assets', label: 'Asset Library', icon: FolderArchive },
+      { id: 'operations', label: 'Operations', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
+      { id: 'export', label: 'Export & Handover', icon: Share2 }
+    );
+
+    return items;
+  };
+
+  const navItems = getNavItems();
 
   const handleSelect = (id: AppModule) => {
     setActiveModule(id);
@@ -116,6 +172,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
               <WorkspaceLogo 
                 workspaceId={activeWorkspace.id} 
                 workspaceName={activeWorkspace.name} 
+                brand={activeWorkspace.brand}
+                clientCategory={activeWorkspace.clientCategory}
                 height={28} 
                 theme="monochrome-white" 
               />
@@ -124,39 +182,94 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
 
             {workspaceOpen && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-[#141414] border border-[#222222] rounded-lg shadow-2xl z-50 overflow-hidden">
-                <div className="p-2 border-b border-[#222222] bg-[#0D0D0D]">
-                  <span className="text-[9px] font-mono text-neutral-500 uppercase px-2">Your Workspaces</span>
+                <div className="p-2 border-b border-[#222222] bg-[#0D0D0D] flex items-center justify-between">
+                  <span className="text-[9px] font-mono text-neutral-500 uppercase px-1">Your Workspaces</span>
+                  <span className="text-[9px] font-mono text-neutral-600">{workspaces.length} ACTIVE</span>
                 </div>
-                {workspaces.map(ws => (
+                <div className="max-h-56 overflow-y-auto">
+                  {workspaces.map(ws => {
+                    const wsIsArtist = ws.clientCategory === 'artist' || ws.type === 'Artist';
+                    const wsIsBrand = ws.clientCategory === 'brand' || ws.type === 'Brand';
+                    const wsAccent = ws.brand?.accentColor || (wsIsArtist ? '#D97706' : wsIsBrand ? '#2563EB' : '#FF1E1E');
+
+                    return (
+                      <button
+                        key={ws.id}
+                        onClick={() => {
+                          switchWorkspace(ws.id);
+                          setWorkspaceOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors hover:bg-[#1A1A1A] ${
+                          activeWorkspace.id === ws.id ? 'bg-[#1A1A1A] text-white font-medium' : 'text-neutral-400'
+                        }`}
+                      >
+                        <div 
+                          className="w-2 h-2 rounded-full shrink-0" 
+                          style={{ backgroundColor: wsAccent }}
+                        />
+                        <div className="flex flex-col items-start leading-tight truncate">
+                          <span className="truncate">{ws.name}</span>
+                          <span className="text-[9px] font-mono text-neutral-500 uppercase">
+                            {wsIsArtist ? 'Artist Client' : wsIsBrand ? 'Brand Client' : 'Portfolio Showcase'}
+                          </span>
+                        </div>
+                        {activeWorkspace.id === ws.id && (
+                          <div 
+                            className="ml-auto w-1.5 h-1.5 rounded-full" 
+                            style={{ backgroundColor: wsAccent }}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Create New Client Workspace */}
+                <div className="p-2 border-t border-[#222222] bg-[#0A0A0A]">
                   <button
-                    key={ws.id}
                     onClick={() => {
-                      switchWorkspace(ws.id);
                       setWorkspaceOpen(false);
+                      setIsNewWorkspaceOpen(true);
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-2 text-xs transition-colors hover:bg-[#1A1A1A] ${
-                      activeWorkspace.id === ws.id ? 'bg-[#1A1A1A] text-white' : 'text-neutral-400'
-                    }`}
+                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 text-xs font-semibold text-white bg-[#1A1A1A] hover:bg-[#242424] border border-[#2D2D2D] rounded-md transition-colors"
                   >
-                    <Building2 size={14} />
-                    <span className="truncate">{ws.name}</span>
-                    {activeWorkspace.id === ws.id && (
-                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#FF1E1E]" />
-                    )}
+                    <Plus size={13} className="text-[#FF1E1E]" />
+                    <span>New Client Workspace</span>
                   </button>
-                ))}
+                </div>
               </div>
             )}
           </div>
         </div>
 
+        {/* Return to Public Portal */}
+        <div className="px-3 pt-3 pb-1">
+          <button
+            onClick={() => {
+              exitToPublic();
+              if (mobileMenuOpen) setMobileMenuOpen(false);
+            }}
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-lg text-neutral-300 hover:text-white bg-[#121212] hover:bg-[#1A1A1A] border border-[#222222] transition-colors group"
+          >
+            <div className="flex items-center gap-2.5">
+              <ArrowLeft size={14} className="text-[#FF1E1E] group-hover:-translate-x-0.5 transition-transform" />
+              <span>Public Homepage</span>
+            </div>
+            <Globe size={13} className="text-neutral-500" />
+          </button>
+        </div>
+
         {/* Navigation list */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          <div className="px-3 pb-2 text-[10px] font-mono tracking-widest text-neutral-500 uppercase">
-            WORKSPACE MODULES
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+          <div className="px-3 pb-2 text-[10px] font-mono tracking-widest text-neutral-500 uppercase flex items-center justify-between">
+            <span>{isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : 'WORKSPACE MODULES'}</span>
+            <span 
+              className="w-1.5 h-1.5 rounded-full" 
+              style={{ backgroundColor: brandAccent }} 
+            />
           </div>
 
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeModule === item.id;
 
@@ -171,7 +284,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                 }`}
               >
                 <div className="flex items-center gap-2.5 truncate">
-                  <Icon size={16} className={isActive ? 'text-white' : 'text-neutral-500 group-hover:text-neutral-300'} />
+                  <Icon 
+                    size={16} 
+                    className={isActive ? 'text-white' : 'text-neutral-500 group-hover:text-neutral-300'} 
+                  />
                   <span className="truncate">{item.label}</span>
                 </div>
 
@@ -197,7 +313,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button
               onClick={() => {
-                if (confirm('Reset workspace with official LYRICAL ENT production records?')) {
+                if (confirm('Reset workspace with official production records?')) {
                   resetToSampleData();
                 }
               }}
@@ -223,10 +339,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
           </div>
 
           <p className="text-[10px] text-neutral-500 leading-tight pt-1">
-            Production environment v1.0. Records auto-sync to local storage.
+            {activeWorkspace.name} · {activeWorkspace.type} Client v1.0
           </p>
         </div>
       </aside>
+
+      {/* New Workspace Modal */}
+      <NewWorkspaceModal
+        isOpen={isNewWorkspaceOpen}
+        onClose={() => setIsNewWorkspaceOpen(false)}
+      />
     </>
   );
 };

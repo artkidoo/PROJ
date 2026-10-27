@@ -12,7 +12,10 @@ import {
   BrandGuidelinesData,
   PlatformUser,
   Workspace,
-  WorkspaceMembership
+  WorkspaceMembership,
+  ProductionProject,
+  ServicePackage,
+  MotionProjectSpec
 } from '../types';
 
 export const INITIAL_PLATFORM_USER: PlatformUser = {
@@ -29,13 +32,65 @@ export const INITIAL_WORKSPACES: Workspace[] = [
     id: 'ws-lyrical-ent',
     name: 'LYRICAL ENT',
     type: 'Label',
+    clientCategory: 'label',
     ownerId: 'user-01',
+    status: 'Active',
+    contactEmail: 'contact@lyricalent.com',
+    description: 'Master Creative Label & Portfolio Showcase',
+    contractedPackageIds: ['pkg-exec-retainer', 'pkg-motion-suite'],
     createdAt: '2024-01-01T00:00:00Z',
     brand: {
       name: 'LYRICAL ENT',
       primaryColor: '#FFFFFF',
       secondaryColor: '#000000',
-      accentColor: '#171717',
+      accentColor: '#FF1E1E',
+      tagline: 'Auteur Soundscapes & Monolith Design',
+      typography: {
+        displayFont: 'Plus Jakarta Sans',
+        bodyFont: 'Plus Jakarta Sans'
+      }
+    }
+  },
+  {
+    id: 'ws-sariyah-artist',
+    name: 'SARIYAH',
+    type: 'Artist',
+    clientCategory: 'artist',
+    ownerId: 'user-01',
+    status: 'Active',
+    contactEmail: 'mgmt@sariyahmusic.com',
+    description: 'Artist Client Workspace — Neo-Soul & Alternative R&B',
+    contractedPackageIds: ['pkg-music-promo-deluxe', 'pkg-artwork-flagship'],
+    createdAt: '2025-01-10T00:00:00Z',
+    brand: {
+      name: 'SARIYAH',
+      primaryColor: '#D97706',
+      secondaryColor: '#17130E',
+      accentColor: '#F59E0B',
+      tagline: 'Midnight Architecture & Acoustic Soul',
+      typography: {
+        displayFont: 'Plus Jakarta Sans',
+        bodyFont: 'Plus Jakarta Sans'
+      }
+    }
+  },
+  {
+    id: 'ws-apex-brand',
+    name: 'APEX DYNAMICS',
+    type: 'Brand',
+    clientCategory: 'brand',
+    ownerId: 'user-01',
+    status: 'Active',
+    contactEmail: 'partnerships@apexdynamics.io',
+    description: 'Brand Client Workspace — Motion & Digital Identity Systems',
+    contractedPackageIds: ['pkg-brand-monolith', 'pkg-biz-corporate'],
+    createdAt: '2025-02-01T00:00:00Z',
+    brand: {
+      name: 'APEX DYNAMICS',
+      primaryColor: '#2563EB',
+      secondaryColor: '#0B1120',
+      accentColor: '#60A5FA',
+      tagline: 'Autonomous Performance Systems & Spatial Motion',
       typography: {
         displayFont: 'Plus Jakarta Sans',
         bodyFont: 'Plus Jakarta Sans'
@@ -52,12 +107,29 @@ export const INITIAL_MEMBERSHIPS: WorkspaceMembership[] = [
     role: 'Owner',
     status: 'Active',
     joinedAt: '2024-01-01T00:00:00Z'
+  },
+  {
+    id: 'mem-02',
+    userId: 'user-01',
+    workspaceId: 'ws-sariyah-artist',
+    role: 'Owner',
+    status: 'Active',
+    joinedAt: '2025-01-10T00:00:00Z'
+  },
+  {
+    id: 'mem-03',
+    userId: 'user-01',
+    workspaceId: 'ws-apex-brand',
+    role: 'Owner',
+    status: 'Active',
+    joinedAt: '2025-02-01T00:00:00Z'
   }
 ];
 
 export const INITIAL_ARTISTS: Artist[] = [
   {
     id: 'art-01',
+    workspaceId: 'ws-sariyah-artist',
     name: 'Sariyah Cole',
     moniker: 'SARIYAH',
     legalName: 'Sariyah Nicole Cole',
@@ -86,6 +158,7 @@ export const INITIAL_ARTISTS: Artist[] = [
   },
   {
     id: 'art-02',
+    workspaceId: 'ws-lyrical-ent',
     name: 'Marcus Thorne',
     moniker: 'THORNE',
     legalName: 'Marcus Alexander Thorne',
@@ -106,6 +179,7 @@ export const INITIAL_ARTISTS: Artist[] = [
   },
   {
     id: 'art-03',
+    workspaceId: 'ws-lyrical-ent',
     name: 'Elena Vance',
     moniker: 'VANCE',
     legalName: 'Elena Sofia Vance',
@@ -127,6 +201,7 @@ export const INITIAL_ARTISTS: Artist[] = [
 export const INITIAL_RELEASES: MusicRelease[] = [
   {
     id: 'rel-01',
+    workspaceId: 'ws-sariyah-artist',
     title: 'Monochrome State',
     type: 'Single',
     artistId: 'art-01',
@@ -156,10 +231,85 @@ export const INITIAL_RELEASES: MusicRelease[] = [
     },
     budgetAllocated: 12500,
     budgetSpent: 8400,
+    packageId: 'pkg-music-promo-deluxe',
+    campaignStage: 'Pre-Release',
+    audioMetadata: {
+      fileName: 'Monochrome_State_Master_24bit_96k.wav',
+      format: 'Lossless PCM WAV',
+      durationSeconds: 218,
+      sampleRate: '96.0 kHz',
+      bitDepth: '24-bit',
+      fileSize: '78.4 MB',
+      uploadedAt: '2026-10-12T14:30:00Z'
+    },
+    artworkMetadata: {
+      fileName: 'Sariyah_MonochromeState_FrontCover_Master.png',
+      dimensions: '4000x4000',
+      colorSpace: 'sRGB',
+      resolutionDpi: 300,
+      fileSize: '14.2 MB',
+      uploadedAt: '2026-10-14T09:15:00Z'
+    },
+    deliverables: [
+      {
+        id: 'deliv-01',
+        name: 'Master DSP Cover Artwork (3000x3000px)',
+        category: 'Artwork',
+        format: '1:1 Square (3000x3000px)',
+        stage: 'Delivered',
+        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        fileSpecs: 'PNG · 3000x3000px · 300DPI · 8.2 MB',
+        revisionCount: 1,
+        maxRevisions: 3,
+        isClientPublished: true,
+        clientApproved: true,
+        approvedAt: '2026-10-16T11:00:00Z'
+      },
+      {
+        id: 'deliv-02',
+        name: 'Spotify 9:16 Canvas Loop (8s)',
+        category: 'Motion Video',
+        format: '9:16 Vertical (1080x1920px)',
+        stage: 'Client Review',
+        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        fileSpecs: 'MP4 ProRes · 1080x1920 · 60FPS · 16.4 MB',
+        revisionCount: 2,
+        maxRevisions: 3,
+        isClientPublished: true,
+        clientApproved: false,
+        publishedAt: '2026-10-24T15:00:00Z'
+      },
+      {
+        id: 'deliv-03',
+        name: '3x Instagram Story & Reel Countdown Teasers',
+        category: 'Social Asset',
+        format: '9:16 Vertical (1080x1920px)',
+        stage: 'In Production',
+        fileSpecs: 'MP4 60FPS · 3 variants',
+        revisionCount: 0,
+        maxRevisions: 3,
+        isClientPublished: false
+      },
+      {
+        id: 'deliv-04',
+        name: 'Electronic Press Kit (EPK) One-Sheet PDF',
+        category: 'EPK & Press',
+        format: 'PDF Document',
+        stage: 'Internal QA',
+        fileSpecs: 'Interactive PDF · 300DPI Print Ready · 3.8 MB',
+        revisionCount: 1,
+        maxRevisions: 3,
+        isClientPublished: false
+      }
+    ],
+    clientApprovalStatus: 'Approved',
+    clientApprovalDate: '2026-10-16T11:00:00Z',
+    finalDeliveryUrl: '/releases/monochrome-state/package_v1.zip',
     createdAt: '2026-02-01T10:00:00Z'
   },
   {
     id: 'rel-02',
+    workspaceId: 'ws-sariyah-artist',
     title: 'Quiet Foundations',
     type: 'EP',
     artistId: 'art-01',
@@ -191,6 +341,7 @@ export const INITIAL_RELEASES: MusicRelease[] = [
   },
   {
     id: 'rel-03',
+    workspaceId: 'ws-lyrical-ent',
     title: 'Black Slate (Visual EP)',
     type: 'Music Video',
     artistId: 'art-02',
@@ -487,6 +638,75 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
     notes: 'Official board record preserved in corporate archive.',
     createdAt: '2026-10-20T17:00:00Z',
     updatedAt: '2026-10-21T09:00:00Z'
+  },
+  {
+    id: 'doc-apex-01',
+    workspaceId: 'ws-apex-brand',
+    type: 'partnership_proposal',
+    title: 'Master Creative Production Agreement & Statement of Work',
+    referenceNo: 'APX-SOW-2026-001',
+    date: '2026-10-15',
+    recipientName: 'Apex Dynamics Inc.',
+    recipientOrg: 'Product & Design Operations',
+    recipientAddress: '100 Silicon Way, San Francisco, CA 94107',
+    recipientEmail: 'brand@apexdynamics.io',
+    authorName: 'Ojo Abdulkareem',
+    authorRole: 'Head of Creative Production',
+    status: 'Approved',
+    subject: 'Complete Brand System & Motion Design Architecture Deliverables',
+    bodyContent: 'Formal agreement and scope of work for APEX DYNAMICS digital brand system, vector assets, and multi-format marketing collateral.',
+    createdAt: '2026-10-15T09:00:00Z',
+    updatedAt: '2026-10-16T10:00:00Z'
+  },
+  {
+    id: 'doc-apex-02',
+    workspaceId: 'ws-apex-brand',
+    type: 'company_profile',
+    title: 'Digital Brand Identity Guidelines & Design Tokens v2.4',
+    referenceNo: 'APX-GUIDE-2026-02',
+    date: '2026-10-22',
+    recipientName: 'Internal Engineering & Design Teams',
+    recipientOrg: 'Apex Dynamics Worldwide',
+    authorName: 'Creative Director',
+    authorRole: 'Lead Brand Architect',
+    status: 'Approved',
+    subject: 'Official Visual Standards & Component Rules',
+    bodyContent: 'Guidelines for Apex Dynamics electric cobalt (#2563EB) accents, obsidian dark mode UI tokens, and typography hierarchy.',
+    createdAt: '2026-10-22T10:00:00Z',
+    updatedAt: '2026-10-22T11:00:00Z'
+  },
+  {
+    id: 'doc-apex-03',
+    workspaceId: 'ws-apex-brand',
+    type: 'invoice',
+    title: 'Creative Sprint Milestone Invoice #INV-APX-2026-104',
+    referenceNo: 'INV-APX-2026-104',
+    date: '2026-10-24',
+    recipientName: 'Apex Dynamics Accounts Payable',
+    recipientOrg: 'Finance Directorate',
+    recipientAddress: '100 Silicon Way, San Francisco, CA 94107',
+    recipientEmail: 'ap@apexdynamics.io',
+    authorName: 'Ojo Abdulkareem',
+    authorRole: 'Managing Director',
+    status: 'Issued',
+    paymentTerms: 'Net 30. Wire transfer.',
+    items: [
+      {
+        description: 'Brand Identity Design Sprint & Vector Suite',
+        quantity: 1,
+        unitPrice: 9500,
+        total: 9500
+      },
+      {
+        description: 'Motion Design 4K Ident & Social Launch Kit',
+        quantity: 1,
+        unitPrice: 4200,
+        total: 4200
+      }
+    ],
+    bodyContent: 'Invoice for Phase 1 Brand Identity & Motion Design Sprint delivery.',
+    createdAt: '2026-10-24T14:00:00Z',
+    updatedAt: '2026-10-24T14:00:00Z'
   }
 ];
 
@@ -560,12 +780,88 @@ export const INITIAL_BRAND_ASSETS: BrandAsset[] = [
     usageRules: 'Mandatory reading for all creative directors, graphic contractors, and external agencies.',
     isVector: false,
     uploadedAt: '2026-02-01T10:00:00Z'
+  },
+  {
+    id: 'brand-apx-01',
+    workspaceId: 'ws-apex-brand',
+    name: 'APEX Primary Kinetic Vector Wordmark',
+    category: 'Primary Logo',
+    fileType: 'SVG',
+    dimensions: 'Vector / Scalable',
+    fileSize: '12.4 KB',
+    version: 'v2.4 Final',
+    status: 'Approved',
+    description: 'Electric cobalt typography with high-precision aerodynamic glyph cuts.',
+    usageRules: 'Must only be rendered in electric blue (#2563EB) or white on dark backgrounds.',
+    isVector: true,
+    uploadedAt: '2026-02-01T12:00:00Z'
+  },
+  {
+    id: 'brand-apx-02',
+    workspaceId: 'ws-apex-brand',
+    name: 'APEX Hexagonal Monogram & App Glyph',
+    category: 'Monogram',
+    fileType: 'SVG',
+    dimensions: '512x512px Vector',
+    fileSize: '7.8 KB',
+    version: 'v2.1',
+    status: 'Approved',
+    description: 'Interlocking polygon prism representing speed and motion algorithms.',
+    usageRules: 'Used for favicons, software application icons, and badge embroidery.',
+    isVector: true,
+    uploadedAt: '2026-02-05T14:00:00Z'
+  },
+  {
+    id: 'brand-apx-03',
+    workspaceId: 'ws-apex-brand',
+    name: 'APEX Obsidian & Electric Blue Token System',
+    category: 'Palette',
+    fileType: 'JSON',
+    dimensions: 'Design Tokens',
+    fileSize: '4.2 KB',
+    version: 'v1.0',
+    status: 'Approved',
+    description: 'Full CSS and Tailwind variables for primary #2563EB, background #0B1120, and accents.',
+    usageRules: 'Apply across web apps, marketing decks, and physical signage.',
+    isVector: false,
+    uploadedAt: '2026-02-10T10:00:00Z'
+  },
+  {
+    id: 'brand-sar-01',
+    workspaceId: 'ws-sariyah-artist',
+    name: 'SARIYAH Signature Script Monogram',
+    category: 'Monogram',
+    fileType: 'SVG',
+    dimensions: 'Vector / Scalable',
+    fileSize: '9.6 KB',
+    version: 'v1.4',
+    status: 'Approved',
+    description: 'Organic handwritten monogram in warm soul gold (#D97706).',
+    usageRules: 'For vinyl center labels, promotional apparel, and tour posters.',
+    isVector: true,
+    uploadedAt: '2026-01-22T10:00:00Z'
+  },
+  {
+    id: 'brand-sar-02',
+    workspaceId: 'ws-sariyah-artist',
+    name: 'Midnight Architecture 3000x3000px Master Cover Art',
+    category: 'Primary Logo',
+    fileType: 'PNG',
+    dimensions: '3000x3000px',
+    fileSize: '8.4 MB',
+    version: 'Final Master',
+    status: 'Approved',
+    description: 'Ultra high-resolution artwork master for single DSP streaming delivery.',
+    usageRules: 'Direct delivery to Apple Music, Spotify, and Tidal.',
+    isVector: false,
+    uploadedAt: '2026-02-14T11:00:00Z'
   }
 ];
 
 export const INITIAL_TASKS: OperationTask[] = [
   {
     id: 'tsk-01',
+    workspaceId: 'ws-lyrical-ent',
     title: 'Review final master stems for "Monochrome State"',
     category: 'A&R',
     priority: 'Urgent',
@@ -576,6 +872,58 @@ export const INITIAL_TASKS: OperationTask[] = [
     relatedEntityName: 'Monochrome State',
     notes: 'Verify 24-bit headroom and vocal sibilance on high-end monitors.',
     createdAt: '2026-10-21T09:00:00Z'
+  },
+  {
+    id: 'tsk-sar-01',
+    workspaceId: 'ws-sariyah-artist',
+    title: 'Review Spotify Canvas 9:16 Video Loop',
+    category: 'Creative',
+    priority: 'Urgent',
+    dueDate: '2026-10-29',
+    assignee: 'Sariyah Cole / Management',
+    status: 'In Review',
+    relatedEntityId: 'rel-01',
+    relatedEntityName: 'Monochrome State',
+    notes: 'Review loop transition at 0:07s mark. Color grading approved.',
+    createdAt: '2026-10-22T11:00:00Z'
+  },
+  {
+    id: 'tsk-sar-02',
+    workspaceId: 'ws-sariyah-artist',
+    title: 'Approve Vinyl Gatefold Packaging Mockup',
+    category: 'Creative',
+    priority: 'High',
+    dueDate: '2026-11-02',
+    assignee: 'Creative Team',
+    status: 'In Review',
+    relatedEntityId: 'rel-01',
+    relatedEntityName: 'Monochrome State',
+    notes: 'Check inner sleeve lyrics and font hierarchy on physical proof.',
+    createdAt: '2026-10-23T14:00:00Z'
+  },
+  {
+    id: 'tsk-apx-01',
+    workspaceId: 'ws-apex-brand',
+    title: 'Sign-off on Executive Pitch Deck v3.2',
+    category: 'Executive',
+    priority: 'Urgent',
+    dueDate: '2026-10-28',
+    assignee: 'Apex Leadership',
+    status: 'In Review',
+    notes: 'Review slides 8-12 financial unit economics and typography balance.',
+    createdAt: '2026-10-24T09:00:00Z'
+  },
+  {
+    id: 'tsk-apx-02',
+    workspaceId: 'ws-apex-brand',
+    title: 'Motion Ident 4K Render Final Delivery',
+    category: 'Creative',
+    priority: 'High',
+    dueDate: '2026-10-30',
+    assignee: 'Motion Studio Lead',
+    status: 'Done',
+    notes: 'Delivered in ProRes 4444 with alpha channel and H.264 web preview.',
+    createdAt: '2026-10-20T10:00:00Z'
   },
   {
     id: 'tsk-02',
@@ -755,3 +1103,501 @@ export const INITIAL_BRAND_GUIDELINES: BrandGuidelinesData = {
     'Never place the white logo on low-contrast mid-tone grey surfaces without proper scrim.'
   ]
 };
+
+
+export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
+  {
+    id: 'prod-01',
+    title: 'Midnight Solitude — Vinyl Packaging & Master Delivery',
+    workspaceId: 'ws-sariyah-artist',
+    clientName: 'SARIYAH',
+    clientCategory: 'artist',
+    projectType: 'Music Release Package',
+    stage: 'Ready for Delivery',
+    priority: 'High',
+    leadProducer: 'KeedoHub Lead Producer',
+    dueDate: '2026-11-15',
+    brief: {
+      description: '6-track neo-soul EP master audio delivery, gatefold 12-inch vinyl proofing, and Apple Digital Masters compliant metadata.',
+      deliverableSpecs: '3000x3000px 300DPI CMYK sleeve + 24-bit/48kHz Master WAV uncompressed files',
+      targetAudience: 'Neo-Soul & Alternative R&B enthusiasts, audiophiles, physical vinyl collectors',
+      inspirationNotes: 'Monochrome contrast, warm film grain, deep architectural typography',
+      referenceLinks: ['https://spotify.com/album/midnight-solitude']
+    },
+    sourceMaterials: [
+      { id: 'src-01', name: 'Raw 35mm Studio Contact Sheet', fileType: 'TIFF', url: '/src/assets/images/artist_sariyah_press.jpg', uploadedAt: '2026-10-01T12:00:00Z' },
+      { id: 'src-02', name: 'Master Track Multi-Stems (Lossless)', fileType: 'ZIP', url: '/assets/stems/midnight_solitude.zip', uploadedAt: '2026-10-05T14:30:00Z' }
+    ],
+    versions: [
+      {
+        id: 'ver-01-1',
+        versionNumber: 'v1.0',
+        title: 'Initial Gatefold Sleeve Draft',
+        fileUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        fileType: 'image/jpeg',
+        fileSize: '4.2 MB',
+        uploadedAt: '2026-10-10T10:00:00Z',
+        uploadedBy: 'Creative Director',
+        isClientPublished: false,
+        clientReviewStatus: 'Approved'
+      },
+      {
+        id: 'ver-01-2',
+        versionNumber: 'v1.1',
+        title: 'Final Vinyl Gatefold & High-Res Master Sleeve',
+        fileUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        fileType: 'image/jpeg',
+        fileSize: '18.4 MB',
+        uploadedAt: '2026-10-20T16:00:00Z',
+        uploadedBy: 'Lead Designer',
+        isClientPublished: true,
+        publishedAt: '2026-10-21T09:00:00Z',
+        clientReviewStatus: 'Approved',
+        clientFeedback: 'Approved by artist team. Stunning layout.'
+      }
+    ],
+    internalNotes: [
+      { id: 'not-01', author: 'Ojo Abdulkareem', role: 'Executive', content: 'Master audio passed acoustic QC. Zero digital clipping detected.', timestamp: '2026-10-12T11:00:00Z', isInternalOnly: true },
+      { id: 'not-02', author: 'Creative Director', role: 'Creative Director', content: 'Client signed off on final sleeve proofs. Ready for press run.', timestamp: '2026-10-22T14:00:00Z', isInternalOnly: true }
+    ],
+    qualityChecks: [
+      { id: 'qc-01', label: '24-bit 48kHz WAV audio files verified', passed: true, verifiedBy: 'A&R Director', verifiedAt: '2026-10-12T11:30:00Z' },
+      { id: 'qc-02', label: '3000x3000px RGB & CMYK sleeve color profile checked', passed: true, verifiedBy: 'Lead Designer', verifiedAt: '2026-10-20T17:00:00Z' },
+      { id: 'qc-03', label: 'Barcode and ISRC registration tags embedded', passed: true, verifiedBy: 'Label Manager', verifiedAt: '2026-10-21T10:00:00Z' },
+      { id: 'qc-04', label: 'Split sheet agreements countersigned by all parties', passed: true, verifiedBy: 'Legal Affairs', verifiedAt: '2026-10-22T09:00:00Z' }
+    ],
+    relatedReleaseId: 'rel-01',
+    createdAt: '2026-10-01T10:00:00Z',
+    updatedAt: '2026-10-22T14:00:00Z'
+  },
+  {
+    id: 'prod-02',
+    title: 'Velvet Reverie — Single Artwork & 9:16 Canvas',
+    workspaceId: 'ws-sariyah-artist',
+    clientName: 'SARIYAH',
+    clientCategory: 'artist',
+    projectType: 'Cover Artwork Design',
+    stage: 'Client Review',
+    priority: 'Urgent',
+    leadProducer: 'Creative Director',
+    dueDate: '2026-12-05',
+    brief: {
+      description: 'Single cover artwork package and dynamic vertical motion canvas loop for Spotify Canvas and Apple Motion.',
+      deliverableSpecs: '3000x3000px TIFF cover art + 1080x1920 9:16 MP4 video loop (8 seconds seamless)',
+      targetAudience: 'Streaming platforms and playlist curators',
+      inspirationNotes: 'Velvety shadows, minimal typography, warm golden accents'
+    },
+    sourceMaterials: [
+      { id: 'src-03', name: 'Studio Film Scans Roll 4', fileType: 'PNG', url: '/src/assets/images/artist_sariyah_press.jpg', uploadedAt: '2026-10-18T09:00:00Z' }
+    ],
+    versions: [
+      {
+        id: 'ver-02-1',
+        versionNumber: 'v1.0',
+        title: 'Single Cover Art Proof (Variant B - Warm Accent)',
+        fileUrl: '/src/assets/images/artist_sariyah_press.jpg',
+        previewUrl: '/src/assets/images/artist_sariyah_press.jpg',
+        fileType: 'image/jpeg',
+        fileSize: '6.8 MB',
+        uploadedAt: '2026-10-24T15:30:00Z',
+        uploadedBy: 'Creative Director',
+        isClientPublished: true,
+        publishedAt: '2026-10-24T16:00:00Z',
+        clientReviewStatus: 'Pending'
+      }
+    ],
+    internalNotes: [
+      { id: 'not-03', author: 'Creative Director', role: 'Creative Director', content: 'Sent proof to Sariyah team for final sign-off. Awaiting approval.', timestamp: '2026-10-24T16:30:00Z', isInternalOnly: true }
+    ],
+    qualityChecks: [
+      { id: 'qc-05', label: '3000x3000px exact dimensions verified', passed: true, verifiedBy: 'Creative Director', verifiedAt: '2026-10-24T15:45:00Z' },
+      { id: 'qc-06', label: 'Motion loop seamless zero-jump transition', passed: false },
+      { id: 'qc-07', label: 'DSP metadata compliance verified', passed: true, verifiedBy: 'Label Manager', verifiedAt: '2026-10-24T16:00:00Z' }
+    ],
+    relatedReleaseId: 'rel-02',
+    createdAt: '2026-10-18T09:00:00Z',
+    updatedAt: '2026-10-24T16:30:00Z'
+  },
+  {
+    id: 'prod-03',
+    title: 'Apex Dynamics — Master Brand Identity System V2.4',
+    workspaceId: 'ws-apex-brand',
+    clientName: 'APEX DYNAMICS',
+    clientCategory: 'brand',
+    projectType: 'Brand Identity System',
+    stage: 'In Production',
+    priority: 'High',
+    leadProducer: 'Senior Brand Architect',
+    dueDate: '2026-11-30',
+    brief: {
+      description: 'Comprehensive brand identity manual, vector monogram design tokens, corporate stationery kit, and dark-mode guidelines.',
+      deliverableSpecs: 'Vector SVG marks, Figma design tokens, 48-page PDF Brand Manual, print stationery templates',
+      targetAudience: 'Global enterprise stakeholders and digital product engineers',
+      inspirationNotes: 'Electric cobalt #2563EB accent, geometric Swiss grid, razor-sharp typography'
+    },
+    sourceMaterials: [
+      { id: 'src-04', name: 'Legacy Monogram Assets & Brand Deck', fileType: 'PDF', url: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg', uploadedAt: '2026-10-15T11:00:00Z' }
+    ],
+    versions: [
+      {
+        id: 'ver-03-1',
+        versionNumber: 'v1.0',
+        title: 'Core Monogram Geometry & Grid Construction',
+        fileUrl: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg',
+        previewUrl: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg',
+        fileType: 'image/jpeg',
+        fileSize: '8.1 MB',
+        uploadedAt: '2026-10-19T14:00:00Z',
+        uploadedBy: 'Senior Brand Architect',
+        isClientPublished: true,
+        publishedAt: '2026-10-20T10:00:00Z',
+        clientReviewStatus: 'Approved',
+        clientFeedback: 'Approved the geometric grid. Proceed with full guidelines manual.'
+      }
+    ],
+    internalNotes: [
+      { id: 'not-04', author: 'Senior Brand Architect', role: 'Creative Director', content: 'Completed color token contrast tests. 7:1 ratio on obsidian background.', timestamp: '2026-10-21T09:00:00Z', isInternalOnly: true }
+    ],
+    qualityChecks: [
+      { id: 'qc-08', label: 'Vector Bézier curves and nodes optimized', passed: true, verifiedBy: 'Senior Brand Architect', verifiedAt: '2026-10-20T09:30:00Z' },
+      { id: 'qc-09', label: 'WCAG 2.1 AA and AAA color contrast passed', passed: true, verifiedBy: 'Senior Brand Architect', verifiedAt: '2026-10-21T08:50:00Z' },
+      { id: 'qc-10', label: 'Multi-scale icon rendering (16px to 512px)', passed: true, verifiedBy: 'Senior Brand Architect', verifiedAt: '2026-10-21T09:15:00Z' }
+    ],
+    relatedDocumentId: 'doc-apex-01',
+    createdAt: '2026-10-15T11:00:00Z',
+    updatedAt: '2026-10-21T09:00:00Z'
+  },
+  {
+    id: 'prod-04',
+    title: 'Apex Dynamics — Kinetic Motion Graphics Suite',
+    workspaceId: 'ws-apex-brand',
+    clientName: 'APEX DYNAMICS',
+    clientCategory: 'brand',
+    projectType: 'Motion Teaser & 9:16 Canvas',
+    stage: 'Revision Required',
+    priority: 'Urgent',
+    leadProducer: 'Motion Lead',
+    dueDate: '2026-11-20',
+    brief: {
+      description: '3D kinetic logo sting and 3 social video bumpers for upcoming product announcement.',
+      deliverableSpecs: 'ProRes 4444 with alpha + 16:9 4K 60fps MP4 + 9:16 vertical 1080x1920 MP4',
+      targetAudience: 'Tech media, social followers, and keynote presentation viewers'
+    },
+    sourceMaterials: [
+      { id: 'src-05', name: '3D Monogram Mesh (OBJ / GLTF)', fileType: 'GLTF', url: '/assets/models/apex_logo.gltf', uploadedAt: '2026-10-18T10:00:00Z' }
+    ],
+    versions: [
+      {
+        id: 'ver-04-1',
+        versionNumber: 'v1.0',
+        title: 'Kinetic 3D Sting Draft (Render 01)',
+        fileUrl: '/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg',
+        previewUrl: '/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg',
+        fileType: 'image/jpeg',
+        fileSize: '24.5 MB',
+        uploadedAt: '2026-10-23T11:00:00Z',
+        uploadedBy: 'Motion Lead',
+        isClientPublished: true,
+        publishedAt: '2026-10-23T12:00:00Z',
+        clientReviewStatus: 'Revision Requested',
+        clientFeedback: 'Motion is great, but deceleration at end frame is too abrupt. Extend easing by 0.4 seconds.'
+      }
+    ],
+    internalNotes: [
+      { id: 'not-05', author: 'Motion Lead', role: 'Creative Director', content: 'Adjusting cubic Bézier easing curve in After Effects. Re-rendering passes now.', timestamp: '2026-10-25T14:15:00Z', isInternalOnly: true }
+    ],
+    qualityChecks: [
+      { id: 'qc-11', label: '60fps zero drop-frame rendering', passed: true, verifiedBy: 'Motion Lead', verifiedAt: '2026-10-23T10:30:00Z' },
+      { id: 'qc-12', label: 'Alpha channel transparency tested against black/white', passed: true, verifiedBy: 'Motion Lead', verifiedAt: '2026-10-23T10:45:00Z' },
+      { id: 'qc-13', label: 'Client revision adjustments implemented', passed: false }
+    ],
+    relatedTaskId: 'tsk-apx-01',
+    createdAt: '2026-10-18T10:00:00Z',
+    updatedAt: '2026-10-25T14:15:00Z'
+  },
+  {
+    id: 'prod-05',
+    title: 'Apex Dynamics — Corporate Master Retainer Agreement',
+    workspaceId: 'ws-apex-brand',
+    clientName: 'APEX DYNAMICS',
+    clientCategory: 'brand',
+    projectType: 'Corporate Contract & Stationery',
+    stage: 'Delivered',
+    priority: 'Medium',
+    leadProducer: 'Legal & Business Affairs',
+    dueDate: '2026-10-15',
+    deliveredAt: '2026-10-15T18:00:00Z',
+    brief: {
+      description: 'Annual design retainer contract, IP assignment schedule, SLA requirements, and monthly billing terms.',
+      deliverableSpecs: 'Countersigned PDF + Plain-text legally verified archive'
+    },
+    sourceMaterials: [],
+    versions: [
+      {
+        id: 'ver-05-1',
+        versionNumber: 'v1.0',
+        title: 'Master Retainer Agreement (Signed & Executed)',
+        fileUrl: '/documents/apex_retainer_executed.pdf',
+        previewUrl: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg',
+        fileType: 'application/pdf',
+        fileSize: '1.2 MB',
+        uploadedAt: '2026-10-14T10:00:00Z',
+        uploadedBy: 'Legal Affairs',
+        isClientPublished: true,
+        publishedAt: '2026-10-15T09:00:00Z',
+        clientReviewStatus: 'Approved',
+        clientFeedback: 'Countersigned by Managing Director on 2026-10-15.'
+      }
+    ],
+    internalNotes: [
+      { id: 'not-06', author: 'Legal Affairs', role: 'Legal & Business Affairs', content: 'Contract fully executed and archived in secure corporate vault.', timestamp: '2026-10-15T18:00:00Z', isInternalOnly: true }
+    ],
+    qualityChecks: [
+      { id: 'qc-14', label: 'Legal jurisdiction clauses confirmed', passed: true, verifiedBy: 'Legal Affairs', verifiedAt: '2026-10-14T11:00:00Z' },
+      { id: 'qc-15', label: 'All party signatures and corporate seals applied', passed: true, verifiedBy: 'Legal Affairs', verifiedAt: '2026-10-15T17:30:00Z' }
+    ],
+    relatedDocumentId: 'doc-apex-02',
+    createdAt: '2026-10-10T09:00:00Z',
+    updatedAt: '2026-10-15T18:00:00Z'
+  },
+  {
+    id: 'prod-06',
+    title: 'Lyrical Ent — Showcase Catalog & Press Kit',
+    workspaceId: 'ws-lyrical-ent',
+    clientName: 'LYRICAL ENT',
+    clientCategory: 'label',
+    projectType: 'Website & Press Kit',
+    stage: 'Brief Approved',
+    priority: 'Medium',
+    leadProducer: 'Ojo Abdulkareem',
+    dueDate: '2026-12-10',
+    brief: {
+      description: 'Flagship label promotional EPK, catalog discography breakdown, and press release distribution suite for upcoming Q4 showcase.',
+      deliverableSpecs: 'Digital interactive press kit + 300DPI print one-sheets'
+    },
+    sourceMaterials: [],
+    versions: [],
+    internalNotes: [
+      { id: 'not-07', author: 'Ojo Abdulkareem', role: 'Executive', content: 'Approved scope of work. Preparing artist interview transcripts.', timestamp: '2026-10-24T10:00:00Z', isInternalOnly: true }
+    ],
+    qualityChecks: [
+      { id: 'qc-16', label: 'Catalog discography metadata validated', passed: true, verifiedBy: 'Label Manager', verifiedAt: '2026-10-24T12:00:00Z' }
+    ],
+    createdAt: '2026-10-22T08:00:00Z',
+    updatedAt: '2026-10-24T10:00:00Z'
+  }
+];
+
+export const INITIAL_SERVICE_PACKAGES: ServicePackage[] = [
+  {
+    id: 'pkg-music-promo-deluxe',
+    category: 'Music Release Promotion',
+    name: 'Single Release Launch Package',
+    tier: 'Professional',
+    description: 'Comprehensive release campaign package including DSP cover artwork, Spotify 9:16 Canvas, social countdown assets, and targeted press distribution.',
+    deliverables: [
+      '3000x3000px Master Cover Artwork (RGB 300DPI)',
+      '9:16 Spotify Canvas (8s seamless loop)',
+      '3x Instagram Story & Reel Promo Teasers',
+      'Electronic Press Kit (EPK) One-Sheet PDF',
+      'Distribution Metadata Verification Sheet'
+    ],
+    priceUsd: 1850,
+    billingType: 'Per-Release',
+    revisionLimit: 3,
+    turnaroundDays: 5,
+    isActive: true,
+    targetAudience: 'Artist',
+    createdAt: '2024-03-01T00:00:00Z',
+    updatedAt: '2025-01-15T00:00:00Z'
+  },
+  {
+    id: 'pkg-album-rollout',
+    category: 'Music Release Promotion',
+    name: 'Full Album / EP Omnichannel Rollout',
+    tier: 'Flagship / Custom',
+    description: 'A multi-phase release campaign architecture encompassing lead singles, pre-save activations, physical gatefold packaging, and tour announcement collateral.',
+    deliverables: [
+      'Master Album Cover + 3 Single Cover Variants',
+      'Physical Vinyl / CD Gatefold Packaging Print Files',
+      'Full Motion Asset Suite (16:9 Landscape, 9:16 Vertical, 1:1 Square)',
+      'Pre-save Campaign Landing Page Design',
+      'Tier 1 Press Release & Media Pitch Kit'
+    ],
+    priceUsd: 4800,
+    billingType: 'Per-Release',
+    revisionLimit: 5,
+    turnaroundDays: 14,
+    isActive: true,
+    targetAudience: 'Artist',
+    createdAt: '2024-03-01T00:00:00Z',
+    updatedAt: '2025-01-20T00:00:00Z'
+  },
+  {
+    id: 'pkg-artwork-flagship',
+    category: 'Cover Artwork & Visuals',
+    name: 'Auteur Cover Artwork Design',
+    tier: 'Professional',
+    description: 'Bespoke typographic and photographic cover art engineered for digital streaming platforms, vinyl prints, and billboard scale.',
+    deliverables: [
+      'High-Resolution Master Cover Artwork (4000x4000px)',
+      'Digital Streaming Platform (DSP) Compliant Web Exports',
+      'Typography & Color Palette Guidelines Sheet',
+      'Layered Source Assets (PSD / Vector PDF)'
+    ],
+    priceUsd: 950,
+    billingType: 'Per-Release',
+    revisionLimit: 2,
+    turnaroundDays: 3,
+    isActive: true,
+    targetAudience: 'Artist',
+    createdAt: '2024-02-15T00:00:00Z',
+    updatedAt: '2025-01-10T00:00:00Z'
+  },
+  {
+    id: 'pkg-motion-suite',
+    category: 'Motion Design & Video',
+    name: 'Spatial 3D Motion & Visualizer Suite',
+    tier: 'Flagship / Custom',
+    description: 'Cinematic 3D kinetic typography, animated release visualizers, and spatial title loops formatted for TikTok, Reels, YouTube Shorts, and venue screens.',
+    deliverables: [
+      '3x 9:16 Kinetic Motion Teasers (1080x1920 60FPS)',
+      '1x 16:9 4K YouTube Visualizer Loop (3840x2160)',
+      'Animated Monogram & Transparent Alpha Logo Bug',
+      'Broadcast Master ProRes 422 QuickTime Deliverables'
+    ],
+    priceUsd: 2600,
+    billingType: 'One-Time',
+    revisionLimit: 3,
+    turnaroundDays: 7,
+    isActive: true,
+    targetAudience: 'Both',
+    createdAt: '2024-04-01T00:00:00Z',
+    updatedAt: '2025-02-01T00:00:00Z'
+  },
+  {
+    id: 'pkg-brand-monolith',
+    category: 'Brand Identity System',
+    name: 'Monolith Brand Identity Operating System',
+    tier: 'Flagship / Custom',
+    description: 'Complete strategic brand design system including logomark architectures, custom typographic hierarchy, color science, iconography, and multi-channel style manual.',
+    deliverables: [
+      'Primary, Secondary, Monogram & Icon Vectors (SVG, EPS, PDF)',
+      '40-Page Comprehensive Brand Guidelines Book (Print & Interactive Web PDF)',
+      'Color Space Specification (Pantone, CMYK, RGB, HEX)',
+      'Digital Stationery & Signature Suite',
+      'Social Media Master Component Kit'
+    ],
+    priceUsd: 5500,
+    billingType: 'One-Time',
+    revisionLimit: 4,
+    turnaroundDays: 14,
+    isActive: true,
+    targetAudience: 'Brand',
+    createdAt: '2024-01-15T00:00:00Z',
+    updatedAt: '2025-02-05T00:00:00Z'
+  },
+  {
+    id: 'pkg-biz-corporate',
+    category: 'Business & Corporate Creative',
+    name: 'Corporate Identity & Pitch Collateral Suite',
+    tier: 'Professional',
+    description: 'High-stakes corporate presentation decks, official executive letterheads, legal contract styling, and premium NFC business card assets.',
+    deliverables: [
+      'Executive Investor & Client Pitch Deck (Figma & PDF)',
+      'Official Letterhead, Invoice & Receipt System Templates',
+      'NFC Business Card Print Ready Vectors (Spot UV / Foil specs)',
+      'Digital Presentation Layout Kit'
+    ],
+    priceUsd: 2200,
+    billingType: 'One-Time',
+    revisionLimit: 3,
+    turnaroundDays: 6,
+    isActive: true,
+    targetAudience: 'Brand',
+    createdAt: '2024-02-01T00:00:00Z',
+    updatedAt: '2025-01-18T00:00:00Z'
+  },
+  {
+    id: 'pkg-exec-retainer',
+    category: 'Executive Creative Retainer',
+    name: 'Dedicated Studio Production Retainer',
+    tier: 'Flagship / Custom',
+    description: 'Monthly priority creative direction and production pipeline allocation. Includes dedicated lead producer, accelerated 48h turnarounds, and direct Slack/channel collaboration.',
+    deliverables: [
+      'Up to 40 Hours of Dedicated Studio Creative Direction & Execution',
+      'Priority 48-Hour Rapid Delivery on Single Creatives',
+      'Unlimited Minor Iterations & Revisions',
+      'Weekly Production Pipeline Review & Asset Staging',
+      'Full Access to KeedoHub Private Production Vault'
+    ],
+    priceUsd: 4500,
+    billingType: 'Monthly Retainer',
+    revisionLimit: -1, // Unlimited
+    turnaroundDays: 2,
+    isActive: true,
+    targetAudience: 'Both',
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2025-02-10T00:00:00Z'
+  }
+];
+
+export const INITIAL_MOTION_PROJECTS: MotionProjectSpec[] = [
+  {
+    id: 'mot-proj-01',
+    workspaceId: 'ws-sariyah-artist',
+    releaseId: 'rel-01',
+    title: 'Monochrome State — 9:16 Kinetic Video Teaser & Canvas',
+    aspectRatio: '9:16 Vertical Story',
+    deliverableType: 'Spotify Canvas Loop',
+    audioFileName: 'Monochrome_State_Hook_Preview.wav',
+    audioDurationSeconds: 15,
+    intendedVideoDurationSeconds: 15,
+    visualDirection: 'Minimalist high-contrast monochrome with rhythmic typography transient sync at 120 BPM',
+    referenceLinks: ['https://instagram.com/sariyahcole'],
+    storyboardNotes: 'Frame 1-3: Glitch character intro -> Frame 4-8: Title expansion with optical push-in -> Frame 9-15: Out Now release dates and audio wave pulse',
+    stage: 'Client Review',
+    isClientPublished: true,
+    clientFeedback: 'Approved the initial cut, please ensure the artist moniker appears clearly in upper third safe zone.',
+    internalProductionNotes: 'Ensure 1080x1920 60FPS render with H.264 profile high and stereo AAC 320kbps audio stems.',
+    currentVersion: 'v1.2',
+    previewKeyframeUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+    exportSpecs: {
+      fps: 60,
+      resolution: '1080x1920',
+      codec: 'ProRes 422 / H.264',
+      aspectRatio: '9:16'
+    },
+    createdAt: '2026-10-15T10:00:00Z',
+    updatedAt: '2026-10-24T16:00:00Z'
+  },
+  {
+    id: 'mot-proj-02',
+    workspaceId: 'ws-lyrical-ent',
+    releaseId: 'rel-03',
+    title: 'Black Slate (Visual EP) — Spatial Monolith Title Sequence',
+    aspectRatio: '16:9 Landscape',
+    deliverableType: 'Music Visualizer',
+    audioFileName: 'Black_Slate_Soundtrack_Excerpt.wav',
+    audioDurationSeconds: 30,
+    intendedVideoDurationSeconds: 30,
+    visualDirection: '3D spatial letterforms drifting over textured slate rock with anamorphic lens flares',
+    storyboardNotes: 'Intro sequence for YouTube premiere and broadcast promotion',
+    stage: 'In Production',
+    isClientPublished: false,
+    internalProductionNotes: 'Awaiting 4K color grade pass from Jordan K.',
+    currentVersion: 'v1.0',
+    exportSpecs: {
+      fps: 60,
+      resolution: '3840x2160',
+      codec: 'ProRes 4444',
+      aspectRatio: '16:9'
+    },
+    createdAt: '2026-10-20T11:00:00Z',
+    updatedAt: '2026-10-23T14:00:00Z'
+  }
+];
+
+

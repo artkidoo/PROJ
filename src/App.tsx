@@ -9,9 +9,11 @@ import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
 import { QuickActionModal } from './components/modals/QuickActionModal';
+import { PublicHomepage } from './components/public/PublicHomepage';
 
 // Modules
 import { OverviewDashboard } from './components/modules/OverviewDashboard';
+import { ProductionCenter } from './components/modules/ProductionCenter';
 import { BrandIdentityManager } from './components/modules/BrandIdentityManager';
 import { CorporateDocuments } from './components/modules/CorporateDocuments';
 import { ArtistManagement } from './components/modules/ArtistManagement';
@@ -28,6 +30,7 @@ import { BloggerWebsiteStudio } from './components/modules/BloggerWebsiteStudio'
 import { AssetLibrary } from './components/modules/AssetLibrary';
 import { Operations } from './components/modules/Operations';
 import { ExportCenter } from './components/modules/ExportCenter';
+import { AdminControlCenter } from './components/modules/AdminControlCenter';
 
 const MainLayout: React.FC = () => {
   const { activeModule, currentRole, activeWorkspace } = useApp();
@@ -37,6 +40,10 @@ const MainLayout: React.FC = () => {
     switch (activeModule) {
       case 'dashboard':
         return <OverviewDashboard />;
+      case 'production':
+        return <ProductionCenter />;
+      case 'admin':
+        return <AdminControlCenter />;
       case 'brand':
         return <BrandIdentityManager />;
       case 'documents':
@@ -119,10 +126,20 @@ const MainLayout: React.FC = () => {
   );
 };
 
+const AppContent: React.FC = () => {
+  const { appMode } = useApp();
+
+  if (appMode === 'public') {
+    return <PublicHomepage />;
+  }
+
+  return <MainLayout />;
+};
+
 export default function App() {
   return (
     <AppProvider>
-      <MainLayout />
+      <AppContent />
     </AppProvider>
   );
 }

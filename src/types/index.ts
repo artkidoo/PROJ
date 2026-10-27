@@ -12,6 +12,8 @@ export type UserRole =
 
 export type AppModule = 
   | 'dashboard'
+  | 'production'
+  | 'admin'
   | 'brand'
   | 'documents'
   | 'artists'
@@ -32,9 +34,12 @@ export type AppModule =
  * KEEDOHUB — Platform Foundation Types
  */
 
+export type AppMode = 'public' | 'workspace';
+
 export type UserStatus = 'Active' | 'Suspended' | 'Pending';
 export type MembershipStatus = 'Active' | 'Invited' | 'Revoked';
 export type WorkspaceRole = 'Owner' | 'Admin' | 'Member' | 'Guest';
+export type WorkspaceStatus = 'Active' | 'Onboarding' | 'Paused' | 'Archived';
 
 export interface PlatformUser {
   id: string;
@@ -45,12 +50,16 @@ export interface PlatformUser {
   createdAt: string;
 }
 
+export type WorkspaceType = 'Artist' | 'Brand' | 'Label' | 'Agency' | 'Personal' | 'Enterprise';
+export type ClientCategory = 'artist' | 'brand' | 'label';
+
 export interface WorkspaceBrand {
   name: string;
   logoUrl?: string;
   primaryColor: string;
   secondaryColor: string;
   accentColor?: string;
+  tagline?: string;
   typography?: {
     displayFont?: string;
     bodyFont?: string;
@@ -60,10 +69,16 @@ export interface WorkspaceBrand {
 export interface Workspace {
   id: string;
   name: string;
-  type: 'Label' | 'Agency' | 'Personal' | 'Enterprise';
+  type: WorkspaceType;
+  clientCategory?: ClientCategory;
   brand: WorkspaceBrand;
   ownerId: string;
+  description?: string;
+  status?: WorkspaceStatus;
+  contactEmail?: string;
+  contractedPackageIds?: string[];
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface WorkspaceMembership {
@@ -75,6 +90,36 @@ export interface WorkspaceMembership {
   joinedAt: string;
 }
 
+/**
+ * KEEDOHUB — Phase 4 Services & Packages Types
+ */
+export type ServiceCategory = 
+  | 'Music Release Promotion'
+  | 'Cover Artwork & Visuals'
+  | 'Motion Design & Video'
+  | 'Brand Identity System'
+  | 'Business & Corporate Creative'
+  | 'Executive Creative Retainer';
+
+export type ServiceTier = 'Essential' | 'Professional' | 'Flagship / Custom';
+
+export interface ServicePackage {
+  id: string;
+  category: ServiceCategory;
+  name: string;
+  tier: ServiceTier;
+  description: string;
+  deliverables: string[];
+  priceUsd: number;
+  billingType: 'One-Time' | 'Per-Release' | 'Monthly Retainer';
+  revisionLimit: number; // e.g. 2, 3, or -1 for unlimited
+  turnaroundDays: number; // e.g. 3, 5, 10
+  isActive: boolean;
+  targetAudience: 'Artist' | 'Brand' | 'Both';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CreativeProject {
   id: string;
   workspaceId: string;
@@ -84,6 +129,99 @@ export interface CreativeProject {
   assignedTo?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * KEEDOHUB — Phase 3 Private Production Center Types
+ */
+export type ProductionStage = 
+  | 'New Request'
+  | 'Brief Approved'
+  | 'In Production'
+  | 'Internal QA'
+  | 'Client Review'
+  | 'Revision Required'
+  | 'Ready for Delivery'
+  | 'Delivered';
+
+export type ProductionPriority = 'Low' | 'Medium' | 'Normal' | 'High' | 'Urgent';
+
+export type ProductionProjectType = 
+  | 'Music Release Package'
+  | 'Cover Artwork Design'
+  | 'Motion Teaser & 9:16 Canvas'
+  | 'Brand Identity System'
+  | 'Marketing Campaign Kit'
+  | 'Corporate Contract & Stationery'
+  | 'Website & Press Kit';
+
+export interface DeliverableVersion {
+  id: string;
+  versionNumber: string;
+  title: string;
+  fileUrl?: string;
+  previewUrl?: string;
+  fileType: string;
+  fileSize?: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  isClientPublished: boolean;
+  publishedAt?: string;
+  clientReviewStatus?: 'Pending' | 'Approved' | 'Revision Requested';
+  clientFeedback?: string;
+}
+
+export interface ProductionNote {
+  id: string;
+  author: string;
+  role: string;
+  content: string;
+  timestamp: string;
+  isInternalOnly: boolean;
+}
+
+export interface ProductionQualityCheck {
+  id: string;
+  label: string;
+  passed: boolean;
+  verifiedBy?: string;
+  verifiedAt?: string;
+}
+
+export interface ProductionProject {
+  id: string;
+  title: string;
+  workspaceId: string;
+  clientName: string;
+  clientCategory: ClientCategory;
+  projectType: ProductionProjectType;
+  stage: ProductionStage;
+  priority: ProductionPriority;
+  leadProducer: string;
+  dueDate: string;
+  brief: {
+    description: string;
+    deliverableSpecs: string;
+    targetAudience?: string;
+    inspirationNotes?: string;
+    referenceLinks?: string[];
+  };
+  sourceMaterials: {
+    id: string;
+    name: string;
+    fileType: string;
+    url: string;
+    uploadedAt: string;
+  }[];
+  versions: DeliverableVersion[];
+  internalNotes: ProductionNote[];
+  qualityChecks: ProductionQualityCheck[];
+  relatedReleaseId?: string;
+  relatedDocumentId?: string;
+  relatedTaskId?: string;
+  createdAt: string;
+  updatedAt: string;
+  deliveredAt?: string;
 }
 
 export interface Artist {
@@ -131,6 +269,79 @@ export interface ReleaseChecklist {
   marketingAssetsReady: boolean;
 }
 
+export type CampaignStage = 'Pre-Release' | 'Release Day' | 'Post-Release';
+
+export interface AudioMetadata {
+  fileName?: string;
+  fileUrl?: string;
+  format?: string;
+  durationSeconds?: number;
+  sampleRate?: string;
+  bitDepth?: string;
+  fileSize?: string;
+  uploadedAt?: string;
+}
+
+export interface ArtworkMetadata {
+  fileName?: string;
+  fileUrl?: string;
+  dimensions?: string;
+  colorSpace?: string;
+  resolutionDpi?: number;
+  fileSize?: string;
+  uploadedAt?: string;
+}
+
+export type DeliverableWorkflowStage = 
+  | 'Brief'
+  | 'In Production'
+  | 'Internal QA'
+  | 'Client Review'
+  | 'Revision Required'
+  | 'Delivered';
+
+export interface ReleaseDeliverableItem {
+  id: string;
+  name: string;
+  category: 'Artwork' | 'Motion Video' | 'Social Asset' | 'EPK & Press' | 'Audio Master';
+  format: string;
+  stage: DeliverableWorkflowStage;
+  previewUrl?: string;
+  downloadUrl?: string;
+  fileSpecs?: string;
+  revisionCount: number;
+  maxRevisions: number;
+  clientFeedback?: string;
+  isClientPublished: boolean;
+  publishedAt?: string;
+  clientApproved?: boolean;
+  approvedAt?: string;
+}
+
+export interface MotionProjectSpec {
+  id: string;
+  workspaceId: string;
+  releaseId?: string;
+  title: string;
+  aspectRatio: '1:1 Square' | '9:16 Vertical Story' | '16:9 Landscape';
+  deliverableType: 'Music Visualizer' | 'Lyric Video' | 'Out Now Teaser' | 'Countdown Promo' | 'Spotify Canvas Loop';
+  audioFileName?: string;
+  audioDurationSeconds?: number;
+  intendedVideoDurationSeconds: number;
+  visualDirection: string;
+  referenceLinks?: string[];
+  storyboardNotes?: string;
+  stage: DeliverableWorkflowStage;
+  isClientPublished: boolean;
+  clientFeedback?: string;
+  internalProductionNotes?: string;
+  currentVersion: string;
+  previewKeyframeUrl?: string;
+  exportSpecs?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MusicRelease {
   id: string;
   workspaceId?: string;
@@ -155,6 +366,16 @@ export interface MusicRelease {
   checklist: ReleaseChecklist;
   budgetAllocated?: number;
   budgetSpent?: number;
+  // Phase 5 Structured Workflows
+  packageId?: string;
+  campaignStage?: CampaignStage;
+  audioMetadata?: AudioMetadata;
+  artworkMetadata?: ArtworkMetadata;
+  deliverables?: ReleaseDeliverableItem[];
+  clientApprovalStatus?: 'Pending' | 'Approved' | 'Revision Requested';
+  clientApprovalDate?: string;
+  finalDeliveryUrl?: string;
+  associatedProductionProjectId?: string;
   createdAt: string;
 }
 

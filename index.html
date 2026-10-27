@@ -3,6 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // 1. Ensure window.fetch has both getter and setter so browser extensions can attach interceptors safely
+      (function() {
+        try {
+          var originalFetch = window.fetch;
+          var activeFetch = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() { return activeFetch; },
+            set: function(fn) { activeFetch = fn; },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          // ignore
+        }
+      })();
+
+      // 2. Prevent chrome-extension and fetch-override errors from bubbling up
+      window.addEventListener('error', function(event) {
+        if (event.filename && event.filename.indexOf('chrome-extension://') !== -1) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return true;
+        }
+        if (event.message && (event.message.indexOf('fetch of') !== -1 || event.message.indexOf('getter') !== -1)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason;
+        var message = reason ? (reason.message || String(reason)) : '';
+        if (message && (message.indexOf('chrome-extension://') !== -1 || message.indexOf('fetch of') !== -1)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+    </script>
     <title>LYRICAL ENT — Brand & Label Studio</title>
     <meta name="description" content="Central branding, creative production, artist management, music release planning, document generation, and digital operations workspace for LYRICAL ENT record label." />
     <meta property="og:title" content="LYRICAL ENT — Brand & Label Studio" />

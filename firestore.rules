@@ -99,6 +99,20 @@ service cloud.firestore {
       match /pressReleases/{pressId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /mediaContacts/{contactId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /campaignDesigns/{designId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /productionProjects/{projectId} { 
+        allow read: if isWorkspaceMember(workspaceId); 
+        allow write: if isWorkspaceOwner(workspaceId); 
+      }
+      match /services/{serviceId} { 
+        allow read: if isWorkspaceMember(workspaceId); 
+        allow write: if isWorkspaceOwner(workspaceId); 
+      }
+    }
+
+    // Global Service Packages Catalog (Read: Authenticated Users, Write: Platform Admin)
+    match /services/{serviceId} {
+      allow read: if isSignedIn();
+      allow write: if isPlatformAdmin();
     }
   }
 }

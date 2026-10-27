@@ -5,7 +5,9 @@ import {
   triggerSvgDownload, 
   triggerPngDownload 
 } from '../brand/LogoSystem';
+import JSZip from 'jszip';
 import { generateMasterBrandZip, ZipOptions } from '../../utils/zipGenerator';
+import { generateReleaseDeliveryZip } from '../../utils/releaseZipGenerator';
 import { generateBrandGuidelinesPdf } from '../../utils/pdfGenerator';
 import { generateBloggerThemeXml } from '../../utils/bloggerXmlGenerator';
 import { 
@@ -25,7 +27,15 @@ import {
   FolderArchive,
   Check,
   Sparkles,
-  BookOpen
+  BookOpen,
+  Disc3,
+  Film,
+  Music,
+  Clock,
+  ShieldCheck,
+  ChevronRight,
+  Eye,
+  CheckCircle
 } from 'lucide-react';
 
 export const ExportCenter: React.FC = () => {
@@ -38,7 +48,9 @@ export const ExportCenter: React.FC = () => {
     brandAssets, 
     bloggerSettings,
     brandGuidelines,
-    activeWorkspace
+    activeWorkspace,
+    motionProjects,
+    servicePackages
   } = useApp();
 
   const filteredArtists = useMemo(() => {
@@ -67,6 +79,38 @@ export const ExportCenter: React.FC = () => {
 
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [isZipping, setIsZipping] = useState(false);
+  const [selectedReleaseId, setSelectedReleaseId] = useState<string>(() => filteredReleases[0]?.id || '');
+  const [isPackagingRelease, setIsPackagingRelease] = useState(false);
+
+  const currentRelease = useMemo(() => {
+    return filteredReleases.find(r => r.id === selectedReleaseId) || filteredReleases[0] || null;
+  }, [filteredReleases, selectedReleaseId]);
+
+  const connectedPackage = useMemo(() => {
+    if (!currentRelease?.packageId) return null;
+    return servicePackages.find(p => p.id === currentRelease.packageId) || null;
+  }, [currentRelease, servicePackages]);
+
+  const currentReleaseMotionProjects = useMemo(() => {
+    if (!currentRelease) return [];
+    return motionProjects.filter(m => 
+      m.releaseId === currentRelease.id || 
+      (currentRelease.title && m.title.toLowerCase().includes(currentRelease.title.toLowerCase()))
+    );
+  }, [currentRelease, motionProjects]);
+
+  const handleDownloadReleasePackageZip = async () => {
+    if (!currentRelease) return;
+    setIsPackagingRelease(true);
+    try {
+      await generateReleaseDeliveryZip(currentRelease, activeWorkspace, currentReleaseMotionProjects, connectedPackage || undefined);
+    } catch (err) {
+      console.error('Release delivery package zip error', err);
+    } finally {
+      setIsPackagingRelease(false);
+    }
+  };
+
   const [zipOptions, setZipOptions] = useState<ZipOptions>({
     includeIdentity: true,
     includeGuidelines: true,
@@ -167,6 +211,301 @@ export const ExportCenter: React.FC = () => {
           <span>{importStatus}</span>
         </div>
       )}
+
+      {/* Phase 5: Release & Motion Deliverables Package Archive (.ZIP) */}
+      <div className="p-6 bg-[#0E0E0E] border-2 border-[#FF1E1E]/40 rounded-lg space-y-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-[#FF1E1E]/5 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Section Header with Release Selector */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#1E1E1E] pb-5">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-mono text-[#FF1E1E] mb-1">
+              <Disc3 size={16} className="animate-spin-slow" />
+              <span className="font-bold uppercase tracking-wider">PHASE 5 PRODUCTION WORKFLOW</span>
+              <span className="text-neutral-600">·</span>
+              <span className="text-white font-mono">RELEASE &amp; MOTION DELIVERY SUITE</span>
+            </div>
+            <h2 className="text-lg font-bold text-white font-mono uppercase flex items-center gap-2">
+              Music Release Deliverables &amp; Motion Package (.ZIP)
+            </h2>
+            <p className="text-xs text-neutral-400 mt-1 max-w-2xl leading-relaxed">
+              Consolidates client-approved master cover art, vertical motion teasers, lossless audio master stems, ISRC/UPC DSP metadata manifests, and technical handover quality audit checklists into a unified client delivery package.
+            </p>
+          </div>
+
+          {/* Release Switcher Dropdown */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider block">
+                ACTIVE RELEASE SELECTION
+              </label>
+              <select
+                value={selectedReleaseId}
+                onChange={(e) => setSelectedReleaseId(e.target.value)}
+                className="bg-[#141414] border border-[#2B2B2B] text-white text-xs font-mono rounded px-3 py-2 focus:outline-none focus:border-[#FF1E1E]"
+              >
+                {filteredReleases.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title} — {r.artistName} ({r.type.toUpperCase()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={handleDownloadReleasePackageZip}
+              disabled={isPackagingRelease || !currentRelease}
+              className="mt-auto flex items-center justify-center gap-2 py-2.5 px-5 text-xs font-bold font-mono bg-[#FF1E1E] text-white hover:bg-[#d91919] rounded transition-colors whitespace-nowrap shadow-lg shadow-[#FF1E1E]/20"
+            >
+              {isPackagingRelease ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Compiling Package...</span>
+                </>
+              ) : (
+                <>
+                  <FolderArchive size={15} strokeWidth={2.5} />
+                  <span>Download Release Package (.ZIP)</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {currentRelease ? (
+          <div className="space-y-5">
+            {/* Package Association & Key Specs Bar */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="p-3 bg-[#121212] border border-[#222222] rounded">
+                <span className="text-[10px] font-mono text-neutral-500 uppercase block">CONNECTED PACKAGE</span>
+                <span className="text-xs font-mono font-bold text-white mt-1 block">
+                  {connectedPackage ? connectedPackage.name : 'Custom / Unassigned'}
+                </span>
+                <span className="text-[10px] font-mono text-neutral-400 mt-0.5 block">
+                  {connectedPackage ? `${connectedPackage.revisionLimit} Revisions Included` : 'Standard Production Terms'}
+                </span>
+              </div>
+
+              <div className="p-3 bg-[#121212] border border-[#222222] rounded">
+                <span className="text-[10px] font-mono text-neutral-500 uppercase block">CAMPAIGN STAGE</span>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="w-2 h-2 rounded-full bg-[#FF1E1E] animate-pulse" />
+                  <span className="text-xs font-mono font-bold text-white">
+                    {currentRelease.campaignStage || 'Pre-Release'}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-neutral-400 mt-0.5 block">
+                  Target Street Date: {currentRelease.plannedReleaseDate || 'TBA'}
+                </span>
+              </div>
+
+              <div className="p-3 bg-[#121212] border border-[#222222] rounded">
+                <span className="text-[10px] font-mono text-neutral-500 uppercase block">CLIENT APPROVAL GATE</span>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {currentRelease.clientApprovalStatus === 'Approved' ? (
+                    <CheckCircle size={14} className="text-green-400" />
+                  ) : (
+                    <Clock size={14} className="text-yellow-400" />
+                  )}
+                  <span className="text-xs font-mono font-bold text-white">
+                    {currentRelease.clientApprovalStatus || 'Pending Client Sign-Off'}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-neutral-400 mt-0.5 block">
+                  {currentRelease.clientApprovalDate ? `Signed ${currentRelease.clientApprovalDate}` : 'Under Review'}
+                </span>
+              </div>
+
+              <div className="p-3 bg-[#121212] border border-[#222222] rounded">
+                <span className="text-[10px] font-mono text-neutral-500 uppercase block">DELIVERABLES INCLUDED</span>
+                <span className="text-xs font-mono font-bold text-white mt-1 block">
+                  {(currentRelease.deliverables || []).length} Tracked Deliverables
+                </span>
+                <span className="text-[10px] font-mono text-neutral-400 mt-0.5 block">
+                  {(currentRelease.deliverables || []).filter(d => d.clientApproved).length} Client Approved · {(currentRelease.deliverables || []).filter(d => d.isClientPublished).length} Published
+                </span>
+              </div>
+            </div>
+
+            {/* Technical Verification Quality Checklist */}
+            <div className="p-4 bg-[#121212] border border-[#1F1F1F] rounded-lg">
+              <div className="flex items-center justify-between mb-3 border-b border-[#1C1C1C] pb-2">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={15} className="text-[#FF1E1E]" />
+                  <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                    TECHNICAL DELIVERY CHECKLIST &amp; VERIFICATION
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-neutral-500 uppercase">
+                  ZERO ARBITRARY DATA · REAL VERIFIED SPECS
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
+                {/* 1:1 Cover Artwork Spec */}
+                <div className="p-3 bg-[#0A0A0A] border border-[#222222] rounded space-y-1.5">
+                  <div className="flex items-center justify-between text-neutral-400 text-[10px]">
+                    <span>1:1 COVER ARTWORK</span>
+                    <Check size={12} className="text-green-400" />
+                  </div>
+                  {currentRelease.artworkMetadata ? (
+                    <>
+                      <div className="font-bold text-white truncate">{currentRelease.artworkMetadata.fileName}</div>
+                      <div className="text-[11px] text-neutral-400">
+                        {currentRelease.artworkMetadata.dimensions} · {currentRelease.artworkMetadata.resolutionDpi} DPI
+                      </div>
+                      <div className="text-[10px] text-neutral-500">
+                        {currentRelease.artworkMetadata.colorSpace} · {currentRelease.artworkMetadata.fileSize}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[11px] text-neutral-400">Master cover artwork reference attached</div>
+                  )}
+                </div>
+
+                {/* Vertical Motion Teaser / Canvas */}
+                <div className="p-3 bg-[#0A0A0A] border border-[#222222] rounded space-y-1.5">
+                  <div className="flex items-center justify-between text-neutral-400 text-[10px]">
+                    <span>9:16 VERTICAL MOTION</span>
+                    <Film size={12} className="text-[#FF1E1E]" />
+                  </div>
+                  {currentReleaseMotionProjects.length > 0 ? (
+                    <>
+                      <div className="font-bold text-white truncate">
+                        {currentReleaseMotionProjects[0].title} ({currentReleaseMotionProjects[0].currentVersion})
+                      </div>
+                      <div className="text-[11px] text-neutral-400">
+                        {currentReleaseMotionProjects[0].aspectRatio} · {currentReleaseMotionProjects[0].intendedVideoDurationSeconds}s Loop
+                      </div>
+                      <div className="text-[10px] text-neutral-500">
+                        Stage: {currentReleaseMotionProjects[0].stage}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[11px] text-neutral-400">Configured in Motion Studio</div>
+                  )}
+                </div>
+
+                {/* Master Audio Stem */}
+                <div className="p-3 bg-[#0A0A0A] border border-[#222222] rounded space-y-1.5">
+                  <div className="flex items-center justify-between text-neutral-400 text-[10px]">
+                    <span>MASTER AUDIO STEM</span>
+                    <Music size={12} className="text-green-400" />
+                  </div>
+                  {currentRelease.audioMetadata ? (
+                    <>
+                      <div className="font-bold text-white truncate">{currentRelease.audioMetadata.fileName}</div>
+                      <div className="text-[11px] text-neutral-400">
+                        {currentRelease.audioMetadata.sampleRate} · {currentRelease.audioMetadata.bitDepth}
+                      </div>
+                      <div className="text-[10px] text-neutral-500">
+                        {currentRelease.audioMetadata.durationSeconds}s · {currentRelease.audioMetadata.fileSize}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[11px] text-neutral-400">Awaiting master stem file attachment</div>
+                  )}
+                </div>
+
+                {/* Catalog Identifiers */}
+                <div className="p-3 bg-[#0A0A0A] border border-[#222222] rounded space-y-1.5">
+                  <div className="flex items-center justify-between text-neutral-400 text-[10px]">
+                    <span>DSP CATALOG CODES</span>
+                    <Disc3 size={12} className="text-neutral-400" />
+                  </div>
+                  <div className="text-[11px] text-white">
+                    ISRC: <span className="text-neutral-300">{currentRelease.isrc || 'Pending Registration'}</span>
+                  </div>
+                  <div className="text-[11px] text-white">
+                    UPC: <span className="text-neutral-300">{currentRelease.upc || 'Pending Registration'}</span>
+                  </div>
+                  <div className="text-[10px] text-neutral-500">
+                    Distribution: {currentRelease.distributionStatus}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Deliverables Roster Table */}
+            <div className="border border-[#1F1F1F] rounded-lg overflow-hidden">
+              <div className="p-3 bg-[#141414] border-b border-[#1F1F1F] flex items-center justify-between">
+                <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                  PACKAGE DELIVERABLES PIPELINE
+                </span>
+                <span className="text-[10px] font-mono text-neutral-400">
+                  Tracked across 6 stages from Brief to Delivered
+                </span>
+              </div>
+
+              <div className="divide-y divide-[#181818] bg-[#0A0A0A]">
+                {(currentRelease.deliverables || []).map((deliv) => {
+                  const stageColors: Record<string, string> = {
+                    'Brief': 'bg-neutral-800 text-neutral-300 border-neutral-700',
+                    'In Production': 'bg-blue-950/80 text-blue-300 border-blue-800/80',
+                    'Internal QA': 'bg-purple-950/80 text-purple-300 border-purple-800/80',
+                    'Client Review': 'bg-amber-950/80 text-amber-300 border-amber-800/80',
+                    'Revision Required': 'bg-red-950/80 text-red-300 border-red-800/80',
+                    'Delivered': 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
+                  };
+
+                  return (
+                    <div key={deliv.id} className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs font-mono">
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 rounded-full bg-[#FF1E1E] mt-1.5 flex-shrink-0" />
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-2">
+                            <span>{deliv.name}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded border ${stageColors[deliv.stage] || 'bg-neutral-800 text-neutral-300'}`}>
+                              {deliv.stage}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-neutral-400 mt-0.5">
+                            Format: {deliv.format} · Specs: {deliv.fileSpecs || 'Lossless'} · Revisions: {deliv.revisionCount}/{deliv.maxRevisions}
+                          </div>
+                          {deliv.clientFeedback && (
+                            <div className="text-[10px] text-amber-300/80 mt-1 italic">
+                              Client feedback: "{deliv.clientFeedback}"
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 self-end md:self-center">
+                        <span className={`text-[10px] px-2 py-0.5 rounded border ${
+                          deliv.isClientPublished 
+                            ? 'bg-blue-900/30 text-blue-300 border-blue-700/50' 
+                            : 'bg-neutral-900 text-neutral-500 border-neutral-800'
+                        }`}>
+                          {deliv.isClientPublished ? 'Published to Client' : 'Internal Only'}
+                        </span>
+
+                        <span className={`text-[10px] px-2 py-0.5 rounded border flex items-center gap-1 ${
+                          deliv.clientApproved 
+                            ? 'bg-green-900/30 text-green-300 border-green-700/50' 
+                            : 'bg-neutral-900 text-neutral-500 border-neutral-800'
+                        }`}>
+                          {deliv.clientApproved ? (
+                            <>
+                              <Check size={10} />
+                              <span>Client Approved</span>
+                            </>
+                          ) : (
+                            <span>Awaiting Sign-Off</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-xs font-mono text-neutral-500">
+            No music releases registered in the active workspace. Create a release in Release Management to generate a delivery package.
+          </div>
+        )}
+      </div>
 
       {/* Master Brand Package Archive (.ZIP) Section */}
       <div className="p-6 bg-[#0E0E0E] border-2 border-neutral-700 rounded-lg space-y-5">

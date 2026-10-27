@@ -11,8 +11,12 @@ import {
   Sliders,
   Database,
   LogIn,
-  LogOut
+  LogOut,
+  Globe,
+  Send
 } from 'lucide-react';
+import { WorkspaceSettingsModal } from '../modals/WorkspaceSettingsModal';
+import { ClientRequestModal } from '../modals/ClientRequestModal';
 
 interface HeaderProps {
   mobileMenuOpen: boolean;
@@ -21,6 +25,8 @@ interface HeaderProps {
 
 const MODULE_NAMES: Record<AppModule, string> = {
   dashboard: 'Overview Dashboard',
+  production: 'Private Production Center & Pipeline',
+  admin: 'Admin & Operator Control Center',
   brand: 'Brand Identity Manager',
   documents: 'Corporate Documents',
   artists: 'Artist Roster Management',
@@ -60,13 +66,22 @@ export const Header: React.FC<HeaderProps> = ({ mobileMenuOpen, setMobileMenuOpe
     currentUser,
     isAuthenticated,
     loginWithGoogle,
-    logout
+    logout,
+    exitToPublic
   } = useApp();
+
+  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+  const [isRequestOpen, setIsRequestOpen] = React.useState(false);
+
+  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist';
+  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand';
+  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E');
 
   const pendingApprovals = releases.filter(r => (r.distributionStatus === 'Metadata Verification' || !r.checklist.artworkApproved) && r.workspaceId === activeWorkspace.id).length;
   const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;
 
   return (
+    <>
     <header className="sticky top-0 z-30 h-16 bg-[#080808]/95 backdrop-blur border-b border-[#1F1F1F] px-4 md:px-8 flex items-center justify-between gap-4">
       {/* Zone 1: Mobile toggle + Breadcrumb trail */}
       <div className="flex items-center gap-3 min-w-0">
@@ -78,14 +93,23 @@ export const Header: React.FC<HeaderProps> = ({ mobileMenuOpen, setMobileMenuOpe
           {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
 
-        <div className="flex items-center gap-2.5 text-xs md:text-sm font-medium tracking-tight min-w-0">
+        <div className="flex items-center gap-2 text-xs md:text-sm font-medium tracking-tight min-w-0">
           <WorkspaceLogo 
             workspaceId={activeWorkspace.id} 
             workspaceName={activeWorkspace.name} 
+            brand={activeWorkspace.brand}
+            clientCategory={activeWorkspace.clientCategory}
             height={22} 
             theme="monochrome-white" 
             className="shrink-0"
           />
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            title="Customize Workspace Branding"
+            className="p-1 text-neutral-500 hover:text-white hover:bg-[#171717] rounded transition-colors shrink-0"
+          >
+            <Sliders size={13} style={{ color: brandAccent }} />
+          </button>
           <span className="text-neutral-600 shrink-0">/</span>
           <span className="text-neutral-300 font-medium truncate">{MODULE_NAMES[activeModule]}</span>
         </div>
@@ -134,6 +158,26 @@ export const Header: React.FC<HeaderProps> = ({ mobileMenuOpen, setMobileMenuOpe
       {/* Zone 3: Primary Action Button */}
       <div className="flex items-center gap-2 shrink-0">
         <button
+          onClick={() => exitToPublic()}
+          title="Return to KeedoHub Public Homepage"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-neutral-400 hover:text-white bg-[#121212] hover:bg-[#1A1A1A] border border-[#242424] rounded-md transition-colors"
+        >
+          <Globe size={13} className="text-[#FF1E1E]" />
+          <span className="hidden md:inline font-mono">Public Site</span>
+        </button>
+
+        {/* Client Creative Request Button */}
+        <button
+          onClick={() => setIsRequestOpen(true)}
+          title="Submit Creative Brief or Request Revisions"
+          className="flex items-center gap-1.5 text-white px-3 py-1.5 text-xs font-semibold rounded-md transition-all shadow-sm active:scale-[0.98]"
+          style={{ backgroundColor: brandAccent }}
+        >
+          <Send size={13} />
+          <span className="hidden sm:inline">Request</span>
+        </button>
+
+        <button
           onClick={() => openQuickAction('release')}
           className="hidden xs:flex items-center gap-1.5 bg-white text-black hover:bg-neutral-200 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shadow-sm active:scale-[0.98]"
         >
@@ -177,5 +221,16 @@ export const Header: React.FC<HeaderProps> = ({ mobileMenuOpen, setMobileMenuOpe
         )}
       </div>
     </header>
+
+    {/* Modals */}
+    <WorkspaceSettingsModal 
+      isOpen={isSettingsOpen} 
+      onClose={() => setIsSettingsOpen(false)} 
+    />
+    <ClientRequestModal 
+      isOpen={isRequestOpen} 
+      onClose={() => setIsRequestOpen(false)} 
+    />
+    </>
   );
 };

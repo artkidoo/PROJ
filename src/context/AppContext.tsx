@@ -15,8 +15,21 @@ import {
   BrandGuidelinesData,
   PlatformUser,
   Workspace,
+  WorkspaceBrand,
   WorkspaceMembership,
-  CreativeProject
+  CreativeProject,
+  AppMode,
+  ProductionProject,
+  ProductionStage,
+  ProductionPriority,
+  ProductionProjectType,
+  DeliverableVersion,
+  ProductionNote,
+  ProductionQualityCheck,
+  ServicePackage,
+  MotionProjectSpec,
+  ReleaseDeliverableItem,
+  DeliverableWorkflowStage
 } from '../types';
 import { ReleaseProject, CampaignDesign } from '../types/campaign';
 import { 
@@ -33,7 +46,10 @@ import {
   INITIAL_PRESS_RELEASES, 
   INITIAL_MEDIA_CONTACTS, 
   INITIAL_BLOGGER_SETTINGS,
-  INITIAL_BRAND_GUIDELINES 
+  INITIAL_BRAND_GUIDELINES,
+  INITIAL_PRODUCTION_PROJECTS,
+  INITIAL_SERVICE_PACKAGES,
+  INITIAL_MOTION_PROJECTS
 } from '../data/initialData';
 import { 
   auth, 
@@ -57,6 +73,11 @@ interface AppContextType {
   isAuthLoading: boolean;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
+  // Application Mode (Public Landing vs Client Workspace)
+  appMode: AppMode;
+  setAppMode: (mode: AppMode) => void;
+  enterWorkspace: (workspaceId?: string) => void;
+  exitToPublic: () => void;
 
   activeModule: AppModule;
   setActiveModule: (module: AppModule) => void;
@@ -87,6 +108,45 @@ interface AppContextType {
   activeWorkspace: Workspace;
   setActiveWorkspace: (workspace: Workspace) => void;
   switchWorkspace: (workspaceId: string) => void;
+  createWorkspace: (workspace: Omit<Workspace, 'id' | 'createdAt'>) => Workspace;
+  updateWorkspaceBrand: (workspaceId: string, updates: Partial<WorkspaceBrand>) => void;
+  submitClientRequest: (request: { title: string; category: OperationTask['category']; dueDate: string; notes: string; priority: OperationTask['priority'] }) => OperationTask;
+  approveDeliverable: (releaseId: string) => void;
+
+  // Phase 3: Production Center
+  productionProjects: ProductionProject[];
+  canAccessProductionCenter: boolean;
+  addProductionProject: (project: Omit<ProductionProject, 'id' | 'createdAt' | 'updatedAt'>) => ProductionProject;
+  updateProductionProject: (id: string, updates: Partial<ProductionProject>) => void;
+  deleteProductionProject: (id: string) => void;
+  updateProductionStage: (id: string, stage: ProductionStage, note?: string) => void;
+  publishDeliverableVersion: (projectId: string, versionId: string, isPublished: boolean) => void;
+  addDeliverableVersion: (projectId: string, version: Omit<DeliverableVersion, 'id' | 'uploadedAt'>) => DeliverableVersion;
+  addProductionNote: (projectId: string, note: Omit<ProductionNote, 'id' | 'timestamp'>) => ProductionNote;
+  toggleQualityCheck: (projectId: string, checkId: string) => void;
+
+  // Phase 4: Admin / Operator Control Center
+  servicePackages: ServicePackage[];
+  canAccessAdminCenter: boolean;
+  addServicePackage: (pkg: Omit<ServicePackage, 'id' | 'createdAt' | 'updatedAt'>) => ServicePackage;
+  updateServicePackage: (id: string, updates: Partial<ServicePackage>) => void;
+  deleteServicePackage: (id: string) => void;
+  toggleServicePackageActive: (id: string) => void;
+  updateWorkspaceStatus: (workspaceId: string, status: 'Active' | 'Onboarding' | 'Paused' | 'Archived') => void;
+  updateWorkspaceDetails: (workspaceId: string, updates: Partial<Workspace>) => void;
+  assignServicePackageToWorkspace: (workspaceId: string, packageId: string) => void;
+  removeServicePackageFromWorkspace: (workspaceId: string, packageId: string) => void;
+
+  // Phase 5: Music Release & Motion Production
+  motionProjects: MotionProjectSpec[];
+  addMotionProject: (project: Omit<MotionProjectSpec, 'id' | 'createdAt' | 'updatedAt'>) => MotionProjectSpec;
+  updateMotionProject: (id: string, updates: Partial<MotionProjectSpec>) => void;
+  deleteMotionProject: (id: string) => void;
+  updateReleaseDeliverables: (releaseId: string, deliverables: ReleaseDeliverableItem[]) => void;
+  updateDeliverableStage: (releaseId: string, deliverableId: string, stage: DeliverableWorkflowStage) => void;
+  publishDeliverableToClient: (releaseId: string, deliverableId: string, isPublished: boolean) => void;
+  clientApproveReleaseDeliverable: (releaseId: string, deliverableId: string, feedback?: string) => void;
+  clientRequestRevisionDeliverable: (releaseId: string, deliverableId: string, feedback: string) => void;
 
   // Actions
   addArtist: (artist: Omit<Artist, 'id' | 'createdAt' | 'updatedAt'>) => Artist;
@@ -152,6 +212,32 @@ const STORAGE_KEY = 'lyrical_ent_studio_state_v1';
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [appMode, setAppMode] = useState<AppMode>(() => {
+    try {
+      const saved = localStorage.getItem('keedohub_app_mode');
+      return (saved === 'workspace') ? 'workspace' : 'public';
+    } catch {
+      return 'public';
+    }
+  });
+
+  const enterWorkspace = (workspaceId?: string) => {
+    if (workspaceId) {
+      switchWorkspace(workspaceId);
+    }
+    setAppMode('workspace');
+    try {
+      localStorage.setItem('keedohub_app_mode', 'workspace');
+    } catch {}
+  };
+
+  const exitToPublic = () => {
+    setAppMode('public');
+    try {
+      localStorage.setItem('keedohub_app_mode', 'public');
+    } catch {}
+  };
+
   const [activeModule, setActiveModule] = useState<AppModule>('dashboard');
   const [currentRole, setCurrentRole] = useState<UserRole>('Executive');
   const [searchQuery, setSearchQuery] = useState('');
@@ -201,6 +287,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return stored ? JSON.parse(stored) : INITIAL_BRAND_ASSETS;
     } catch {
       return INITIAL_BRAND_ASSETS;
+    }
+  });
+
+  const [productionProjects, setProductionProjects] = useState<ProductionProject[]>(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY}_productionProjects`);
+      return stored ? JSON.parse(stored) : INITIAL_PRODUCTION_PROJECTS;
+    } catch {
+      return INITIAL_PRODUCTION_PROJECTS;
     }
   });
 
@@ -276,6 +371,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  const [servicePackages, setServicePackages] = useState<ServicePackage[]>(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY}_servicePackages`);
+      return stored ? JSON.parse(stored) : INITIAL_SERVICE_PACKAGES;
+    } catch {
+      return INITIAL_SERVICE_PACKAGES;
+    }
+  });
+
+  const [motionProjects, setMotionProjects] = useState<MotionProjectSpec[]>(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY}_motionProjects`);
+      return stored ? JSON.parse(stored) : INITIAL_MOTION_PROJECTS;
+    } catch {
+      return INITIAL_MOTION_PROJECTS;
+    }
+  });
+
   // Firebase Auth State
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -320,7 +433,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loginWithGoogle = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      const res = await signInWithPopup(auth, googleProvider);
+      if (res?.user) {
+        enterWorkspace();
+      }
     } catch (err: any) {
       if (
         err?.code === 'auth/popup-closed-by-user' || 
@@ -337,6 +453,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = async () => {
     try {
       await firebaseSignOut(auth);
+      exitToPublic();
     } catch (err) {
       console.error('Sign-Out Error:', err);
     }
@@ -375,6 +492,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTasks(prev => prev.map(t => t.workspaceId ? t : { ...t, workspaceId: defaultWsId }));
     setPressReleases(prev => prev.map(p => p.workspaceId ? p : { ...p, workspaceId: defaultWsId }));
     setMediaContacts(prev => prev.map(m => m.workspaceId ? m : { ...m, workspaceId: defaultWsId }));
+
+    // Ensure client sample workspaces and entities exist if starting from previously saved session
+    setWorkspaces(prev => {
+      const existingIds = new Set(prev.map(w => w.id));
+      const missing = INITIAL_WORKSPACES.filter(w => !existingIds.has(w.id));
+      return missing.length > 0 ? [...prev, ...missing] : prev;
+    });
+
+    setReleases(prev => {
+      const existingIds = new Set(prev.map(r => r.id));
+      const missing = INITIAL_RELEASES.filter(r => !existingIds.has(r.id));
+      return missing.length > 0 ? [...prev, ...missing] : prev;
+    });
+
+    setDocuments(prev => {
+      const existingIds = new Set(prev.map(d => d.id));
+      const missing = INITIAL_DOCUMENTS.filter(d => !existingIds.has(d.id));
+      return missing.length > 0 ? [...prev, ...missing] : prev;
+    });
+
+    setBrandAssets(prev => {
+      const existingIds = new Set(prev.map(b => b.id));
+      const missing = INITIAL_BRAND_ASSETS.filter(b => !existingIds.has(b.id));
+      return missing.length > 0 ? [...prev, ...missing] : prev;
+    });
+
+    setTasks(prev => {
+      const existingIds = new Set(prev.map(t => t.id));
+      const missing = INITIAL_TASKS.filter(t => !existingIds.has(t.id));
+      return missing.length > 0 ? [...prev, ...missing] : prev;
+    });
   }, []);
 
   const switchWorkspace = (workspaceId: string) => {
@@ -383,7 +531,523 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveWorkspace(ws);
       localStorage.setItem(`${STORAGE_KEY}_activeWorkspaceId`, workspaceId);
       logActivity('Switched Workspace', 'dashboard', `Moved to ${ws.name} workspace`);
+
+      // Guard cross-category module exposure
+      const cat = ws.clientCategory || (ws.type === 'Artist' ? 'artist' : ws.type === 'Brand' ? 'brand' : 'label');
+      if (cat === 'artist' && ['documents', 'cards', 'blogger'].includes(activeModule)) {
+        setActiveModule('dashboard');
+      } else if (cat === 'brand' && ['artists', 'releases', 'celebration', 'promotion'].includes(activeModule)) {
+        setActiveModule('dashboard');
+      }
     }
+  };
+
+  const createWorkspace = (workspaceData: Omit<Workspace, 'id' | 'createdAt'>): Workspace => {
+    const newWs: Workspace = {
+      ...workspaceData,
+      id: `ws-${Date.now().toString().slice(-6)}`,
+      createdAt: new Date().toISOString()
+    };
+    setWorkspaces(prev => [...prev, newWs]);
+    setActiveWorkspace(newWs);
+    setActiveModule('dashboard');
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_activeWorkspaceId`, newWs.id);
+    } catch {}
+    logActivity('Created Workspace', 'dashboard', `Created new ${newWs.type} workspace: "${newWs.name}"`);
+    return newWs;
+  };
+
+  const updateWorkspaceBrand = (workspaceId: string, updates: Partial<WorkspaceBrand>) => {
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id === workspaceId) {
+        const updated = {
+          ...w,
+          brand: { ...w.brand, ...updates }
+        };
+        if (activeWorkspace.id === workspaceId) {
+          setActiveWorkspace(updated);
+        }
+        return updated;
+      }
+      return w;
+    }));
+    logActivity('Updated Workspace Brand', 'brand', `Modified brand parameters for workspace ${workspaceId}`);
+  };
+
+  const submitClientRequest = (requestData: {
+    title: string;
+    category: OperationTask['category'];
+    dueDate: string;
+    notes: string;
+    priority: OperationTask['priority'];
+  }): OperationTask => {
+    const newTask: OperationTask = {
+      id: `req-${Date.now().toString().slice(-5)}`,
+      workspaceId: activeWorkspace.id,
+      title: requestData.title,
+      category: requestData.category,
+      dueDate: requestData.dueDate,
+      priority: requestData.priority,
+      assignee: 'KeedoHub Creative Team',
+      status: 'In Review',
+      notes: requestData.notes,
+      createdAt: new Date().toISOString()
+    };
+    setTasks(prev => [newTask, ...prev]);
+    logActivity('Client Creative Request', 'operations', `Submitted creative brief: "${newTask.title}"`);
+
+    // Bridge client request directly into Operator Production Center
+    const newProdProject: ProductionProject = {
+      id: `prod-${Date.now().toString().slice(-5)}`,
+      title: requestData.title,
+      workspaceId: activeWorkspace.id,
+      clientName: activeWorkspace.name,
+      clientCategory: activeWorkspace.clientCategory || 'brand',
+      projectType: requestData.category === 'Creative' ? 'Cover Artwork Design' : requestData.category === 'Marketing' ? 'Marketing Campaign Kit' : 'Corporate Contract & Stationery',
+      stage: 'New Request',
+      priority: requestData.priority,
+      leadProducer: 'KeedoHub Operator',
+      dueDate: requestData.dueDate,
+      brief: {
+        description: requestData.notes,
+        deliverableSpecs: 'Client-submitted creative request. Awaiting operator brief review.'
+      },
+      sourceMaterials: [],
+      versions: [],
+      internalNotes: [
+        {
+          id: `not-${Date.now()}`,
+          author: 'System Intake',
+          role: 'System',
+          content: `Intake ticket created from ${activeWorkspace.name} (${activeWorkspace.clientCategory || 'Client'}) request submission.`,
+          timestamp: new Date().toISOString(),
+          isInternalOnly: true
+        }
+      ],
+      qualityChecks: [
+        { id: `qc-${Date.now()}-1`, label: 'Review brief & confirm deliverable specs', passed: false },
+        { id: `qc-${Date.now()}-2`, label: 'Assign lead producer', passed: false }
+      ],
+      relatedTaskId: newTask.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setProductionProjects(prev => [newProdProject, ...prev]);
+
+    return newTask;
+  };
+
+  const approveDeliverable = (releaseId: string) => {
+    setReleases(prev => prev.map(r => {
+      if (r.id === releaseId) {
+        return {
+          ...r,
+          checklist: {
+            ...r.checklist,
+            artworkApproved: true
+          }
+        };
+      }
+      return r;
+    }));
+
+    // Synchronize approval state into matching Production Project
+    setProductionProjects(prev => prev.map(p => {
+      if (p.relatedReleaseId === releaseId || (p.workspaceId === activeWorkspace.id && p.projectType.includes('Release'))) {
+        const updatedVersions = p.versions.map(v => 
+          v.isClientPublished ? { ...v, clientReviewStatus: 'Approved' as const, clientFeedback: 'Approved by client in workspace portal' } : v
+        );
+        return {
+          ...p,
+          stage: 'Ready for Delivery' as const,
+          versions: updatedVersions,
+          updatedAt: new Date().toISOString(),
+          internalNotes: [
+            {
+              id: `not-${Date.now()}`,
+              author: 'Client Verification',
+              role: 'Client',
+              content: 'Client executed artwork approval sign-off in workspace review gate.',
+              timestamp: new Date().toISOString(),
+              isInternalOnly: true
+            },
+            ...p.internalNotes
+          ]
+        };
+      }
+      return p;
+    }));
+
+    logActivity('Approved Deliverable', 'releases', `Client signed off on artwork for release ${releaseId}`);
+  };
+
+  // Operator access check
+  const canAccessProductionCenter = 
+    currentRole === 'Executive' || 
+    currentRole === 'Label Manager' || 
+    currentRole === 'Creative Director' || 
+    currentRole === 'A&R Director' || 
+    activeWorkspace.id === 'ws-lyrical-ent';
+
+  const addProductionProject = (projectData: Omit<ProductionProject, 'id' | 'createdAt' | 'updatedAt'>): ProductionProject => {
+    const newProj: ProductionProject = {
+      ...projectData,
+      id: `prod-${Date.now().toString().slice(-5)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setProductionProjects(prev => [newProj, ...prev]);
+    logActivity('Created Production Project', 'production', `Initiated project: "${newProj.title}" for ${newProj.clientName}`);
+    return newProj;
+  };
+
+  const updateProductionProject = (id: string, updates: Partial<ProductionProject>) => {
+    setProductionProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p));
+    logActivity('Updated Production Project', 'production', `Updated project records: ${id}`);
+  };
+
+  const deleteProductionProject = (id: string) => {
+    const proj = productionProjects.find(p => p.id === id);
+    setProductionProjects(prev => prev.filter(p => p.id !== id));
+    logActivity('Deleted Production Project', 'production', `Removed project: "${proj?.title || id}"`);
+  };
+
+  const updateProductionStage = (id: string, stage: ProductionStage, noteText?: string) => {
+    setProductionProjects(prev => prev.map(p => {
+      if (p.id === id) {
+        const notes = noteText ? [
+          {
+            id: `not-${Date.now()}`,
+            author: 'Ojo Abdulkareem',
+            role: currentRole,
+            content: noteText,
+            timestamp: new Date().toISOString(),
+            isInternalOnly: true
+          },
+          ...p.internalNotes
+        ] : p.internalNotes;
+
+        return {
+          ...p,
+          stage,
+          updatedAt: new Date().toISOString(),
+          deliveredAt: stage === 'Delivered' ? (p.deliveredAt || new Date().toISOString()) : p.deliveredAt,
+          internalNotes: notes
+        };
+      }
+      return p;
+    }));
+    logActivity('Updated Production Stage', 'production', `Transitioned project ${id} to stage: "${stage}"`);
+  };
+
+  const publishDeliverableVersion = (projectId: string, versionId: string, isPublished: boolean) => {
+    setProductionProjects(prev => prev.map(p => {
+      if (p.id === projectId) {
+        const updatedVersions = p.versions.map(v => {
+          if (v.id === versionId) {
+            return {
+              ...v,
+              isClientPublished: isPublished,
+              publishedAt: isPublished ? new Date().toISOString() : undefined,
+              clientReviewStatus: isPublished ? (v.clientReviewStatus || 'Pending') : undefined
+            };
+          }
+          return v;
+        });
+        return {
+          ...p,
+          versions: updatedVersions,
+          updatedAt: new Date().toISOString(),
+          internalNotes: [
+            {
+              id: `not-${Date.now()}`,
+              author: 'Ojo Abdulkareem',
+              role: currentRole,
+              content: isPublished 
+                ? `Published version ${versionId} to client portal for review.`
+                : `Unpublished version ${versionId} from client view.`,
+              timestamp: new Date().toISOString(),
+              isInternalOnly: true
+            },
+            ...p.internalNotes
+          ]
+        };
+      }
+      return p;
+    }));
+  };
+
+  const addDeliverableVersion = (projectId: string, versionData: Omit<DeliverableVersion, 'id' | 'uploadedAt'>): DeliverableVersion => {
+    const newVer: DeliverableVersion = {
+      ...versionData,
+      id: `ver-${Date.now().toString().slice(-5)}`,
+      uploadedAt: new Date().toISOString(),
+      publishedAt: versionData.isClientPublished ? new Date().toISOString() : undefined
+    };
+    setProductionProjects(prev => prev.map(p => {
+      if (p.id === projectId) {
+        return {
+          ...p,
+          versions: [newVer, ...p.versions],
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return p;
+    }));
+    return newVer;
+  };
+
+  const addProductionNote = (projectId: string, noteData: Omit<ProductionNote, 'id' | 'timestamp'>): ProductionNote => {
+    const newNote: ProductionNote = {
+      ...noteData,
+      id: `not-${Date.now().toString().slice(-5)}`,
+      timestamp: new Date().toISOString()
+    };
+    setProductionProjects(prev => prev.map(p => {
+      if (p.id === projectId) {
+        return {
+          ...p,
+          internalNotes: [newNote, ...p.internalNotes],
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return p;
+    }));
+    return newNote;
+  };
+
+  const toggleQualityCheck = (projectId: string, checkId: string) => {
+    setProductionProjects(prev => prev.map(p => {
+      if (p.id === projectId) {
+        const updatedChecks = p.qualityChecks.map(qc => {
+          if (qc.id === checkId) {
+            const passed = !qc.passed;
+            return {
+              ...qc,
+              passed,
+              verifiedBy: passed ? currentRole : undefined,
+              verifiedAt: passed ? new Date().toISOString() : undefined
+            };
+          }
+          return qc;
+        });
+        return {
+          ...p,
+          qualityChecks: updatedChecks,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return p;
+    }));
+  };
+
+  // Phase 4: Admin / Operator Access & Management
+  const canAccessAdminCenter = 
+    activeWorkspace.id === 'ws-lyrical-ent' && 
+    (currentRole === 'Executive' || currentRole === 'Label Manager');
+
+  const addServicePackage = (pkgData: Omit<ServicePackage, 'id' | 'createdAt' | 'updatedAt'>): ServicePackage => {
+    const newPkg: ServicePackage = {
+      ...pkgData,
+      id: `pkg-${Date.now().toString().slice(-6)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setServicePackages(prev => [newPkg, ...prev]);
+    logActivity('Created Service Package', 'admin', `Created package "${newPkg.name}" (${newPkg.category})`);
+    return newPkg;
+  };
+
+  const updateServicePackage = (id: string, updates: Partial<ServicePackage>) => {
+    setServicePackages(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p));
+    logActivity('Updated Service Package', 'admin', `Modified package specs for ${id}`);
+  };
+
+  const deleteServicePackage = (id: string) => {
+    setServicePackages(prev => prev.filter(p => p.id !== id));
+    logActivity('Deleted Service Package', 'admin', `Removed service package ${id}`);
+  };
+
+  const toggleServicePackageActive = (id: string) => {
+    setServicePackages(prev => prev.map(p => p.id === id ? { ...p, isActive: !p.isActive, updatedAt: new Date().toISOString() } : p));
+    logActivity('Toggled Service Status', 'admin', `Toggled catalog status for package ${id}`);
+  };
+
+  const updateWorkspaceStatus = (workspaceId: string, status: 'Active' | 'Onboarding' | 'Paused' | 'Archived') => {
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id === workspaceId) {
+        const updated = { ...w, status, updatedAt: new Date().toISOString() };
+        if (activeWorkspace.id === workspaceId) {
+          setActiveWorkspace(updated);
+        }
+        return updated;
+      }
+      return w;
+    }));
+    logActivity('Updated Workspace Status', 'admin', `Workspace ${workspaceId} status updated to ${status}`);
+  };
+
+  const updateWorkspaceDetails = (workspaceId: string, updates: Partial<Workspace>) => {
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id === workspaceId) {
+        const updated = { ...w, ...updates, updatedAt: new Date().toISOString() };
+        if (activeWorkspace.id === workspaceId) {
+          setActiveWorkspace(updated);
+        }
+        return updated;
+      }
+      return w;
+    }));
+    logActivity('Updated Workspace Details', 'admin', `Updated configuration for workspace ${workspaceId}`);
+  };
+
+  const assignServicePackageToWorkspace = (workspaceId: string, packageId: string) => {
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id === workspaceId) {
+        const currentPackages = w.contractedPackageIds || [];
+        if (currentPackages.includes(packageId)) return w;
+        const updated = {
+          ...w,
+          contractedPackageIds: [...currentPackages, packageId],
+          updatedAt: new Date().toISOString()
+        };
+        if (activeWorkspace.id === workspaceId) {
+          setActiveWorkspace(updated);
+        }
+        return updated;
+      }
+      return w;
+    }));
+    logActivity('Assigned Service Package', 'admin', `Assigned package ${packageId} to client workspace ${workspaceId}`);
+  };
+
+  const removeServicePackageFromWorkspace = (workspaceId: string, packageId: string) => {
+    setWorkspaces(prev => prev.map(w => {
+      if (w.id === workspaceId) {
+        const currentPackages = w.contractedPackageIds || [];
+        const updated = {
+          ...w,
+          contractedPackageIds: currentPackages.filter(pid => pid !== packageId),
+          updatedAt: new Date().toISOString()
+        };
+        if (activeWorkspace.id === workspaceId) {
+          setActiveWorkspace(updated);
+        }
+        return updated;
+      }
+      return w;
+    }));
+    logActivity('Removed Service Package', 'admin', `Removed package ${packageId} from client workspace ${workspaceId}`);
+  };
+
+  // Phase 5: Music Release & Motion Production Methods
+  const addMotionProject = (projectData: Omit<MotionProjectSpec, 'id' | 'createdAt' | 'updatedAt'>): MotionProjectSpec => {
+    const newProj: MotionProjectSpec = {
+      ...projectData,
+      id: `mot-${Date.now().toString().slice(-6)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setMotionProjects(prev => [newProj, ...prev]);
+    logActivity('Created Motion Project', 'motion', `Created motion project: "${newProj.title}"`);
+    return newProj;
+  };
+
+  const updateMotionProject = (id: string, updates: Partial<MotionProjectSpec>) => {
+    setMotionProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p));
+    logActivity('Updated Motion Project', 'motion', `Updated motion project ${id}`);
+  };
+
+  const deleteMotionProject = (id: string) => {
+    setMotionProjects(prev => prev.filter(p => p.id !== id));
+    logActivity('Deleted Motion Project', 'motion', `Removed motion project ${id}`);
+  };
+
+  const updateReleaseDeliverables = (releaseId: string, deliverables: ReleaseDeliverableItem[]) => {
+    setReleases(prev => prev.map(r => r.id === releaseId ? { ...r, deliverables } : r));
+    logActivity('Updated Release Deliverables', 'releases', `Updated deliverables checklist for release ${releaseId}`);
+  };
+
+  const updateDeliverableStage = (releaseId: string, deliverableId: string, stage: DeliverableWorkflowStage) => {
+    setReleases(prev => prev.map(r => {
+      if (r.id === releaseId) {
+        const updatedDeliverables = (r.deliverables || []).map(d => 
+          d.id === deliverableId ? { ...d, stage } : d
+        );
+        return { ...r, deliverables: updatedDeliverables };
+      }
+      return r;
+    }));
+    logActivity('Updated Deliverable Stage', 'releases', `Stage set to "${stage}" for deliverable ${deliverableId}`);
+  };
+
+  const publishDeliverableToClient = (releaseId: string, deliverableId: string, isPublished: boolean) => {
+    setReleases(prev => prev.map(r => {
+      if (r.id === releaseId) {
+        const updatedDeliverables = (r.deliverables || []).map(d => 
+          d.id === deliverableId ? { 
+            ...d, 
+            isClientPublished: isPublished, 
+            publishedAt: isPublished ? new Date().toISOString() : undefined 
+          } : d
+        );
+        return { ...r, deliverables: updatedDeliverables };
+      }
+      return r;
+    }));
+    logActivity('Published Deliverable', 'releases', `${isPublished ? 'Published' : 'Unpublished'} deliverable ${deliverableId} for client review`);
+  };
+
+  const clientApproveReleaseDeliverable = (releaseId: string, deliverableId: string, feedback?: string) => {
+    setReleases(prev => prev.map(r => {
+      if (r.id === releaseId) {
+        const updatedDeliverables = (r.deliverables || []).map(d => 
+          d.id === deliverableId ? { 
+            ...d, 
+            stage: 'Delivered' as const, 
+            clientApproved: true, 
+            approvedAt: new Date().toISOString(),
+            clientFeedback: feedback || 'Approved by client'
+          } : d
+        );
+        const allApproved = updatedDeliverables.length > 0 && updatedDeliverables.every(d => d.clientApproved);
+        return { 
+          ...r, 
+          deliverables: updatedDeliverables,
+          clientApprovalStatus: allApproved ? 'Approved' as const : r.clientApprovalStatus,
+          clientApprovalDate: allApproved ? new Date().toISOString() : r.clientApprovalDate,
+          checklist: {
+            ...r.checklist,
+            artworkApproved: true
+          }
+        };
+      }
+      return r;
+    }));
+    logActivity('Client Deliverable Signoff', 'releases', `Client approved deliverable ${deliverableId}`);
+  };
+
+  const clientRequestRevisionDeliverable = (releaseId: string, deliverableId: string, feedback: string) => {
+    setReleases(prev => prev.map(r => {
+      if (r.id === releaseId) {
+        const updatedDeliverables = (r.deliverables || []).map(d => 
+          d.id === deliverableId ? { 
+            ...d, 
+            stage: 'Revision Required' as const, 
+            revisionCount: d.revisionCount + 1,
+            clientFeedback: feedback 
+          } : d
+        );
+        return { 
+          ...r, 
+          deliverables: updatedDeliverables,
+          clientApprovalStatus: 'Revision Requested' as const
+        };
+      }
+      return r;
+    }));
+    logActivity('Client Revision Request', 'releases', `Client requested revision on deliverable ${deliverableId}: "${feedback}"`);
   };
 
   // Sync to local storage
@@ -395,6 +1059,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(`${STORAGE_KEY}_documents`, JSON.stringify(documents));
       localStorage.setItem(`${STORAGE_KEY}_brandAssets`, JSON.stringify(brandAssets));
       localStorage.setItem(`${STORAGE_KEY}_tasks`, JSON.stringify(tasks));
+      localStorage.setItem(`${STORAGE_KEY}_productionProjects`, JSON.stringify(productionProjects));
       localStorage.setItem(`${STORAGE_KEY}_activities`, JSON.stringify(activities));
       localStorage.setItem(`${STORAGE_KEY}_pressReleases`, JSON.stringify(pressReleases));
       localStorage.setItem(`${STORAGE_KEY}_mediaContacts`, JSON.stringify(mediaContacts));
@@ -402,12 +1067,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(`${STORAGE_KEY}_brandGuidelines`, JSON.stringify(brandGuidelines));
       localStorage.setItem(`${STORAGE_KEY}_releaseProjects`, JSON.stringify(releaseProjects));
       localStorage.setItem(`${STORAGE_KEY}_campaignDesigns`, JSON.stringify(campaignDesigns));
+      localStorage.setItem(`${STORAGE_KEY}_servicePackages`, JSON.stringify(servicePackages));
+      localStorage.setItem(`${STORAGE_KEY}_motionProjects`, JSON.stringify(motionProjects));
       localStorage.setItem(`${STORAGE_KEY}_workspaces`, JSON.stringify(workspaces));
       localStorage.setItem(`${STORAGE_KEY}_activeWorkspaceId`, activeWorkspace.id);
     } catch (e) {
       console.warn('Storage sync error:', e);
     }
-  }, [artists, releases, campaigns, documents, brandAssets, tasks, activities, pressReleases, mediaContacts, bloggerSettings, brandGuidelines, releaseProjects, campaignDesigns]);
+  }, [artists, releases, campaigns, documents, brandAssets, tasks, activities, pressReleases, mediaContacts, bloggerSettings, brandGuidelines, releaseProjects, campaignDesigns, productionProjects, servicePackages, motionProjects, workspaces]);
 
   const logActivity = (action: string, module: AppModule, details: string) => {
     const newLog: ActivityLog = {
@@ -652,11 +1319,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDocuments(INITIAL_DOCUMENTS);
     setBrandAssets(INITIAL_BRAND_ASSETS);
     setTasks(INITIAL_TASKS);
+    setProductionProjects(INITIAL_PRODUCTION_PROJECTS);
     setActivities(INITIAL_ACTIVITY);
     setPressReleases(INITIAL_PRESS_RELEASES);
     setMediaContacts(INITIAL_MEDIA_CONTACTS);
     setBloggerSettings(INITIAL_BLOGGER_SETTINGS);
     setBrandGuidelines(INITIAL_BRAND_GUIDELINES);
+    setServicePackages(INITIAL_SERVICE_PACKAGES);
+    setMotionProjects(INITIAL_MOTION_PROJECTS);
     logActivity('Reset Database', 'dashboard', 'Restored official LYRICAL ENT production sample records');
   };
 
@@ -667,9 +1337,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDocuments([]);
     setBrandAssets([]);
     setTasks([]);
+    setProductionProjects([]);
     setActivities([]);
     setPressReleases([]);
     setMediaContacts([]);
+    setServicePackages([]);
+    setMotionProjects([]);
     logActivity('Cleared Database', 'dashboard', 'All operational records cleared to empty state');
   };
 
@@ -688,7 +1361,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pressReleases,
       mediaContacts,
       bloggerSettings,
-      brandGuidelines
+      brandGuidelines,
+      servicePackages,
+      motionProjects
     };
     return JSON.stringify(fullBackup, null, 2);
   };
@@ -702,9 +1377,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (Array.isArray(data.documents)) setDocuments(data.documents);
       if (Array.isArray(data.brandAssets)) setBrandAssets(data.brandAssets);
       if (Array.isArray(data.tasks)) setTasks(data.tasks);
+      if (Array.isArray(data.productionProjects)) setProductionProjects(data.productionProjects);
       if (Array.isArray(data.activities)) setActivities(data.activities);
       if (Array.isArray(data.pressReleases)) setPressReleases(data.pressReleases);
       if (Array.isArray(data.mediaContacts)) setMediaContacts(data.mediaContacts);
+      if (Array.isArray(data.servicePackages)) setServicePackages(data.servicePackages);
+      if (Array.isArray(data.motionProjects)) setMotionProjects(data.motionProjects);
       if (data.bloggerSettings) setBloggerSettings(data.bloggerSettings);
       if (data.brandGuidelines) setBrandGuidelines(data.brandGuidelines);
       logActivity('Imported Database', 'export', 'Restored database snapshot from external file');
@@ -723,6 +1401,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        appMode,
+        setAppMode,
+        enterWorkspace,
+        exitToPublic,
         firebaseUser,
         isAuthenticated: !!firebaseUser,
         isAuthLoading,
@@ -793,7 +1475,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         memberships,
         activeWorkspace,
         setActiveWorkspace,
-        switchWorkspace
+        switchWorkspace,
+        createWorkspace,
+        updateWorkspaceBrand,
+        submitClientRequest,
+        approveDeliverable,
+        productionProjects,
+        canAccessProductionCenter,
+        addProductionProject,
+        updateProductionProject,
+        deleteProductionProject,
+        updateProductionStage,
+        publishDeliverableVersion,
+        addDeliverableVersion,
+        addProductionNote,
+        toggleQualityCheck,
+        // Phase 4: Admin / Operator Control Center
+        servicePackages,
+        canAccessAdminCenter,
+        addServicePackage,
+        updateServicePackage,
+        deleteServicePackage,
+        toggleServicePackageActive,
+        updateWorkspaceStatus,
+        updateWorkspaceDetails,
+        assignServicePackageToWorkspace,
+        removeServicePackageFromWorkspace,
+        // Phase 5: Music Release & Motion Production
+        motionProjects,
+        addMotionProject,
+        updateMotionProject,
+        deleteMotionProject,
+        updateReleaseDeliverables,
+        updateDeliverableStage,
+        publishDeliverableToClient,
+        clientApproveReleaseDeliverable,
+        clientRequestRevisionDeliverable
       }}
     >
       {children}

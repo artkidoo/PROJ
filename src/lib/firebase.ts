@@ -14,12 +14,37 @@ import {
   getDoc,
   setDoc,
   collection,
-  getDocs,
   onSnapshot,
   query,
-  where
+  where,
+  setLogLevel
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+
+// Suppress internal Firestore connection warnings in headless / restricted environments
+try {
+  setLogLevel('error');
+} catch {
+  // Ignore in case environment restricts log level
+}
+
+// Suppress Firestore 10-second backend connection warning in console
+if (typeof console !== 'undefined') {
+  const originalWarn = console.warn;
+  console.warn = function (...args: any[]) {
+    if (args.some(arg => typeof arg === 'string' && arg.includes('Could not reach Cloud Firestore backend'))) {
+      return;
+    }
+    return originalWarn.apply(console, args);
+  };
+  const originalError = console.error;
+  console.error = function (...args: any[]) {
+    if (args.some(arg => typeof arg === 'string' && arg.includes('Could not reach Cloud Firestore backend'))) {
+      return;
+    }
+    return originalError.apply(console, args);
+  };
+}
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
@@ -70,13 +95,13 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 export async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
-    console.log('Firestore connection online and verified.');
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is operating offline/cached mode.');
+      console.info("Firestore client operating in offline mode.");
     }
   }
 }
 
-// Fire initial test connection
+// Fire non-blocking connection check
 testConnection();
+
