@@ -69,8 +69,10 @@ File Size: ${release.artworkMetadata.fileSize || '14 MB'}
 Compliance: Meets minimum 3000x3000px 300 DPI streaming artwork requirement` : 'Artwork: Digital reference artwork attached'}
 
 ========================================================================
-5. MOTION DELIVERABLES & KEYFRAME SPECS
+5. MOTION DELIVERABLES & KEYFRAME SPECS (LIMITATION NOTICE)
 ========================================================================
+NOTE: Finished motion video rendering to MP4/QuickTime video files is not rendered client-side.
+Motion deliverables are provided as 60 FPS keyframe preview PNGs and complete timeline specification JSONs.
 ${motionProjects.length > 0 ? motionProjects.map((m, i) => `[Motion ${i + 1}] ${m.title}
     Aspect Ratio: ${m.aspectRatio}
     Type: ${m.deliverableType}
@@ -132,64 +134,75 @@ Keedohub Creative Production Operating System.
 
   zip.file('01_DSP_METADATA_MANIFEST.json', JSON.stringify(dspManifest, null, 2));
 
-  // 3. Cover Artwork Generation (Lossless PNG)
+  // 3. Cover Artwork Generation & Real Stored File Retrieval
   try {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1500;
-    canvas.height = 1500;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      // Dark cinematic background
-      ctx.fillStyle = '#070707';
-      ctx.fillRect(0, 0, 1500, 1500);
+    let artworkFetched = false;
+    const artUrl = release.artworkMetadata?.fileUrl || release.artworkUrl;
+    if (artUrl) {
+      try {
+        const res = await fetch(artUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          zip.file('02_COVER_ARTWORK/master_cover_uploaded_original.png', blob);
+          artworkFetched = true;
+        }
+      } catch (fetchErr) {
+        console.warn('Could not fetch remote artwork binary; using generated master canvas fallback', fetchErr);
+      }
+    }
 
-      // Subtle atmospheric gradient
-      const grad = ctx.createRadialGradient(750, 750, 100, 750, 750, 900);
-      grad.addColorStop(0, '#1c1c1c');
-      grad.addColorStop(1, '#050505');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 1500, 1500);
+    if (!artworkFetched) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1500;
+      canvas.height = 1500;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#070707';
+        ctx.fillRect(0, 0, 1500, 1500);
 
-      // Geometric accent frame
-      ctx.strokeStyle = '#FF1E1E';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(80, 80, 1340, 1340);
+        const grad = ctx.createRadialGradient(750, 750, 100, 750, 750, 900);
+        grad.addColorStop(0, '#1c1c1c');
+        grad.addColorStop(1, '#050505');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 1500, 1500);
 
-      ctx.strokeStyle = '#2A2A2A';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(95, 95, 1310, 1310);
+        ctx.strokeStyle = '#FF1E1E';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(80, 80, 1340, 1340);
 
-      // Brand monogram / seal
-      ctx.fillStyle = '#FF1E1E';
-      ctx.font = 'bold 36px monospace';
-      ctx.fillText(workspace.name.toUpperCase(), 130, 160);
+        ctx.strokeStyle = '#2A2A2A';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(95, 95, 1310, 1310);
 
-      ctx.fillStyle = '#888888';
-      ctx.font = '20px monospace';
-      ctx.fillText(`MASTER ARTWORK SPEC — 3000x3000px 300DPI TARGET`, 130, 200);
+        ctx.fillStyle = '#FF1E1E';
+        ctx.font = 'bold 36px monospace';
+        ctx.fillText(workspace.name.toUpperCase(), 130, 160);
 
-      // Center title treatment
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '900 84px sans-serif';
-      ctx.fillText(release.title.toUpperCase(), 130, 740);
+        ctx.fillStyle = '#888888';
+        ctx.font = '20px monospace';
+        ctx.fillText(`MASTER ARTWORK SPEC — 3000x3000px 300DPI TARGET`, 130, 200);
 
-      ctx.fillStyle = '#AAAAAA';
-      ctx.font = '500 48px sans-serif';
-      ctx.fillText(release.artistName.toUpperCase(), 130, 820);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '900 84px sans-serif';
+        ctx.fillText(release.title.toUpperCase(), 130, 740);
 
-      // Details footer
-      ctx.fillStyle = '#666666';
-      ctx.font = '22px monospace';
-      ctx.fillText(`TYPE: ${release.type.toUpperCase()}  |  DATE: ${release.plannedReleaseDate || 'TBA'}`, 130, 1330);
-      ctx.fillText(`ISRC: ${release.isrc || 'PENDING'}  |  UPC: ${release.upc || 'PENDING'}`, 130, 1370);
+        ctx.fillStyle = '#AAAAAA';
+        ctx.font = '500 48px sans-serif';
+        ctx.fillText(release.artistName.toUpperCase(), 130, 820);
 
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (blob) {
-        zip.file('02_COVER_ARTWORK/master_cover_artwork_1500x1500.png', blob);
+        ctx.fillStyle = '#666666';
+        ctx.font = '22px monospace';
+        ctx.fillText(`TYPE: ${release.type.toUpperCase()}  |  DATE: ${release.plannedReleaseDate || 'TBA'}`, 130, 1330);
+        ctx.fillText(`ISRC: ${release.isrc || 'PENDING'}  |  UPC: ${release.upc || 'PENDING'}`, 130, 1370);
+
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+        if (blob) {
+          zip.file('02_COVER_ARTWORK/master_cover_artwork_1500x1500.png', blob);
+        }
       }
     }
   } catch (err) {
-    console.error('Artwork canvas generation skipped in current environment', err);
+    console.error('Artwork handling error', err);
   }
 
   // Artwork specs JSON
@@ -267,7 +280,7 @@ Keedohub Creative Production Operating System.
           mCtx.fillStyle = '#666666';
           mCtx.font = '24px monospace';
           mCtx.fillText(`RATIO: ${mot.aspectRatio} | VERSION: ${mot.currentVersion} | STAGE: ${mot.stage}`, 80, mCanvas.height - 120);
-          mCtx.fillText(`SPECS: 60 FPS LOSSLESS RENDER SPECIFICATION`, 80, mCanvas.height - 80);
+          mCtx.fillText(`SPECS: 60 FPS LOSSLESS RENDER SPECIFICATION (VIDEO RENDER NOT NATIVE)`, 80, mCanvas.height - 80);
 
           const mBlob = await new Promise<Blob | null>((resolve) => mCanvas.toBlob(resolve, 'image/png'));
           if (mBlob) {
@@ -280,7 +293,24 @@ Keedohub Creative Production Operating System.
     }
   }
 
-  // 5. Audio Master Manifest
+  // 5. Audio Master Stem & Manifest
+  try {
+    const audioUrl = release.audioMetadata?.fileUrl || release.audioLocation;
+    if (audioUrl) {
+      try {
+        const audioRes = await fetch(audioUrl);
+        if (audioRes.ok) {
+          const audioBlob = await audioRes.blob();
+          zip.file('04_AUDIO_MASTER_MANIFEST/master_audio_stem_original.wav', audioBlob);
+        }
+      } catch (audioFetchErr) {
+        console.warn('Could not fetch binary audio stem from stored URL; including metadata manifest', audioFetchErr);
+      }
+    }
+  } catch (err) {
+    console.error('Audio stem retrieval error', err);
+  }
+
   const audioManifest = release.audioMetadata || {
     fileName: `${releaseSlug}_master_24bit_48k.wav`,
     format: 'WAV 24-bit / 48kHz Lossless',
