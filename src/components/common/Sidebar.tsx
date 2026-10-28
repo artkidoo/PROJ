@@ -66,8 +66,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
   const [isNewWorkspaceOpen, setIsNewWorkspaceOpen] = React.useState(false);
 
-  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist';
-  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand';
+  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist' || activeWorkspace.type === 'Personal';
+  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Enterprise' || activeWorkspace.type === 'Agency';
+  const isLabel = activeWorkspace.clientCategory === 'label' || activeWorkspace.type === 'Label';
   const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E');
 
   const pendingTasks = tasks.filter(t => t.status !== 'Done' && t.workspaceId === activeWorkspace.id).length;

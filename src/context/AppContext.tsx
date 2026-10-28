@@ -682,13 +682,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logActivity('Approved Deliverable', 'releases', `Client signed off on artwork for release ${releaseId}`);
   };
 
-  // Operator access check
+  // Operator access check (Decoupled from ws-lyrical-ent workspace membership)
   const canAccessProductionCenter = 
-    currentRole === 'Executive' || 
-    currentRole === 'Label Manager' || 
-    currentRole === 'Creative Director' || 
-    currentRole === 'A&R Director' || 
-    activeWorkspace.id === 'ws-lyrical-ent';
+    ['Executive', 'Label Manager', 'Creative Director', 'A&R Director', 'Operator', 'Admin'].includes(currentRole);
 
   const addProductionProject = (projectData: Omit<ProductionProject, 'id' | 'createdAt' | 'updatedAt'>): ProductionProject => {
     const newProj: ProductionProject = {
@@ -842,10 +838,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
-  // Phase 4: Admin / Operator Access & Management
+  // Phase 4: Admin / Operator Access & Management (Decoupled from ws-lyrical-ent workspace membership)
   const canAccessAdminCenter = 
-    activeWorkspace.id === 'ws-lyrical-ent' && 
-    (currentRole === 'Executive' || currentRole === 'Label Manager');
+    ['Executive', 'Label Manager', 'Admin'].includes(currentRole);
 
   const addServicePackage = (pkgData: Omit<ServicePackage, 'id' | 'createdAt' | 'updatedAt'>): ServicePackage => {
     const newPkg: ServicePackage = {
