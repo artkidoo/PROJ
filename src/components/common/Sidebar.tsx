@@ -67,9 +67,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
   const [isNewWorkspaceOpen, setIsNewWorkspaceOpen] = React.useState(false);
 
   const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist' || activeWorkspace.type === 'Personal';
-  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Enterprise' || activeWorkspace.type === 'Agency';
+  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Agency';
+  const isBusiness = activeWorkspace.clientCategory === 'business' || activeWorkspace.type === 'Business' || activeWorkspace.type === 'Enterprise';
   const isLabel = activeWorkspace.clientCategory === 'label' || activeWorkspace.type === 'Label';
-  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E');
+  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : isBusiness ? '#10B981' : '#FF1E1E');
 
   const pendingTasks = tasks.filter(t => t.status !== 'Done' && t.workspaceId === activeWorkspace.id).length;
   const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;
@@ -91,10 +92,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
 
     if (isBrand) {
       return [
-        { id: 'dashboard', label: 'Project Status & Overview', icon: LayoutDashboard },
+        { id: 'dashboard', label: 'Brand Pulse & Overview', icon: LayoutDashboard },
         { id: 'brand', label: 'Brand Identity & Guidelines', icon: Layers },
         { id: 'campaigns', label: 'Marketing Creatives & Social Kits', icon: Megaphone },
-        { id: 'documents', label: 'Business & Corporate Documents', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
+        { id: 'documents', label: 'Business & Brand Agreements', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
         { id: 'cards', label: 'Business Stationery & Cards', icon: CreditCard },
         { id: 'assets', label: 'Brand Asset Vault', icon: FolderArchive },
         { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
@@ -102,35 +103,39 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
       ];
     }
 
-    // Flagship Master Label Suite (ws-lyrical-ent) & Operator Control Room
-    const items: NavItem[] = [
-      { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
-      { id: 'production', label: 'Production Center', icon: Briefcase, badgeCount: activeProductionCount > 0 ? activeProductionCount : undefined }
-    ];
-
-    if (canAccessAdminCenter) {
-      items.push({ id: 'admin', label: 'Admin Control Center', icon: ShieldCheck, badgeCount: workspaces.length });
+    if (isBusiness) {
+      return [
+        { id: 'dashboard', label: 'Corporate Overview & Pulse', icon: LayoutDashboard },
+        { id: 'brand', label: 'Corporate Standards & Identity', icon: Layers },
+        { id: 'documents', label: 'Contracts, SOWs & Invoices', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
+        { id: 'cards', label: 'Staff Credentials & Stationery', icon: CreditCard },
+        { id: 'campaigns', label: 'Commercial & B2B Campaigns', icon: Megaphone },
+        { id: 'templates', label: 'Corporate Document Templates', icon: Sparkles },
+        { id: 'assets', label: 'Corporate Asset Vault', icon: FolderArchive },
+        { id: 'operations', label: 'Approvals & Change Requests', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
+        { id: 'export', label: 'Package Exports & Deliverables', icon: Share2 }
+      ];
     }
 
-    items.push(
-      { id: 'brand', label: 'Brand Identity', icon: Layers },
+    // Flagship Master Label Suite (ws-lyrical-ent) & Record Label Workspace
+    return [
+      { id: 'dashboard', label: 'Label Operations & Overview', icon: LayoutDashboard },
+      { id: 'brand', label: 'Brand Identity & Vector System', icon: Layers },
       { id: 'artists', label: 'Artist Roster', icon: Users, badgeCount: artists.filter(a => a.workspaceId === activeWorkspace.id).length },
-      { id: 'releases', label: 'Music Releases', icon: Disc3, badgeCount: releases.filter(r => r.workspaceId === activeWorkspace.id).length },
-      { id: 'campaigns', label: 'Campaign Studio', icon: Megaphone },
+      { id: 'releases', label: 'Music Catalog & Releases', icon: Disc3, badgeCount: releases.filter(r => r.workspaceId === activeWorkspace.id).length },
+      { id: 'campaigns', label: 'Creative Campaign Studio', icon: Megaphone },
       { id: 'templates', label: 'Creative Templates', icon: Sparkles },
       { id: 'celebration', label: 'Celebration Calendar', icon: Calendar },
       { id: 'promotion', label: 'Music Promo Studio', icon: Music },
       { id: 'motion', label: 'Motion Studio', icon: Film },
-      { id: 'cards', label: 'Business Cards', icon: CreditCard },
-      { id: 'documents', label: 'Corporate Docs', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
+      { id: 'cards', label: 'Business & Artist Cards', icon: CreditCard },
+      { id: 'documents', label: 'Corporate & Legal Docs', icon: FileText, badgeCount: pendingDocs > 0 ? pendingDocs : undefined },
       { id: 'press', label: 'Press & Media', icon: Newspaper },
       { id: 'blogger', label: 'Blogger Studio', icon: Globe },
-      { id: 'assets', label: 'Asset Library', icon: FolderArchive },
-      { id: 'operations', label: 'Operations', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
+      { id: 'assets', label: 'Master Asset Library', icon: FolderArchive },
+      { id: 'operations', label: 'Operations & Requests', icon: CheckSquare, badgeCount: pendingTasks > 0 ? pendingTasks : undefined },
       { id: 'export', label: 'Export & Handover', icon: Share2 }
-    );
-
-    return items;
+    ];
   };
 
   const navItems = getNavItems();
@@ -189,9 +194,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                 </div>
                 <div className="max-h-56 overflow-y-auto">
                   {workspaces.map(ws => {
-                    const wsIsArtist = ws.clientCategory === 'artist' || ws.type === 'Artist';
-                    const wsIsBrand = ws.clientCategory === 'brand' || ws.type === 'Brand';
-                    const wsAccent = ws.brand?.accentColor || (wsIsArtist ? '#D97706' : wsIsBrand ? '#2563EB' : '#FF1E1E');
+                    const wsIsArtist = ws.clientCategory === 'artist' || ws.type === 'Artist' || ws.type === 'Personal';
+                    const wsIsBrand = ws.clientCategory === 'brand' || ws.type === 'Brand' || ws.type === 'Agency';
+                    const wsIsBusiness = ws.clientCategory === 'business' || ws.type === 'Business' || ws.type === 'Enterprise';
+                    const wsIsLabel = ws.clientCategory === 'label' || ws.type === 'Label';
+                    const wsAccent = ws.brand?.accentColor || (wsIsArtist ? '#D97706' : wsIsBrand ? '#2563EB' : wsIsBusiness ? '#10B981' : '#FF1E1E');
+
+                    const categoryBadge = wsIsArtist 
+                      ? 'Artist Client' 
+                      : wsIsBrand 
+                      ? 'Brand Client' 
+                      : wsIsBusiness 
+                      ? 'Enterprise Client' 
+                      : wsIsLabel 
+                      ? 'Record Label' 
+                      : 'Client Workspace';
 
                     return (
                       <button
@@ -211,7 +228,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                         <div className="flex flex-col items-start leading-tight truncate">
                           <span className="truncate">{ws.name}</span>
                           <span className="text-[9px] font-mono text-neutral-500 uppercase">
-                            {wsIsArtist ? 'Artist Client' : wsIsBrand ? 'Brand Client' : 'Portfolio Showcase'}
+                            {categoryBadge}
                           </span>
                         </div>
                         {activeWorkspace.id === ws.id && (
@@ -263,7 +280,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
         {/* Navigation list */}
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
           <div className="px-3 pb-2 text-[10px] font-mono tracking-widest text-neutral-500 uppercase flex items-center justify-between">
-            <span>{isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : 'WORKSPACE MODULES'}</span>
+            <span>{isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : isBusiness ? 'ENTERPRISE WORKSPACE' : 'LABEL WORKSPACE'}</span>
             <span 
               className="w-1.5 h-1.5 rounded-full" 
               style={{ backgroundColor: brandAccent }} 
@@ -302,6 +319,56 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
               </button>
             );
           })}
+
+          {/* Dedicated Platform Operator Console (Decoupled from client workspace identity) */}
+          {(canAccessProductionCenter || canAccessAdminCenter) && (
+            <div className="pt-3 mt-3 border-t border-[#1C1C1C] space-y-1">
+              <div className="px-3 pb-1.5 text-[9px] font-mono tracking-widest text-red-400 uppercase flex items-center justify-between">
+                <span>OPERATOR CONSOLE</span>
+                <span className="px-1 py-0.2 bg-red-950/80 border border-red-800/60 rounded text-[8px] text-red-300 font-bold">STAFF</span>
+              </div>
+
+              {canAccessProductionCenter && (
+                <button
+                  onClick={() => handleSelect('production')}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-md transition-all group ${
+                    activeModule === 'production' 
+                      ? 'bg-[#1C1212] text-white font-semibold border border-red-900/60 shadow-sm' 
+                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-[#141212]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Briefcase size={16} className={activeModule === 'production' ? 'text-red-400' : 'text-neutral-500 group-hover:text-neutral-300'} />
+                    <span className="truncate">Production Center</span>
+                  </div>
+                  {activeProductionCount > 0 && (
+                    <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-red-950/90 text-red-300 border border-red-900/50">
+                      {activeProductionCount}
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {canAccessAdminCenter && (
+                <button
+                  onClick={() => handleSelect('admin')}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-md transition-all group ${
+                    activeModule === 'admin' 
+                      ? 'bg-[#1C1212] text-white font-semibold border border-red-900/60 shadow-sm' 
+                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-[#141212]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <ShieldCheck size={16} className={activeModule === 'admin' ? 'text-red-400' : 'text-neutral-500 group-hover:text-neutral-300'} />
+                    <span className="truncate">Admin Control Center</span>
+                  </div>
+                  <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-[#1C1C1C] text-neutral-400">
+                    {workspaces.length}
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Database state management / Real empty-state toggle */}

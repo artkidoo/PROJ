@@ -96,6 +96,29 @@ export const INITIAL_WORKSPACES: Workspace[] = [
         bodyFont: 'Plus Jakarta Sans'
       }
     }
+  },
+  {
+    id: 'ws-nexus-enterprise',
+    name: 'NEXUS CAPITAL & STRATEGY',
+    type: 'Enterprise',
+    clientCategory: 'business',
+    ownerId: 'user-01',
+    status: 'Active',
+    contactEmail: 'operations@nexusventures.com',
+    description: 'Enterprise Client Workspace — Corporate Advisory & Asset Management',
+    contractedPackageIds: ['pkg-biz-corporate', 'pkg-exec-retainer'],
+    createdAt: '2025-03-01T00:00:00Z',
+    brand: {
+      name: 'NEXUS CAPITAL',
+      primaryColor: '#10B981',
+      secondaryColor: '#051E13',
+      accentColor: '#34D399',
+      tagline: 'Strategic Governance & Commercial Architecture',
+      typography: {
+        displayFont: 'Plus Jakarta Sans',
+        bodyFont: 'Plus Jakarta Sans'
+      }
+    }
   }
 ];
 
@@ -123,6 +146,14 @@ export const INITIAL_MEMBERSHIPS: WorkspaceMembership[] = [
     role: 'Owner',
     status: 'Active',
     joinedAt: '2025-02-01T00:00:00Z'
+  },
+  {
+    id: 'mem-04',
+    userId: 'user-01',
+    workspaceId: 'ws-nexus-enterprise',
+    role: 'Owner',
+    status: 'Active',
+    joinedAt: '2025-03-01T00:00:00Z'
   }
 ];
 
@@ -374,6 +405,7 @@ export const INITIAL_RELEASES: MusicRelease[] = [
 export const INITIAL_CAMPAIGNS: CreativeCampaign[] = [
   {
     id: 'camp-01',
+    workspaceId: 'ws-sariyah-artist',
     title: 'Monochrome State Global Rollout',
     releaseId: 'rel-01',
     releaseTitle: 'Monochrome State',
@@ -434,6 +466,7 @@ export const INITIAL_CAMPAIGNS: CreativeCampaign[] = [
 export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   {
     id: 'doc-01',
+    workspaceId: 'ws-lyrical-ent',
     type: 'letterhead',
     title: 'Official Label Notice — Worldwide Distribution Partnership',
     referenceNo: 'LYR-LTR-2026-004',
@@ -452,6 +485,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-02',
+    workspaceId: 'ws-lyrical-ent',
     type: 'invoice',
     title: 'Production Master Invoice #INV-2026-089',
     referenceNo: 'INV-LYR-2026-089',
@@ -485,6 +519,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-03',
+    workspaceId: 'ws-lyrical-ent',
     type: 'split_sheet',
     title: 'Songwriter & Producer Split Sheet — "Monochrome State"',
     referenceNo: 'SPLIT-2026-MS-01',
@@ -501,6 +536,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-04',
+    workspaceId: 'ws-lyrical-ent',
     type: 'receipt',
     title: 'Official Payment Receipt #REC-2026-042',
     referenceNo: 'REC-LYR-2026-042',
@@ -528,6 +564,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-05',
+    workspaceId: 'ws-lyrical-ent',
     type: 'quotation',
     title: 'Executive Production Quotation — Q1 Commercial Campaign',
     referenceNo: 'QUO-LYR-2026-018',
@@ -567,6 +604,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-06',
+    workspaceId: 'ws-lyrical-ent',
     type: 'partnership_proposal',
     title: 'Strategic Brand Partnership Proposal — High-Fidelity Audio Co-Lab',
     referenceNo: 'PROP-PART-2026-003',
@@ -586,6 +624,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-07',
+    workspaceId: 'ws-lyrical-ent',
     type: 'company_profile',
     title: 'LYRICAL ENT — Official Company Profile & Master Dossier',
     referenceNo: 'DOSSIER-LYR-2026-01',
@@ -605,6 +644,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-08',
+    workspaceId: 'ws-lyrical-ent',
     type: 'asset_handover',
     title: 'Master Audio Tape & Hard Drive Custody Transfer Form',
     referenceNo: 'HO-LYR-2026-024',
@@ -624,6 +664,7 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
   },
   {
     id: 'doc-09',
+    workspaceId: 'ws-lyrical-ent',
     type: 'meeting_minutes',
     title: 'Executive Board & A&R Strategy Minutes — Q4 Release Summit',
     referenceNo: 'MIN-EXEC-2026-10',
@@ -707,12 +748,65 @@ export const INITIAL_DOCUMENTS: CorporateDocument[] = [
     bodyContent: 'Invoice for Phase 1 Brand Identity & Motion Design Sprint delivery.',
     createdAt: '2026-10-24T14:00:00Z',
     updatedAt: '2026-10-24T14:00:00Z'
+  },
+  {
+    id: 'doc-nexus-01',
+    workspaceId: 'ws-nexus-enterprise',
+    type: 'company_profile',
+    title: 'Enterprise Corporate Charter & Visual Governance Manual',
+    referenceNo: 'NEX-GOV-2026-01',
+    date: '2026-10-10',
+    recipientName: 'Board of Directors & Institutional Partners',
+    recipientOrg: 'Nexus Capital & Strategy Group',
+    recipientAddress: '1 Wall Street, 42nd Floor, New York, NY 10005',
+    recipientEmail: 'governance@nexusventures.com',
+    authorName: 'Executive Directorate',
+    authorRole: 'Managing Partner',
+    status: 'Approved',
+    subject: 'Official Corporate Identity, Signage Standards, and Board Resolution Procedures',
+    bodyContent: 'This document defines the visual governance and dispatch protocols for Nexus Capital & Strategy. All corporate communications must maintain emerald (#10B981) accents, obsidian backdrop tokens, and verified digital signatures.',
+    createdAt: '2026-10-10T10:00:00Z',
+    updatedAt: '2026-10-11T12:00:00Z'
+  },
+  {
+    id: 'doc-nexus-02',
+    workspaceId: 'ws-nexus-enterprise',
+    type: 'invoice',
+    title: 'Strategic Advisory & Retainer Invoice #INV-NEX-2026-041',
+    referenceNo: 'INV-NEX-2026-041',
+    date: '2026-10-25',
+    recipientName: 'Vanguard Global Holdings LLC',
+    recipientOrg: 'Corporate Treasury',
+    recipientAddress: '200 Park Avenue, Suite 3200, New York, NY 10166',
+    recipientEmail: 'treasury@vanguardholdings.com',
+    authorName: 'Managing Partner',
+    authorRole: 'Head of Advisory',
+    status: 'Issued',
+    paymentTerms: 'Net 15 Days. Wire transfer.',
+    items: [
+      {
+        description: 'Q4 Strategic Advisory & Capital Allocation Framework',
+        quantity: 1,
+        unitPrice: 15000,
+        total: 15000
+      },
+      {
+        description: 'Executive Briefing & Visual Market Intelligence Dossier',
+        quantity: 1,
+        unitPrice: 3500,
+        total: 3500
+      }
+    ],
+    bodyContent: 'Professional advisory services rendered for Q4 Strategic Transformation.',
+    createdAt: '2026-10-25T09:00:00Z',
+    updatedAt: '2026-10-25T09:30:00Z'
   }
 ];
 
 export const INITIAL_BRAND_ASSETS: BrandAsset[] = [
   {
     id: 'brand-01',
+    workspaceId: 'ws-lyrical-ent',
     name: 'LYRICAL ENT Primary Wordmark (Monochrome Black & White)',
     category: 'Primary Logo',
     fileType: 'SVG',
@@ -727,6 +821,7 @@ export const INITIAL_BRAND_ASSETS: BrandAsset[] = [
   },
   {
     id: 'brand-02',
+    workspaceId: 'ws-lyrical-ent',
     name: 'LYRICAL Monogram Seal "LE"',
     category: 'Monogram',
     fileType: 'SVG',
@@ -741,6 +836,7 @@ export const INITIAL_BRAND_ASSETS: BrandAsset[] = [
   },
   {
     id: 'brand-03',
+    workspaceId: 'ws-lyrical-ent',
     name: 'LYRICAL Secondary Compact Lockup',
     category: 'Secondary Logo',
     fileType: 'SVG',
@@ -755,6 +851,7 @@ export const INITIAL_BRAND_ASSETS: BrandAsset[] = [
   },
   {
     id: 'brand-04',
+    workspaceId: 'ws-lyrical-ent',
     name: 'Production Studio Favicon Suite',
     category: 'Favicon',
     fileType: 'SVG',
@@ -769,6 +866,7 @@ export const INITIAL_BRAND_ASSETS: BrandAsset[] = [
   },
   {
     id: 'brand-05',
+    workspaceId: 'ws-lyrical-ent',
     name: 'Editorial Monochrome Brand Guidelines PDF',
     category: 'Guideline',
     fileType: 'PDF',
@@ -855,6 +953,36 @@ export const INITIAL_BRAND_ASSETS: BrandAsset[] = [
     usageRules: 'Direct delivery to Apple Music, Spotify, and Tidal.',
     isVector: false,
     uploadedAt: '2026-02-14T11:00:00Z'
+  },
+  {
+    id: 'brand-nex-01',
+    workspaceId: 'ws-nexus-enterprise',
+    name: 'NEXUS CAPITAL Master Emerald Wordmark',
+    category: 'Primary Logo',
+    fileType: 'SVG',
+    dimensions: 'Vector / Scalable',
+    fileSize: '15.1 KB',
+    version: 'v1.0 Final',
+    status: 'Approved',
+    description: 'Corporate institutional logotype in emerald (#10B981) and solid white.',
+    usageRules: 'Exclusively on executive reports, institutional filings, and board presentations.',
+    isVector: true,
+    uploadedAt: '2026-03-01T10:00:00Z'
+  },
+  {
+    id: 'brand-nex-02',
+    workspaceId: 'ws-nexus-enterprise',
+    name: 'NEXUS Geometric Prism Monogram',
+    category: 'Monogram',
+    fileType: 'SVG',
+    dimensions: '512x512px Vector',
+    fileSize: '8.2 KB',
+    version: 'v1.0',
+    status: 'Approved',
+    description: 'Interlocking geometric N prism monogram for corporate stamps and digital seals.',
+    usageRules: 'Maintain 32px clear margin. Never distort angle.',
+    isVector: true,
+    uploadedAt: '2026-03-02T12:00:00Z'
   }
 ];
 
@@ -927,6 +1055,7 @@ export const INITIAL_TASKS: OperationTask[] = [
   },
   {
     id: 'tsk-02',
+    workspaceId: 'ws-sariyah-artist',
     title: 'Finalize press release for Sariyah Cole single launch',
     category: 'Marketing',
     priority: 'High',
@@ -940,6 +1069,7 @@ export const INITIAL_TASKS: OperationTask[] = [
   },
   {
     id: 'tsk-03',
+    workspaceId: 'ws-sariyah-artist',
     title: 'Audit ISRC and UPC registration on DSP direct portal',
     category: 'Distribution',
     priority: 'High',
@@ -953,6 +1083,7 @@ export const INITIAL_TASKS: OperationTask[] = [
   },
   {
     id: 'tsk-04',
+    workspaceId: 'ws-lyrical-ent',
     title: 'Review synchronisation agreement for French film placement',
     category: 'Legal',
     priority: 'Normal',
@@ -1006,6 +1137,7 @@ export const INITIAL_ACTIVITY: ActivityLog[] = [
 export const INITIAL_PRESS_RELEASES: PressRelease[] = [
   {
     id: 'pr-01',
+    workspaceId: 'ws-lyrical-ent',
     title: 'LYRICAL ENT ANNOUNCES WORLDWIDE RELEASE OF "MONOCHROME STATE" BY SARIYAH COLE',
     subtitle: 'The critically acclaimed vocalist returns with an architectural sonic exploration ahead of her anticipated 2026 European tour.',
     date: '2026-10-28',
@@ -1023,6 +1155,7 @@ export const INITIAL_PRESS_RELEASES: PressRelease[] = [
 export const INITIAL_MEDIA_CONTACTS: MediaContact[] = [
   {
     id: 'med-01',
+    workspaceId: 'ws-lyrical-ent',
     outlet: 'Pitchfork / Condé Nast',
     contactName: 'Julian Sterling',
     role: 'Senior Music Editor',
@@ -1033,6 +1166,7 @@ export const INITIAL_MEDIA_CONTACTS: MediaContact[] = [
   },
   {
     id: 'med-02',
+    workspaceId: 'ws-lyrical-ent',
     outlet: 'The FADER',
     contactName: 'Amara Vance',
     role: 'Culture & Features Writer',
@@ -1043,6 +1177,7 @@ export const INITIAL_MEDIA_CONTACTS: MediaContact[] = [
   },
   {
     id: 'med-03',
+    workspaceId: 'ws-lyrical-ent',
     outlet: 'Clash Magazine',
     contactName: 'Liam Doherty',
     role: 'Reviews Editor',

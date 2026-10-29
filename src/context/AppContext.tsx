@@ -480,7 +480,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // Migration logic for existing data
+  // Migration logic for existing session data (guaranteeing exact workspace attribution)
   useEffect(() => {
     const defaultWsId = INITIAL_WORKSPACES[0].id;
     
@@ -684,7 +684,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Operator access check (Decoupled from ws-lyrical-ent workspace membership)
   const canAccessProductionCenter = 
-    ['Executive', 'Label Manager', 'Creative Director', 'A&R Director', 'Operator', 'Admin'].includes(currentRole);
+    ['Executive', 'Label Manager', 'Creative Director', 'A&R Director', 'Operator', 'Admin', 'Platform Admin', 'Lead Producer'].includes(currentRole);
 
   const addProductionProject = (projectData: Omit<ProductionProject, 'id' | 'createdAt' | 'updatedAt'>): ProductionProject => {
     const newProj: ProductionProject = {
@@ -840,7 +840,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Phase 4: Admin / Operator Access & Management (Decoupled from ws-lyrical-ent workspace membership)
   const canAccessAdminCenter = 
-    ['Executive', 'Label Manager', 'Admin'].includes(currentRole);
+    ['Executive', 'Label Manager', 'Admin', 'Platform Admin', 'Operator'].includes(currentRole);
 
   const addServicePackage = (pkgData: Omit<ServicePackage, 'id' | 'createdAt' | 'updatedAt'>): ServicePackage => {
     const newPkg: ServicePackage = {

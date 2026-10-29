@@ -101,7 +101,15 @@ service cloud.firestore {
       match /campaignDesigns/{designId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /productionProjects/{projectId} { 
         allow read: if isWorkspaceMember(workspaceId); 
-        allow write: if isWorkspaceOwner(workspaceId); 
+        allow write: if isWorkspaceOwner(workspaceId) || isPlatformAdmin(); 
+
+        match /internalNotes/{noteId} {
+          allow read, write: if isPlatformAdmin();
+        }
+        match /deliverables/{delivId} {
+          allow read: if isPlatformAdmin() || (isWorkspaceMember(workspaceId) && resource.data.isClientPublished == true);
+          allow write: if isPlatformAdmin();
+        }
       }
       match /services/{serviceId} { 
         allow read: if isWorkspaceMember(workspaceId); 

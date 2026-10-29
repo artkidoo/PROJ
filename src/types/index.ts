@@ -8,7 +8,13 @@ export type UserRole =
   | 'A&R Director'
   | 'Creative Director'
   | 'Label Manager'
-  | 'Legal & Business Affairs';
+  | 'Legal & Business Affairs'
+  | 'Artist Client'
+  | 'Brand Manager'
+  | 'Business Owner'
+  | 'Platform Admin'
+  | 'Operator'
+  | 'Lead Producer';
 
 export type AppModule = 
   | 'dashboard'
@@ -50,8 +56,8 @@ export interface PlatformUser {
   createdAt: string;
 }
 
-export type WorkspaceType = 'Artist' | 'Brand' | 'Label' | 'Agency' | 'Personal' | 'Enterprise';
-export type ClientCategory = 'artist' | 'brand' | 'label';
+export type WorkspaceType = 'Artist' | 'Label' | 'Brand' | 'Business' | 'Enterprise' | 'Agency' | 'Personal';
+export type ClientCategory = 'artist' | 'label' | 'brand' | 'business';
 
 export interface WorkspaceBrand {
   name: string;

@@ -22,9 +22,10 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
 }) => {
   const { activeWorkspace, submitClientRequest } = useApp();
 
-  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist';
-  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand';
-  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E');
+  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist' || activeWorkspace.type === 'Personal';
+  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Agency';
+  const isBusiness = activeWorkspace.clientCategory === 'business' || activeWorkspace.type === 'Business' || activeWorkspace.type === 'Enterprise';
+  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : isBusiness ? '#10B981' : '#FF1E1E');
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<OperationTask['category']>(defaultCategory);
@@ -36,7 +37,11 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
   });
   const [notes, setNotes] = useState('');
   const [deliverableSpecs, setDeliverableSpecs] = useState(
-    isArtist ? '3000x3000px 300DPI TIFF / 9:16 Vertical Video (1080x1920)' : 'Vector Scalable SVG / 16:9 Landscape 4K Presentation'
+    isArtist 
+      ? '3000x3000px 300DPI TIFF / 9:16 Vertical Video (1080x1920) / Lossless WAV' 
+      : isBusiness 
+      ? 'Official Corporate PDF / Vector Scalable SVG / High-DPI Stationery Package' 
+      : 'Vector Scalable SVG / 16:9 Landscape 4K Presentation / Brand Assets'
   );
   const [submitted, setSubmitted] = useState(false);
 

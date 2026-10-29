@@ -32,6 +32,12 @@ service firebase.storage {
       );
     }
 
+    // Operator Internal Notes & Confidential Staging (Restricted to Platform Admins)
+    match /workspaces/{workspaceId}/internal/{allPaths=**} {
+      allow read, write: if isSignedIn() && 
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid));
+    }
+
     // Workspace Private Files Path (Multi-Tenant Authorization, Volumetric & Content-Type Guards)
     match /workspaces/{workspaceId}/{allPaths=**} {
       allow read: if isWorkspaceMember(workspaceId);

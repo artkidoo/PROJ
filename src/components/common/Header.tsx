@@ -46,10 +46,16 @@ const MODULE_NAMES: Record<AppModule, string> = {
 
 const ROLES: UserRole[] = [
   'Executive',
-  'A&R Director',
+  'Operator',
+  'Platform Admin',
   'Creative Director',
+  'Lead Producer',
+  'A&R Director',
   'Label Manager',
-  'Legal & Business Affairs'
+  'Legal & Business Affairs',
+  'Artist Client',
+  'Brand Manager',
+  'Business Owner'
 ];
 
 export const Header: React.FC<HeaderProps> = ({ mobileMenuOpen, setMobileMenuOpen }) => {
@@ -73,9 +79,10 @@ export const Header: React.FC<HeaderProps> = ({ mobileMenuOpen, setMobileMenuOpe
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const [isRequestOpen, setIsRequestOpen] = React.useState(false);
 
-  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist';
-  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand';
-  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E');
+  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist' || activeWorkspace.type === 'Personal';
+  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Agency';
+  const isBusiness = activeWorkspace.clientCategory === 'business' || activeWorkspace.type === 'Business' || activeWorkspace.type === 'Enterprise';
+  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : isBusiness ? '#10B981' : '#FF1E1E');
 
   const pendingApprovals = releases.filter(r => (r.distributionStatus === 'Metadata Verification' || !r.checklist.artworkApproved) && r.workspaceId === activeWorkspace.id).length;
   const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;

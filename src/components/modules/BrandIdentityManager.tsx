@@ -103,7 +103,15 @@ export const BrandIdentityManager: React.FC = () => {
     setIsEditingGuidelines(false);
   };
 
+  const workspaceAccent = activeWorkspace.brand?.accentColor || activeWorkspace.brand?.primaryColor;
   const PALETTE = [
+    ...(workspaceAccent ? [{
+      name: `${activeWorkspace.name} Accent`,
+      hex: workspaceAccent,
+      rgb: 'Custom Workspace Token',
+      hsl: 'Brand Accent',
+      role: `Custom brand highlight and primary signature accent for ${activeWorkspace.name}`
+    }] : []),
     { name: 'Pure Black', hex: '#000000', rgb: 'rgb(0, 0, 0)', hsl: 'hsl(0, 0%, 0%)', role: 'Dominant canvas background, primary dark contrast' },
     { name: 'Pure White', hex: '#FFFFFF', rgb: 'rgb(255, 255, 255)', hsl: 'hsl(0, 0%, 100%)', role: 'Primary logotype, headlines, high-intent action CTAs' },
     { name: 'Charcoal', hex: '#171717', rgb: 'rgb(23, 23, 23)', hsl: 'hsl(0, 0%, 9%)', role: 'Tactile surface elevation, cards, secondary containers' },
@@ -115,28 +123,48 @@ export const BrandIdentityManager: React.FC = () => {
   const LOGO_CARDS = [
     {
       id: 'primary',
-      title: 'Primary Logo (Stacked)',
-      subtitle: 'Monogram + LYRICAL ENT + Studio Descriptor',
-      description: 'The master brand lockup for album covers, corporate stationery, vinyl packaging, and official releases.',
+      title: 'Primary Logo (Master Lockup)',
+      subtitle: `${activeWorkspace.name} Official Mark`,
+      description: `The master brand lockup for official client correspondence, release packaging, stationery, and publications.`,
       type: 'primary' as const,
       component: (theme: 'black-on-white' | 'white-on-black') => (
-        <LyricalPrimaryLogo 
-          size={180} 
-          theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'} 
-          showSubtext={true}
-        />
+        activeWorkspace.id === 'ws-lyrical-ent' ? (
+          <LyricalPrimaryLogo 
+            size={180} 
+            theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'} 
+            showSubtext={true}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2">
+            <WorkspaceLogo 
+              workspaceId={activeWorkspace.id} 
+              workspaceName={activeWorkspace.name} 
+              brand={activeWorkspace.brand}
+              clientCategory={activeWorkspace.clientCategory}
+              height={42} 
+              theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'} 
+            />
+            {activeWorkspace.brand?.tagline && (
+              <span className={`text-[10px] font-mono tracking-widest uppercase ${theme === 'black-on-white' ? 'text-neutral-600' : 'text-neutral-400'}`}>
+                {activeWorkspace.brand.tagline}
+              </span>
+            )}
+          </div>
+        )
       )
     },
     {
       id: 'horizontal',
       title: 'Horizontal Logo (Inline)',
-      subtitle: 'LE Monogram + LYRICAL ENT Wordmark',
+      subtitle: `${activeWorkspace.name} Header Lockup`,
       description: 'Optimized for tight horizontal banners, streaming platform headers, navigation bars, and video lower-thirds.',
       type: 'horizontal' as const,
       component: (theme: 'black-on-white' | 'white-on-black') => (
         <WorkspaceLogo 
           workspaceId={activeWorkspace.id} 
           workspaceName={activeWorkspace.name} 
+          brand={activeWorkspace.brand}
+          clientCategory={activeWorkspace.clientCategory}
           height={38} 
           theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'}
         />
@@ -144,29 +172,60 @@ export const BrandIdentityManager: React.FC = () => {
     },
     {
       id: 'monogram',
-      title: 'LE Monogram Emblem',
-      subtitle: 'Architectural Geometric Seal',
-      description: 'Compact standalone monogram for vinyl run-out matrix etching, apparel tags, microphone flags, and watermarks.',
+      title: `${activeWorkspace.name} Monogram Emblem`,
+      subtitle: 'Geometric Identity Seal',
+      description: 'Compact standalone monogram for product packaging, apparel tags, watermarks, and micro-icons.',
       type: 'monogram' as const,
       component: (theme: 'black-on-white' | 'white-on-black') => (
-        <LyricalMonogram 
-          size={64} 
-          framed={true} 
-          theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'} 
-        />
+        activeWorkspace.id === 'ws-lyrical-ent' ? (
+          <LyricalMonogram 
+            size={64} 
+            framed={true} 
+            theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'} 
+          />
+        ) : (
+          <div 
+            className={`w-16 h-16 rounded-xl flex items-center justify-center font-mono font-bold text-lg tracking-wider border shadow-md transition-all ${
+              theme === 'black-on-white' 
+                ? 'bg-neutral-100 text-black border-neutral-300' 
+                : 'bg-[#141414] text-white border-[#333]'
+            }`}
+            style={{ borderColor: activeWorkspace.brand?.accentColor || '#FF1E1E' }}
+          >
+            {activeWorkspace.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+          </div>
+        )
       )
     },
     {
       id: 'square',
       title: 'Square Social / Cover Icon',
       subtitle: '1:1 Ratio Profile & Streaming Mark',
-      description: 'Pixel-perfect 1:1 badge engineered for Spotify artist avatars, Apple Music profile badges, and YouTube channels.',
+      description: 'Pixel-perfect 1:1 badge engineered for social avatars, profile badges, and high-contrast digital representations.',
       type: 'square' as const,
       component: (theme: 'black-on-white' | 'white-on-black') => (
-        <LyricalSquareIcon 
-          size={80} 
-          theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'} 
-        />
+        activeWorkspace.id === 'ws-lyrical-ent' ? (
+          <LyricalSquareIcon 
+            size={80} 
+            theme={theme === 'black-on-white' ? 'monochrome-black' : 'monochrome-white'} 
+          />
+        ) : (
+          <div 
+            className={`w-20 h-20 rounded-xl flex items-center justify-center font-mono font-black text-xl tracking-wider border shadow-lg ${
+              theme === 'black-on-white' 
+                ? 'bg-neutral-100 text-black border-neutral-300' 
+                : 'bg-[#121212] text-white border-[#2A2A2A]'
+            }`}
+            style={{ 
+              boxShadow: `0 0 20px ${activeWorkspace.brand?.accentColor || '#FF1E1E'}25`,
+              borderColor: activeWorkspace.brand?.accentColor || '#FF1E1E' 
+            }}
+          >
+            <span style={{ color: activeWorkspace.brand?.accentColor || '#FFFFFF' }}>
+              {activeWorkspace.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+            </span>
+          </div>
+        )
       )
     },
     {
@@ -291,15 +350,20 @@ export const BrandIdentityManager: React.FC = () => {
           </div>
 
           {/* Active Concept Banner */}
-          <div className="p-3 bg-[#121212] border border-white/20 rounded-lg flex items-center justify-between font-mono text-xs">
+          <div className="p-3 bg-[#121212] border border-white/20 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-xs">
             <div className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-white" />
+              <CheckCircle2 size={16} className="text-white shrink-0" />
               <span>
-                CURRENT PRIMARY IDENTITY: <strong className="text-white uppercase">{LOGO_CONCEPTS_METADATA.find(m => m.id === activePrimaryConceptId)?.name}</strong>
+                {activeWorkspace.id === 'ws-lyrical-ent' 
+                  ? <>CURRENT PRIMARY IDENTITY: <strong className="text-white uppercase">{LOGO_CONCEPTS_METADATA.find(m => m.id === activePrimaryConceptId)?.name}</strong></>
+                  : <>WORKSPACE: <strong className="text-white uppercase">{activeWorkspace.name}</strong> · MASTER DESIGN BENCHMARK: <strong className="text-white uppercase">{LOGO_CONCEPTS_METADATA.find(m => m.id === activePrimaryConceptId)?.name}</strong></>
+                }
               </span>
             </div>
             <span className="text-[10px] text-neutral-400">
-              Synced across Design Studio, Business Cards &amp; Templates
+              {activeWorkspace.id === 'ws-lyrical-ent' 
+                ? 'Synced across Design Studio, Business Cards & Templates' 
+                : 'Creative inspiration and vector benchmark for client brand assets'}
             </span>
           </div>
 

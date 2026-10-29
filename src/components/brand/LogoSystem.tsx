@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { ClientCategory } from '../../types';
 
 export type LogoTheme = 'light' | 'dark' | 'monochrome-black' | 'monochrome-white';
 
@@ -456,7 +457,7 @@ export const WorkspaceLogo: React.FC<{
     accentColor?: string;
     tagline?: string;
   };
-  clientCategory?: 'artist' | 'brand' | 'label';
+  clientCategory?: ClientCategory;
   height?: number;
   className?: string;
   theme?: LogoTheme;
@@ -469,8 +470,20 @@ export const WorkspaceLogo: React.FC<{
   // Fallback for customer workspaces: Professional typographic logo tailored with their brand accent
   const isLight = theme === 'light' || theme === 'monochrome-black';
   const textColor = isLight ? '#000000' : '#FFFFFF';
-  const accentColor = brand?.accentColor || brand?.primaryColor || (clientCategory === 'artist' ? '#D97706' : clientCategory === 'brand' ? '#2563EB' : '#FF1E1E');
+  const accentColor = brand?.accentColor || brand?.primaryColor || (
+    clientCategory === 'artist' ? '#D97706' : 
+    clientCategory === 'brand' ? '#2563EB' : 
+    clientCategory === 'business' ? '#10B981' : 
+    '#FF1E1E'
+  );
   
+  const categoryLabel = 
+    clientCategory === 'artist' ? 'ARTIST WORKSPACE' : 
+    clientCategory === 'brand' ? 'BRAND WORKSPACE' : 
+    clientCategory === 'business' ? 'ENTERPRISE WORKSPACE' : 
+    clientCategory === 'label' ? 'RECORD LABEL' : 
+    'CLIENT WORKSPACE';
+
   return (
     <div className={`flex items-center gap-2.5 ${className}`} style={{ height }}>
       <div 
@@ -484,7 +497,7 @@ export const WorkspaceLogo: React.FC<{
           {workspaceName}
         </span>
         <span className="text-[8px] font-mono tracking-wider uppercase font-semibold truncate" style={{ color: accentColor }}>
-          {clientCategory === 'artist' ? 'ARTIST WORKSPACE' : clientCategory === 'brand' ? 'BRAND WORKSPACE' : 'CLIENT WORKSPACE'}
+          {categoryLabel}
         </span>
       </div>
     </div>

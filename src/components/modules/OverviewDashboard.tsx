@@ -63,9 +63,11 @@ export const OverviewDashboard: React.FC = () => {
   const [isRequestModalOpen, setIsRequestModalOpen] = React.useState(false);
   const [approvalFeedback, setApprovalFeedback] = React.useState<string | null>(null);
 
-  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist';
-  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand';
-  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E');
+  const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist' || activeWorkspace.type === 'Personal';
+  const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Agency';
+  const isBusiness = activeWorkspace.clientCategory === 'business' || activeWorkspace.type === 'Business' || activeWorkspace.type === 'Enterprise';
+  const isLabel = activeWorkspace.clientCategory === 'label' || activeWorkspace.type === 'Label';
+  const brandAccent = activeWorkspace.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : isBusiness ? '#10B981' : '#FF1E1E');
 
   // Filter data by active workspace
   const workspaceArtists = artists.filter(a => a.workspaceId === activeWorkspace.id);
@@ -77,7 +79,7 @@ export const OverviewDashboard: React.FC = () => {
 
   // Calculate live operational metrics
   const totalArtists = workspaceArtists.length;
-  const activeProjects = isBrand 
+  const activeProjects = (isBrand || isBusiness)
     ? workspaceBrandAssets.length + workspaceDocuments.length
     : workspaceReleases.filter(r => r.distributionStatus !== 'Live').length;
   const upcomingReleases = workspaceReleases.filter(r => {
@@ -89,7 +91,7 @@ export const OverviewDashboard: React.FC = () => {
   
   const pendingApprovals = isArtist
     ? workspaceReleases.filter(r => !r.checklist.artworkApproved).length
-    : isBrand
+    : (isBrand || isBusiness)
     ? workspaceDocuments.filter(d => d.status === 'Under Review' || d.status === 'Draft').length + workspaceTasks.filter(t => t.status === 'In Review').length
     : workspaceReleases.filter(r => !r.checklist.artworkApproved || !r.checklist.splitSheetSigned || r.distributionStatus === 'Metadata Verification').length;
 
@@ -114,7 +116,7 @@ export const OverviewDashboard: React.FC = () => {
       date: t.dueDate,
       category: t.category,
       status: t.status,
-      targetModule: isBrand ? 'brand' as const : 'operations' as const
+      targetModule: (isBrand || isBusiness) ? 'brand' as const : 'operations' as const
     }))
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(0, 6);
 
@@ -171,6 +173,30 @@ export const OverviewDashboard: React.FC = () => {
   };
 
   if (!hasData) {
+    const emptyTitle = isArtist 
+      ? 'No Music Releases or Tracks Yet' 
+      : isBrand 
+      ? 'No Brand Projects or Guidelines Yet' 
+      : isBusiness 
+      ? 'No Corporate Documents or Contracts Yet' 
+      : 'No Operational Records Found';
+
+    const emptyDesc = isArtist
+      ? `This artist workspace is currently empty and isolated. Submit your first creative brief for album artwork, singles, or audio masters, or onboard an artist profile.`
+      : isBrand
+      ? `This brand client workspace is currently empty and isolated. Submit a design brief or configure brand guidelines to begin production.`
+      : isBusiness
+      ? `This enterprise workspace is currently clean and isolated. Generate corporate contracts, retainer agreements, or submit an operational brief.`
+      : `The label workspace has no records. You can initialize with standard sample records or onboard your first artist and release.`;
+
+    const primaryAction = isArtist 
+      ? { label: 'Submit Creative Request', action: () => setIsRequestModalOpen(true) }
+      : isBrand 
+      ? { label: 'Submit Design Request', action: () => setIsRequestModalOpen(true) }
+      : isBusiness 
+      ? { label: 'Create Corporate Document', action: () => openQuickAction('document') }
+      : { label: 'Onboard First Artist', action: () => openQuickAction('artist') };
+
     return (
       <div className="space-y-6">
         <div>
@@ -181,13 +207,18 @@ export const OverviewDashboard: React.FC = () => {
         </div>
 
         <EmptyState
-          icon={Disc3}
-          title="No Operational Records Found"
-          description="The workspace is currently in an empty state. You can initialize the label with official LYRICAL ENT production sample records, or manually onboard your first artist and release."
-          actionLabel="Onboard First Artist"
-          onAction={() => openQuickAction('artist')}
-          secondaryActionLabel="Load Sample Records"
-          onSecondaryAction={resetToSampleData}
+          icon={isArtist ? Disc3 : isBrand ? Layers : isBusiness ? FileText : Disc3}
+          title={emptyTitle}
+          description={emptyDesc}
+          actionLabel={primaryAction.label}
+          onAction={primaryAction.action}
+          secondaryActionLabel={isLabel ? "Load Sample Records" : undefined}
+          onSecondaryAction={isLabel ? resetToSampleData : undefined}
+        />
+
+        <ClientRequestModal
+          isOpen={isRequestModalOpen}
+          onClose={() => setIsRequestModalOpen(false)}
         />
       </div>
     );
@@ -225,13 +256,15 @@ export const OverviewDashboard: React.FC = () => {
                 />
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white font-mono uppercase">
-                {activeWorkspace.name} · {isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : 'STUDIO OPERATIONS'}
+                {activeWorkspace.name} · {isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : isBusiness ? 'ENTERPRISE WORKSPACE' : 'STUDIO OPERATIONS'}
               </h1>
               <p className="text-xs sm:text-sm text-neutral-400 mt-2.5 max-w-xl leading-relaxed">
                 {activeWorkspace.brand?.tagline ? `${activeWorkspace.brand.tagline} — Dedicated client production portal.` : (isArtist 
                   ? 'Private music production workspace for master audio, release packages, promotional key visuals, and streaming delivery.' 
                   : isBrand 
                   ? 'Private brand client workspace for corporate design systems, marketing collateral, active creative requests, and vector handovers.' 
+                  : isBusiness
+                  ? 'Private corporate workspace for enterprise agreements, advisory retainers, governance standards, and institutional asset vault.'
                   : 'Centralized production studio for catalog metadata, artist development, corporate contracts, creative rollout campaigns, and global music distribution.')}
               </p>
             </div>
@@ -292,6 +325,41 @@ export const OverviewDashboard: React.FC = () => {
                     <span>Corporate Documents</span>
                   </button>
                 </>
+              ) : isBusiness ? (
+                <>
+                  <button
+                    onClick={() => setIsRequestModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white rounded transition-transform active:scale-95 shadow-md"
+                    style={{ backgroundColor: brandAccent }}
+                  >
+                    <Send size={13} />
+                    <span>Submit Operational Brief</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveModule('documents')}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-[#1A1A1A] text-neutral-200 hover:text-white hover:bg-[#242424] border border-[#2B2B2B] rounded transition-colors"
+                  >
+                    <FileText size={13} />
+                    <span>Contracts & Invoices</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveModule('brand')}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-[#1A1A1A] text-neutral-200 hover:text-white hover:bg-[#242424] border border-[#2B2B2B] rounded transition-colors"
+                  >
+                    <Layers size={13} />
+                    <span>Corporate Standards</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveModule('cards')}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-[#1A1A1A] text-neutral-200 hover:text-white hover:bg-[#242424] border border-[#2B2B2B] rounded transition-colors"
+                  >
+                    <Sparkles size={13} />
+                    <span>Staff Credentials</span>
+                  </button>
+                </>
               ) : (
                 <>
                   <button
@@ -334,7 +402,7 @@ export const OverviewDashboard: React.FC = () => {
             <img 
               src={isArtist 
                 ? "/src/assets/images/vinyl_press_mockup_1792791744149.jpg" 
-                : isBrand 
+                : (isBrand || isBusiness)
                 ? "/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg" 
                 : "/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg"
               } 
@@ -344,7 +412,7 @@ export const OverviewDashboard: React.FC = () => {
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-end p-4">
               <span className="text-[11px] font-mono tracking-wider text-neutral-300">
-                {isArtist ? 'MASTER RELEASES // VINYL PROOFS & DSP DELIVERY' : isBrand ? 'IDENTITY SUITE // DESIGN TOKENS & COLLATERAL' : 'LONDON // SOUND LAB A — STUDIO MONITORING'}
+                {isArtist ? 'MASTER RELEASES // VINYL PROOFS & DSP DELIVERY' : isBrand ? 'IDENTITY SUITE // DESIGN TOKENS & COLLATERAL' : isBusiness ? 'CORPORATE GOVERNANCE // CONTRACTS & CAPITAL ADVISORY' : 'LONDON // SOUND LAB A — STUDIO MONITORING'}
               </span>
             </div>
           </div>
@@ -355,7 +423,7 @@ export const OverviewDashboard: React.FC = () => {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-xs font-mono tracking-widest text-neutral-400 uppercase">
-            {isArtist ? 'ARTIST METRICS & RELEASE READINESS' : isBrand ? 'BRAND METRICS & PRODUCTION PIPELINE' : 'OPERATIONAL STATUS INDICATORS'}
+            {isArtist ? 'ARTIST METRICS & RELEASE READINESS' : isBrand ? 'BRAND METRICS & PRODUCTION PIPELINE' : isBusiness ? 'ENTERPRISE METRICS & COMPLIANCE' : 'OPERATIONAL STATUS INDICATORS'}
           </h2>
           <span className="text-[11px] font-mono text-neutral-500">LIVE LOCAL SYNC</span>
         </div>
