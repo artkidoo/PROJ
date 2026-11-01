@@ -49,6 +49,15 @@ service firebase.storage {
       allow delete: if isWorkspaceMember(workspaceId);
     }
 
+    // Client Deliverable Files (Phase 2C - Private, Authenticated Access)
+    // Client Deliverable Files (Phase 2C - Private, Authenticated Access)
+    match /clients/{clientUid}/deliverables/{deliverableId}/{fileName} {
+      // Only the owner client or platform admin can read
+      allow read: if isSignedIn() && (request.auth.uid == clientUid || firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid)));
+      // Only platform admin can upload/modify/delete
+      allow write: if isSignedIn() && firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid));
+    }
+
     // Default Deny Everything Else
     match /{allPaths=**} {
       allow read, write: if false;

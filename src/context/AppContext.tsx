@@ -215,7 +215,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [appMode, setAppMode] = useState<AppMode>(() => {
     try {
       const saved = localStorage.getItem('keedohub_app_mode');
-      return (saved === 'workspace') ? 'workspace' : 'public';
+      return (saved === 'workspace' || saved === 'client') ? (saved as AppMode) : 'public';
     } catch {
       return 'public';
     }
@@ -435,7 +435,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const res = await signInWithPopup(auth, googleProvider);
       if (res?.user) {
-        enterWorkspace();
+        setAppMode('client');
+        try {
+          localStorage.setItem('keedohub_app_mode', 'client');
+        } catch {}
       }
     } catch (err: any) {
       if (
@@ -453,7 +456,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = async () => {
     try {
       await firebaseSignOut(auth);
-      exitToPublic();
+      setAppMode('public');
+      try {
+        localStorage.setItem('keedohub_app_mode', 'public');
+      } catch {}
     } catch (err) {
       console.error('Sign-Out Error:', err);
     }

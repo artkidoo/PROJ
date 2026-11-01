@@ -129,8 +129,17 @@ const MainLayout: React.FC = () => {
 const AppContent: React.FC = () => {
   const { appMode } = useApp();
 
+  const navigate = (route: string, param?: string) => {
+    const el = document.querySelector(`#${route}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.location.hash = route;
+    }
+  };
+
   if (appMode === 'public') {
-    return <PublicHomepage />;
+    return <PublicHomepage navigate={navigate} />;
   }
 
   return <MainLayout />;

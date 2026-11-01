@@ -1,5 +1,5 @@
-/**
- * LYRICAL ENT — Brand & Label Studio
+﻿/**
+ * LYRICAL ENT â€” Brand & Label Studio
  * Core Data Models & Type Definitions
  */
 
@@ -37,10 +37,83 @@ export type AppModule =
   | 'export';
 
 /**
- * KEEDOHUB — Platform Foundation Types
+ * KEEDOHUB â€” Platform Foundation Types
  */
 
-export type AppMode = 'public' | 'workspace';
+export type AppMode = 'public' | 'workspace' | 'client' | 'admin';
+
+export type ClientProjectStatus = 'Pending' | 'Confirmed' | 'In Progress' | 'Review' | 'Completed' | 'On Hold';
+
+export interface ClientProject {
+  id: string;
+  clientUid: string;
+  title: string;
+  description: string;
+  category: string;
+  status: ClientProjectStatus;
+  progress: number; // 0-100
+  startDate: string;
+  expectedDeliveryDate: string;
+  createdAt: string;
+  updatedAt: string;
+  milestones?: { title: string; completed: boolean; date?: string }[];
+  recentUpdates?: { message: string; date: string }[];
+}
+
+export type ClientDeliverableStatus = 'Draft' | 'In Review' | 'Published' | 'Approved' | 'Revision Requested';
+export type DeliverableReviewStatus = 'Awaiting Review' | 'Approved' | 'Revision Requested' | 'Revision In Progress' | 'Revised - Awaiting Review';
+
+export interface DeliverableApproval {
+  approvedBy: string; // client UID
+  approvedAt: string;
+  feedback?: string;
+}
+
+export interface RevisionRequest {
+  id: string;
+  deliverableId: string;
+  clientUid: string;
+  projectId: string;
+  feedback: string;
+  status: 'Submitted' | 'In Progress' | 'Completed' | 'Cancelled';
+  submittedAt: string;
+  completedAt?: string;
+  adminResponse?: string;
+  relatedVersion?: number; // version number that was revised
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientDeliverable {
+  id: string;
+  clientUid: string;
+  projectId: string;
+  title: string;
+  description: string;
+  category: string;
+  fileUrl: string;
+  fileType: string;
+  thumbnailUrl?: string;
+  status: ClientDeliverableStatus;
+  reviewStatus: DeliverableReviewStatus;
+  approval?: DeliverableApproval;
+  versions: DeliverableVersion[];
+  currentVersion: string;
+  publishedDate?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientNotification {
+  id: string;
+  clientUid: string;
+  title: string;
+  message: string;
+  read: boolean;
+  projectId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export type UserStatus = 'Active' | 'Suspended' | 'Pending';
 export type MembershipStatus = 'Active' | 'Invited' | 'Revoked';
@@ -97,7 +170,7 @@ export interface WorkspaceMembership {
 }
 
 /**
- * KEEDOHUB — Phase 4 Services & Packages Types
+ * KEEDOHUB â€” Phase 4 Services & Packages Types
  */
 export type ServiceCategory = 
   | 'Music Release Promotion'
@@ -138,7 +211,7 @@ export interface CreativeProject {
 }
 
 /**
- * KEEDOHUB — Phase 3 Private Production Center Types
+ * KEEDOHUB â€” Phase 3 Private Production Center Types
  */
 export type ProductionStage = 
   | 'New Request'

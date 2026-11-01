@@ -19,6 +19,8 @@ import {
   where,
   setLogLevel
 } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+import { getFunctions } from 'firebase/functions';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Suppress internal Firestore connection warnings in headless / restricted environments
@@ -53,6 +55,8 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
 // Error handling types
 export enum OperationType {

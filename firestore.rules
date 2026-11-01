@@ -1,12 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     // Global Helper Functions
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -57,16 +57,19 @@ service cloud.firestore {
     match /users/{userId} {
       // Private profiles readable only by account owner or verified platform admin
       allow read: if isOwner(userId) || isPlatformAdmin();
-      
+
       // Prevent users from self-assigning privileged roles or admin status upon creation
-      allow create: if isOwner(userId) && 
+      // Allowlist of permitted fields for client-created profiles
+      allow create: if isOwner(userId) &&
+        request.resource.data.uid == userId &&
         (!request.resource.data.keys().hasAny(['role', 'isAdmin', 'isPlatformAdmin'])) &&
-        request.resource.data.uid == userId;
-        
-      // Prevent users from modifying their own privileged roles or admin status during profile updates
-      allow update: if isOwner(userId) && 
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isPlatformAdmin']));
-        
+        request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'createdAt', 'updatedAt']);
+
+      // Prevent users from modifying their own privileged roles, admin status, or immutable identity fields
+      allow update: if isOwner(userId) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isPlatformAdmin', 'uid', 'email', 'createdAt'])) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'updatedAt']);
+
       allow delete: if isPlatformAdmin();
     }
 
@@ -74,10 +77,10 @@ service cloud.firestore {
     match /workspaces/{workspaceId} {
       // Users can only read workspace metadata if they are an owner or active member
       allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
-      
+
       // Users can create a workspace setting themselves as owner
       allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid && isValidId(workspaceId);
-      
+
       // Only workspace owner or platform admin can update or delete workspace settings
       allow update, delete: if isWorkspaceOwner(workspaceId);
 
@@ -99,9 +102,9 @@ service cloud.firestore {
       match /pressReleases/{pressId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /mediaContacts/{contactId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /campaignDesigns/{designId} { allow read, write: if isWorkspaceMember(workspaceId); }
-      match /productionProjects/{projectId} { 
-        allow read: if isWorkspaceMember(workspaceId); 
-        allow write: if isWorkspaceOwner(workspaceId) || isPlatformAdmin(); 
+      match /productionProjects/{projectId} {
+        allow read: if isWorkspaceMember(workspaceId);
+        allow write: if isWorkspaceOwner(workspaceId) || isPlatformAdmin();
 
         match /internalNotes/{noteId} {
           allow read, write: if isPlatformAdmin();
@@ -111,10 +114,77 @@ service cloud.firestore {
           allow write: if isPlatformAdmin();
         }
       }
-      match /services/{serviceId} { 
-        allow read: if isWorkspaceMember(workspaceId); 
-        allow write: if isWorkspaceOwner(workspaceId); 
+      match /services/{serviceId} {
+        allow read: if isWorkspaceMember(workspaceId);
+        allow write: if isWorkspaceOwner(workspaceId);
       }
+    }
+
+    // Client Profiles (Phase 2A - Onboarding)
+    match /clientProfiles/{profileId} {
+      allow read: if isOwner(profileId) || isPlatformAdmin();
+      allow create: if isOwner(profileId) &&
+        request.resource.data.uid == profileId &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() > 0 &&
+        request.resource.data.displayName.size() <= 100 &&
+        request.resource.data.email is string &&
+        request.resource.data.accountType in ['Artist', 'Brand', 'Company'] &&
+        request.resource.data.organizationName is string &&
+        request.resource.data.organizationName.size() > 0 &&
+        request.resource.data.organizationName.size() <= 100 &&
+        request.resource.data.onboardingComplete == true &&
+        (!request.resource.data.keys().hasAny(['role', 'isAdmin', 'isPlatformAdmin']));
+      allow update: if isOwner(profileId) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'accountType', 'organizationName', 'photoURL', 'updatedAt']) &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() > 0 &&
+        request.resource.data.displayName.size() <= 100 &&
+        request.resource.data.accountType in ['Artist', 'Brand', 'Company'] &&
+        request.resource.data.organizationName is string &&
+        request.resource.data.organizationName.size() > 0 &&
+        request.resource.data.organizationName.size() <= 100 &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isPlatformAdmin']));
+      allow delete: if isPlatformAdmin();
+    }
+
+    // Client Projects (Phase 2A)
+    match /clientProjects/{projectId} {
+      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
+      allow create: if isPlatformAdmin();
+      allow update: if isPlatformAdmin();
+      allow delete: if isPlatformAdmin();
+    }
+
+    // Client Deliverables (Phase 2A + 2C + 2C.2)
+    // Clients can only update feedback. Review status, approval, and version changes are handled by trusted backend (Cloud Functions) or admin.
+    match /clientDeliverables/{deliverableId} {
+      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
+      allow create: if isPlatformAdmin();
+      allow update: if isPlatformAdmin() || (isSignedIn() && resource.data.clientUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedback']));
+      allow delete: if isPlatformAdmin();
+    }
+
+    // Revision Requests (Phase 2C + 2C.2)
+    // Clients CANNOT create, update, or delete revision requests directly.
+    // All creation is handled by trusted Cloud Functions (requestRevision).
+    // All updates are handled by authorized admins or trusted backend.
+    match /revisionRequests/{requestId} {
+      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
+      allow create: if false; // Only Cloud Functions (Admin SDK) can create
+      allow update: if isPlatformAdmin();
+      allow delete: if isPlatformAdmin();
+    }
+
+    // Client Notifications (Phase 2A)
+    match /clientNotifications/{notificationId} {
+      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
+      allow create: if isPlatformAdmin();
+      allow update: if isSignedIn() && resource.data.clientUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) && request.resource.data.read is bool;
+      allow delete: if isPlatformAdmin();
     }
 
     // Global Service Packages Catalog (Read: Authenticated Users, Write: Platform Admin)
