@@ -200,6 +200,7 @@ export interface ClientProfile {
   photoURL?: string;
   accountType: 'Artist' | 'Brand' | 'Company';
   organizationName: string;
+  workspaceId?: string;
   onboardingComplete: boolean;
   status?: 'Active' | 'Suspended';
   createdAt: string;
@@ -261,6 +262,31 @@ export interface WorkspaceBrand {
   };
 }
 
+export interface ArtistWorkspaceProfile {
+  biography: string;
+  genre: string;
+  profileImageUrl: string;
+  profileImagePath?: string;
+  instagram: string;
+  spotify: string;
+  appleMusic: string;
+  youtube: string;
+  website: string;
+}
+
+export interface BrandWorkspaceProfile {
+  description: string;
+  industry: string;
+  website: string;
+  logoUrl: string;
+  logoPath?: string;
+  brandVoice: string;
+  photographyDirection: string;
+  graphicDesignPrinciples: string;
+  usageGuidelines: string;
+  creativeReferences: string;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -271,6 +297,8 @@ export interface Workspace {
   description?: string;
   status?: WorkspaceStatus;
   contactEmail?: string;
+  artistProfile?: ArtistWorkspaceProfile;
+  brandProfile?: BrandWorkspaceProfile;
   contractedPackageIds?: string[];
   createdAt: string;
   updatedAt?: string;
@@ -657,8 +685,13 @@ export interface BrandAsset {
   id: string;
   workspaceId?: string;
   name: string;
-  category: 'Primary Logo' | 'Secondary Logo' | 'Monogram' | 'Icon' | 'Favicon' | 'Typography' | 'Palette' | 'Guideline';
-  fileType: 'SVG' | 'PNG' | 'PDF' | 'JSON';
+  category: 'Primary Logo' | 'Secondary Logo' | 'Monogram' | 'Icon' | 'Favicon' | 'Typography' | 'Palette' | 'Guideline' | 'Artwork' | 'Logo' | 'Photography' | 'Video' | 'Visualizer' | 'Promotional' | 'Document' | 'Other';
+  fileType: 'SVG' | 'PNG' | 'PDF' | 'JSON' | 'JPEG' | 'WEBP' | 'GIF' | 'AVIF' | 'MP4' | 'WEBM' | 'MOV' | 'WAV' | 'MP3' | 'AAC' | 'FLAC' | 'ZIP' | 'FONT' | 'TEXT';
+  mimeType?: string;
+  storagePath?: string;
+  fileSizeBytes?: number;
+  releaseId?: string;
+  projectId?: string;
   dimensions?: string;
   fileSize?: string;
   version: string;

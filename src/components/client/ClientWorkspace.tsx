@@ -5,16 +5,19 @@ import {
   getDoc,
   onSnapshot,
   query,
+  setDoc,
   where,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { ClientProject, ProductionActivity, ProductionDeliverable, ProductionRevisionRequest, ProductionTask } from '../../types';
+import { ClientProfile, ClientProject, ProductionActivity, ProductionDeliverable, ProductionRevisionRequest, ProductionTask, Workspace } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { db, functions } from '../../lib/firebase';
+import { createClientWorkspaceData, ensureClientWorkspace } from '../../lib/clientWorkspace';
+import { ClientStudio, ClientStudioSection } from './ClientStudio';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { ClientOnboarding } from './ClientOnboarding';
 
-type ClientTab = 'projects' | 'deliverables' | 'updates';
+type ClientTab = 'projects' | 'deliverables' | 'updates' | ClientStudioSection;
 
 const STAGE_ORDER = [
   'New Request',
@@ -35,6 +38,14 @@ function messageFromError(error: unknown): string {
 export const ClientWorkspace: React.FC = () => {
   const { firebaseUser, logout } = useApp();
   const [activeTab, setActiveTab] = useState<ClientTab>('projects');
+  const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState('');
+  const [workspaceError, setWorkspaceError] = useState('');
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [newWorkspaceType, setNewWorkspaceType] = useState<'Artist' | 'Brand'>('Artist');
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [projects, setProjects] = useState<ClientProject[]>([]);
   const [tasks, setTasks] = useState<ProductionTask[]>([]);
   const [deliverables, setDeliverables] = useState<ProductionDeliverable[]>([]);
@@ -64,9 +75,24 @@ export const ClientWorkspace: React.FC = () => {
 
     setProfileState('loading');
     setProfileError('');
-    void getDoc(doc(db, 'clientProfiles', firebaseUser.uid)).then(snapshot => {
+    void getDoc(doc(db, 'clientProfiles', firebaseUser.uid)).then(async snapshot => {
       if (!active) return;
-      setProfileState(snapshot.exists() && snapshot.data().onboardingComplete === true ? 'complete' : 'required');
+      if (!snapshot.exists() || snapshot.data().onboardingComplete !== true) {
+        setProfileState('required');
+        return;
+      }
+      const profile = { uid: firebaseUser.uid, ...snapshot.data() } as ClientProfile;
+      setClientProfile(profile);
+      try {
+        const workspace = await ensureClientWorkspace(firebaseUser.uid);
+        if (!active) return;
+        setClientProfile({ ...profile, workspaceId: workspace.id });
+        setProfileState('complete');
+      } catch (workspaceError) {
+        if (!active) return;
+        setProfileError(messageFromError(workspaceError));
+        setProfileState('error');
+      }
     }).catch(error => {
       if (!active) return;
       setProfileError(messageFromError(error));
@@ -75,6 +101,24 @@ export const ClientWorkspace: React.FC = () => {
 
     return () => { active = false; };
   }, [firebaseUser, profileCheck]);
+
+  useEffect(() => {
+    if (!firebaseUser || profileState !== 'complete') return;
+    setWorkspaceError('');
+    return onSnapshot(
+      query(collection(db, 'workspaces'), where('ownerId', '==', firebaseUser.uid)),
+      snapshot => {
+        const owned = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Workspace));
+        setWorkspaces(owned);
+        setActiveWorkspaceId(current => {
+          if (owned.some(workspace => workspace.id === current)) return current;
+          if (clientProfile?.workspaceId && owned.some(workspace => workspace.id === clientProfile.workspaceId)) return clientProfile.workspaceId;
+          return owned[0]?.id || '';
+        });
+      },
+      err => setWorkspaceError(messageFromError(err)),
+    );
+  }, [firebaseUser, profileState, clientProfile?.workspaceId]);
 
   useEffect(() => {
     setProjects([]);
@@ -95,7 +139,11 @@ export const ClientWorkspace: React.FC = () => {
       query(collection(db, 'clientProjects'), where('clientUid', '==', firebaseUser.uid)),
       snapshot => {
         setLoading(true);
-        const clientProjects = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ClientProject));
+        const clientProjects = snapshot.docs.map(item => ({
+          id: item.id,
+          ...item.data(),
+          workspaceId: item.data().workspaceId || clientProfile?.workspaceId,
+        } as ClientProject));
         setProjects(clientProjects);
         childUnsubscribers.forEach(unsubscribe => unsubscribe());
         childUnsubscribers = [];
@@ -159,25 +207,69 @@ export const ClientWorkspace: React.FC = () => {
       unsubscribeProjects();
       childUnsubscribers.forEach(unsubscribe => unsubscribe());
     };
-  }, [firebaseUser]);
+  }, [firebaseUser, clientProfile?.workspaceId]);
 
-  const projectById = useMemo(() => new Map(projects.map(project => [project.id, project])), [projects]);
+  const activeWorkspace = workspaces.find(workspace => workspace.id === activeWorkspaceId);
+
+  const createWorkspace = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!firebaseUser || !clientProfile || !newWorkspaceName.trim()) return;
+    setCreatingWorkspace(true);
+    setWorkspaceError('');
+    const workspaceRef = doc(collection(db, 'workspaces'));
+    const profileForWorkspace: ClientProfile = {
+      ...clientProfile,
+      accountType: newWorkspaceType,
+      organizationName: newWorkspaceName.trim(),
+    };
+    const workspace = createClientWorkspaceData(firebaseUser.uid, profileForWorkspace, workspaceRef.id);
+    try {
+      await setDoc(workspaceRef, workspace);
+      setActiveWorkspaceId(workspaceRef.id);
+      setActiveTab(newWorkspaceType === 'Artist' ? 'profile' : 'brand');
+      setNewWorkspaceName('');
+      setCreateWorkspaceOpen(false);
+    } catch (createError) {
+      setWorkspaceError(messageFromError(createError));
+    } finally {
+      setCreatingWorkspace(false);
+    }
+  };
+
+  const workspaceProjects = useMemo(
+    () => projects.filter(project => project.workspaceId === activeWorkspaceId),
+    [projects, activeWorkspaceId],
+  );
+  const workspaceProjectIds = useMemo(() => new Set(workspaceProjects.map(project => project.id)), [workspaceProjects]);
+  const workspaceDeliverables = useMemo(
+    () => deliverables.filter(deliverable => workspaceProjectIds.has(deliverable.projectId)),
+    [deliverables, workspaceProjectIds],
+  );
+  const workspaceRevisions = useMemo(
+    () => revisions.filter(revision => workspaceProjectIds.has(revision.projectId)),
+    [revisions, workspaceProjectIds],
+  );
+  const workspaceActivity = useMemo(
+    () => activity.filter(item => workspaceProjectIds.has(item.projectId)),
+    [activity, workspaceProjectIds],
+  );
+  const projectById = useMemo(() => new Map(workspaceProjects.map(project => [project.id, project])), [workspaceProjects]);
   const requestsByProject = useMemo(() => {
     const grouped = new Map<string, ProductionRevisionRequest[]>();
-    for (const revision of [...revisions].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))) {
+    for (const revision of [...workspaceRevisions].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))) {
       const current = grouped.get(revision.projectId) || [];
       current.push(revision);
       grouped.set(revision.projectId, current);
     }
     return grouped;
-  }, [revisions]);
+  }, [workspaceRevisions]);
   const recentActivity = useMemo(
-    () => [...activity].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [activity],
+    () => [...workspaceActivity].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [workspaceActivity],
   );
   const recentRevisions = useMemo(
-    () => [...revisions].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)),
-    [revisions],
+    () => [...workspaceRevisions].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)),
+    [workspaceRevisions],
   );
 
   const review = async (deliverable: ProductionDeliverable, action: 'approve' | 'reject' | 'revision') => {
@@ -220,10 +312,11 @@ export const ClientWorkspace: React.FC = () => {
       const callable = httpsCallable(functions, 'submitProductionRequest');
       await callable({
         title: requestTitle.trim(),
-        description: requestDescription.trim(),
+        description: `Workspace: ${activeWorkspace?.name || clientProfile?.organizationName || 'Client workspace'}\nWorkspace type: ${activeWorkspace?.type || clientProfile?.accountType || 'Client'}\n\n${requestDescription.trim()}`,
         category: requestCategory,
         dueDate: requestDueDate,
         priority: 'Normal',
+        workspaceId: activeWorkspace?.id,
       });
       setRequestTitle('');
       setRequestDescription('');
@@ -236,10 +329,24 @@ export const ClientWorkspace: React.FC = () => {
     }
   };
 
+  const isArtistWorkspace = activeWorkspace?.clientCategory === 'artist' || activeWorkspace?.type === 'Artist' || activeWorkspace?.type === 'Personal';
+  const isBrandWorkspace = activeWorkspace?.clientCategory === 'brand' || activeWorkspace?.type === 'Brand' || activeWorkspace?.type === 'Agency' || activeWorkspace?.clientCategory === 'business' || activeWorkspace?.type === 'Business' || activeWorkspace?.type === 'Enterprise';
   const tabs: { id: ClientTab; title: string }[] = [
     { id: 'projects', title: 'My projects' },
     { id: 'deliverables', title: 'Deliverables' },
     { id: 'updates', title: 'Updates & revisions' },
+    ...(isArtistWorkspace ? [
+      { id: 'profile' as const, title: 'Artist profile' },
+      { id: 'releases' as const, title: 'Music & releases' },
+      { id: 'content' as const, title: 'Content engine' },
+      { id: 'assets' as const, title: 'Asset library' },
+    ] : []),
+    ...(isBrandWorkspace ? [
+      { id: 'brand' as const, title: 'Brand identity' },
+      { id: 'content' as const, title: 'Creative system' },
+      { id: 'documents' as const, title: 'Business documents' },
+      { id: 'assets' as const, title: 'Asset library' },
+    ] : []),
   ];
 
   if (profileState === 'loading') {
@@ -256,29 +363,70 @@ export const ClientWorkspace: React.FC = () => {
     );
   }
   if (profileState === 'required') {
-    return <ClientOnboarding onComplete={() => setProfileState('complete')} />;
+    return <ClientOnboarding onComplete={() => { setProfileState('complete'); setProfileCheck(value => value + 1); }} />;
+  }
+  if (!activeWorkspace) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#080808] px-4">
+        <div className="w-full max-w-lg space-y-3 rounded border border-[#292929] bg-[#0C0C0C] p-6 text-sm text-neutral-300">
+          {workspaceError ? <p role="alert" className="text-red-300">{workspaceError}</p> : <p>Loading your private workspace…</p>}
+          {workspaceError && <button type="button" onClick={() => setProfileCheck(value => value + 1)} className="border border-[#444] px-3 py-2 text-white">Retry</button>}
+        </div>
+      </main>
+    );
   }
 
   return (
     <div className="min-h-screen bg-[#080808] text-[#F3F3F3]">
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[#1A1A1A] bg-[#080808]/95 px-4 sm:px-8">
-        <div><span className="font-black tracking-tight text-white">KEEDO<span className="text-[#FF1E1E]">HUB</span></span><span className="ml-3 text-xs text-neutral-500">CLIENT WORKSPACE</span></div>
-        <div className="flex items-center gap-3"><span className="hidden text-xs text-neutral-400 sm:inline">{firebaseUser?.displayName || firebaseUser?.email}</span>{firebaseUser && <ProductionNotificationCenter uid={firebaseUser.uid} />}<button onClick={() => setRequestOpen(true)} className="rounded bg-[#FF1E1E] px-3 py-1.5 text-xs font-semibold text-white">New request</button><button onClick={() => void logout()} className="rounded border border-[#292929] bg-[#141414] px-3 py-1.5 text-xs text-white">Sign out</button></div>
+      <header className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#1A1A1A] bg-[#080808]/95 px-4 py-3 sm:px-8">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="shrink-0"><span className="font-black tracking-tight text-white">KEEDO<span className="text-[#FF1E1E]">HUB</span></span><span className="ml-3 hidden text-[10px] font-mono tracking-widest text-neutral-500 sm:inline">UNIFIED WORKSPACE</span></div>
+          <label className="flex min-w-0 items-center gap-2">
+            <span className="hidden text-[10px] uppercase tracking-widest text-neutral-600 md:inline">Workspace</span>
+            <select aria-label="Switch workspace" value={activeWorkspaceId} onChange={event => {
+              const nextWorkspace = workspaces.find(workspace => workspace.id === event.target.value);
+              setActiveWorkspaceId(event.target.value);
+              if (nextWorkspace?.clientCategory === 'artist' || nextWorkspace?.type === 'Artist' || nextWorkspace?.type === 'Personal') setActiveTab('profile');
+              else if (nextWorkspace?.clientCategory === 'brand' || nextWorkspace?.clientCategory === 'business' || nextWorkspace?.type === 'Brand' || nextWorkspace?.type === 'Agency' || nextWorkspace?.type === 'Business' || nextWorkspace?.type === 'Enterprise') setActiveTab('brand');
+              else setActiveTab('projects');
+            }} className="max-w-[42vw] truncate rounded border border-[#292929] bg-[#121212] px-3 py-2 text-xs font-semibold text-white sm:max-w-56">
+              {workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.clientCategory || workspace.type}</option>)}
+            </select>
+            <button type="button" onClick={() => { setNewWorkspaceType(isArtistWorkspace ? 'Brand' : 'Artist'); setCreateWorkspaceOpen(true); }} className="rounded border border-[#303030] px-2.5 py-2 text-xs text-neutral-300 hover:border-[#FF1E1E] hover:text-white">+ Workspace</button>
+          </label>
+        </div>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <span className="hidden max-w-36 truncate text-xs text-neutral-400 lg:inline">{firebaseUser?.displayName || firebaseUser?.email}</span>
+          {firebaseUser && <ProductionNotificationCenter uid={firebaseUser.uid} />}
+          <button onClick={() => setRequestOpen(true)} className="rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white">New request</button>
+          <button onClick={() => void logout()} className="rounded border border-[#292929] bg-[#141414] px-3 py-2 text-xs text-white">Sign out</button>
+        </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-8">
-        <h1 className="text-2xl font-black text-white">Your production workspace</h1>
-        <p className="mt-1 text-sm text-neutral-400">Project progress, assigned tasks and approved client deliverables.</p>
-        <nav className="my-6 flex flex-wrap gap-2 border-b border-[#1A1A1A] pb-3">
-          {tabs.map(tab => <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`rounded px-3 py-2 text-sm ${activeTab === tab.id ? 'bg-white text-black' : 'text-neutral-400 hover:bg-[#141414] hover:text-white'}`}>{tab.title}</button>)}
+        <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">{activeWorkspace.type} OS</p>
+        <h1 className="mt-2 text-2xl font-black text-white">{activeWorkspace.name}</h1>
+        <p className="mt-1 text-sm text-neutral-400">{isArtistWorkspace ? 'Your music, story and creative work in one artist workspace.' : isBrandWorkspace ? 'Your identity, creative system and production work in one brand workspace.' : 'Project progress, deliverables and your workspace tools.'}</p>
+        {workspaceError && <div role="alert" className="mt-4 rounded border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-300">{workspaceError}</div>}
+        <nav aria-label="Workspace navigation" className="my-6 flex gap-2 overflow-x-auto border-b border-[#1A1A1A] pb-3">
+          {tabs.map(tab => <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`shrink-0 rounded px-3 py-2 text-sm ${activeTab === tab.id ? 'bg-white font-semibold text-black' : 'text-neutral-400 hover:bg-[#141414] hover:text-white'}`}>{tab.title}</button>)}
         </nav>
         {error && <div role="alert" className="mb-5 rounded border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
-        {loading ? <p className="py-12 text-center text-sm text-neutral-400">Loading your projects…</p> : (
+        {activeTab === 'profile' || activeTab === 'releases' || activeTab === 'content' || activeTab === 'assets' || activeTab === 'brand' || activeTab === 'documents' ? (
+          <ClientStudio
+            section={activeTab}
+            workspace={activeWorkspace}
+            uid={firebaseUser?.uid || ''}
+            accountName={clientProfile?.displayName || firebaseUser?.displayName || 'Workspace Owner'}
+            projects={workspaceProjects}
+            primaryWorkspaceId={clientProfile?.workspaceId}
+          />
+        ) : loading ? <p className="py-12 text-center text-sm text-neutral-400">Loading your projects…</p> : (
           <>
             {activeTab === 'projects' && (
               <div className="space-y-4">
-                {projects.length === 0 && <div className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-8 text-center text-sm text-neutral-400">No projects are assigned to your account yet.</div>}
-                {projects.map(project => {
+                {workspaceProjects.length === 0 && <div className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-8 text-center text-sm text-neutral-400">No projects are assigned to this workspace yet.</div>}
+                {workspaceProjects.map(project => {
                   const projectTasks = tasks.filter(task => task.projectId === project.id);
                   const projectRevisions = requestsByProject.get(project.id) || [];
                   return <article key={project.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-5">
@@ -311,8 +459,8 @@ export const ClientWorkspace: React.FC = () => {
 
             {activeTab === 'deliverables' && (
               <div className="grid gap-4 md:grid-cols-2">
-                {deliverables.length === 0 && <p className="text-sm text-neutral-500">No deliverables have been published for review.</p>}
-                {deliverables.map(deliverable => {
+                {workspaceDeliverables.length === 0 && <p className="text-sm text-neutral-500">No deliverables have been published for review.</p>}
+                {workspaceDeliverables.map(deliverable => {
                   const project = projectById.get(deliverable.projectId);
                   const feedback = feedbackByDeliverable[deliverable.id] || '';
                   const waiting = deliverable.reviewStatus === 'Awaiting Review' || deliverable.reviewStatus === 'Revised - Awaiting Review';
@@ -338,7 +486,7 @@ export const ClientWorkspace: React.FC = () => {
 
             {activeTab === 'updates' && (
               <div className="space-y-3">
-                {activity.length === 0 && revisions.length === 0 && <p className="text-sm text-neutral-500">No client-visible updates yet.</p>}
+                {workspaceActivity.length === 0 && workspaceRevisions.length === 0 && <p className="text-sm text-neutral-500">No client-visible updates yet.</p>}
                 {recentActivity.map(item => <article key={item.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-4"><p className="text-sm font-semibold text-white">{item.action}</p><p className="mt-1 text-sm text-neutral-400">{item.details}</p><p className="mt-2 text-[10px] text-neutral-600">{projectById.get(item.projectId)?.title || 'Project'} · {item.createdAt}</p></article>)}
                 {recentRevisions.map(item => <article key={item.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-4"><p className="text-sm font-semibold text-white">Revision · {item.status}</p><p className="mt-1 text-sm text-neutral-400">{item.feedback}</p><p className="mt-2 text-[10px] text-neutral-600">{projectById.get(item.projectId)?.title || 'Project'} · {item.submittedAt}</p></article>)}
               </div>
@@ -360,6 +508,20 @@ export const ClientWorkspace: React.FC = () => {
             <textarea value={requestDescription} onChange={event => setRequestDescription(event.target.value)} maxLength={5000} required rows={5} placeholder="Describe the work and deliverables" className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" />
             <label className="block text-xs text-neutral-400">Requested delivery date<input type="date" value={requestDueDate} onChange={event => setRequestDueDate(event.target.value)} className="mt-1 block rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" /></label>
             <button disabled={requestSubmitting} className="w-full rounded bg-[#FF1E1E] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{requestSubmitting ? 'Submitting…' : 'Submit request'}</button>
+          </form>
+        </div>
+      )}
+      {createWorkspaceOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <form onSubmit={createWorkspace} className="w-full max-w-md space-y-4 rounded-xl border border-[#292929] bg-[#0C0C0C] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div><p className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#FF1E1E]">One KeedoHub workspace</p><h2 className="mt-1 text-lg font-bold text-white">Add an Artist or Brand space</h2><p className="mt-1 text-xs text-neutral-400">Each space has its own private profile, creative library and working files.</p></div>
+              <button type="button" onClick={() => setCreateWorkspaceOpen(false)} aria-label="Close" className="text-neutral-500 hover:text-white">×</button>
+            </div>
+            <label className="block text-xs text-neutral-400">Workspace name<input autoFocus required maxLength={100} value={newWorkspaceName} onChange={event => setNewWorkspaceName(event.target.value)} placeholder="Artist or brand name" className="mt-1.5 w-full rounded border border-[#333] bg-[#141414] px-3 py-2.5 text-sm text-white" /></label>
+            <label className="block text-xs text-neutral-400">Experience<select value={newWorkspaceType} onChange={event => setNewWorkspaceType(event.target.value as 'Artist' | 'Brand')} className="mt-1.5 w-full rounded border border-[#333] bg-[#141414] px-3 py-2.5 text-sm text-white"><option value="Artist">Artist OS</option><option value="Brand">Brand OS</option></select></label>
+            {workspaceError && <p role="alert" className="text-xs text-red-300">{workspaceError}</p>}
+            <button disabled={creatingWorkspace} className="w-full rounded bg-[#FF1E1E] px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{creatingWorkspace ? 'Creating workspace…' : 'Create workspace'}</button>
           </form>
         </div>
       )}

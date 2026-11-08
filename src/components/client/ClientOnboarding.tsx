@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { ensureClientWorkspace } from '../../lib/clientWorkspace';
 
 export interface ClientProfile {
   uid: string;
@@ -59,6 +60,7 @@ export const ClientOnboarding: React.FC<ClientOnboardingProps> = ({ onComplete }
           createdAt: now,
         });
       }
+      await ensureClientWorkspace(firebaseUser.uid);
 
       const userRef = doc(db, 'users', firebaseUser.uid);
       const existingUser = await getDoc(userRef);

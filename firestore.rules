@@ -11,6 +11,32 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isWorkspaceAccountActive() {
+      return isSignedIn() &&
+        (!exists(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)) ||
+          !get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.keys().hasAny(['status']) ||
+          get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.status != 'Suspended');
+    }
+
+    function isWorkspaceOpen(workspaceId) {
+      return workspaceId is string &&
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+        (!get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.keys().hasAny(['status']) ||
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.status in ['Active', 'Onboarding']);
+    }
+
+    function ownsProjectWorkspace(workspaceId) {
+      return workspaceId is string &&
+        isWorkspaceOpen(workspaceId) &&
+        get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
+    }
+
+    function ownsWorkspaceAfter(workspaceId) {
+      return isSignedIn() &&
+        existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+        getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
+    }
+
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -25,7 +51,9 @@ service cloud.firestore {
       return isSignedIn() && (
         (
           exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
-          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid &&
+          isWorkspaceAccountActive() &&
+          isWorkspaceOpen(workspaceId)
         ) ||
         isPlatformAdmin()
       );
@@ -36,7 +64,9 @@ service cloud.firestore {
       return isSignedIn() && (
         (
           exists(/databases/$(database)/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)).data.status == 'Active'
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)).data.status == 'Active' &&
+          isWorkspaceAccountActive() &&
+          isWorkspaceOpen(workspaceId)
         ) ||
         isWorkspaceOwner(workspaceId)
       );
@@ -49,8 +79,11 @@ service cloud.firestore {
 
     function ownsProject(projectId) {
       return isSignedIn() &&
+        isWorkspaceAccountActive() &&
         exists(/databases/$(database)/documents/clientProjects/$(projectId)) &&
-        get(/databases/$(database)/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid;
+        get(/databases/$(database)/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid &&
+        (!get(/databases/$(database)/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) ||
+          ownsProjectWorkspace(get(/databases/$(database)/documents/clientProjects/$(projectId)).data.workspaceId));
     }
 
     function validProjectAssignment(data) {
@@ -62,7 +95,7 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'id', 'clientUid', 'title', 'description', 'category', 'status',
           'progress', 'startDate', 'expectedDeliveryDate', 'createdAt',
-          'updatedAt', 'stage', 'priority', 'deliveredAt'
+          'updatedAt', 'stage', 'priority', 'deliveredAt', 'workspaceId'
         ]) &&
         data.id == projectId &&
         validProjectAssignment(data) &&
@@ -75,6 +108,11 @@ service cloud.firestore {
         data.expectedDeliveryDate is string &&
         data.createdAt is string &&
         data.updatedAt is string &&
+        (!data.keys().hasAny(['workspaceId']) ||
+          (data.workspaceId is string &&
+            exists(/databases/$(database)/documents/workspaces/$(data.workspaceId)) &&
+            get(/databases/$(database)/documents/workspaces/$(data.workspaceId)).data.ownerId == data.clientUid &&
+            get(/databases/$(database)/documents/workspaces/$(data.workspaceId)).data.status in ['Active', 'Onboarding'])) &&
         (!data.keys().hasAny(['stage']) ||
           data.stage in [
             'New Request', 'Brief Approved', 'In Production', 'Internal QA',
@@ -214,13 +252,29 @@ service cloud.firestore {
     // Workspaces Container
     match /workspaces/{workspaceId} {
       // Users can only read workspace metadata if they are an owner or active member
-      allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      allow read: if isWorkspaceMember(workspaceId) ||
+        isWorkspaceOwner(workspaceId) ||
+        (isWorkspaceAccountActive() && resource.data.ownerId == request.auth.uid);
 
       // Users can create a workspace setting themselves as owner
-      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid && isValidId(workspaceId);
+      allow create: if isSignedIn() &&
+        request.resource.data.ownerId == request.auth.uid &&
+        isValidId(workspaceId) &&
+        isWorkspaceAccountActive() &&
+        (isPlatformAdmin() ||
+          (exists(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.onboardingComplete == true));
 
       // Only workspace owner or platform admin can update or delete workspace settings
-      allow update, delete: if isWorkspaceOwner(workspaceId);
+      allow update: if isPlatformAdmin() ||
+        (isWorkspaceOwner(workspaceId) &&
+          request.resource.data.ownerId == resource.data.ownerId &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'description', 'contactEmail', 'brand', 'artistProfile',
+            'brandProfile', 'updatedAt'
+          ]));
+      allow delete: if isPlatformAdmin();
 
       // Memberships Subcollection (Strict RBAC & Status Controls)
       match /memberships/{membershipId} {
@@ -234,6 +288,7 @@ service cloud.firestore {
       match /artists/{artistId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /releases/{releaseId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /campaigns/{campaignId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /contentItems/{contentId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /documents/{documentId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /brandAssets/{assetId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /tasks/{taskId} { allow read, write: if isWorkspaceMember(workspaceId); }
@@ -260,13 +315,17 @@ service cloud.firestore {
         request.resource.data.organizationName.size() > 0 &&
         request.resource.data.organizationName.size() <= 100 &&
         request.resource.data.onboardingComplete == true &&
+        (!request.resource.data.keys().hasAny(['workspaceId']) ||
+          (request.resource.data.workspaceId is string && ownsWorkspaceAfter(request.resource.data.workspaceId))) &&
         (!request.resource.data.keys().hasAny(['role', 'isAdmin', 'isPlatformAdmin']));
       allow update: if isOwner(profileId) &&
         request.resource.data.uid == resource.data.uid &&
         request.resource.data.email == resource.data.email &&
         request.resource.data.createdAt == resource.data.createdAt &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'accountType', 'organizationName', 'photoURL', 'onboardingComplete', 'updatedAt']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'accountType', 'organizationName', 'photoURL', 'onboardingComplete', 'workspaceId', 'updatedAt']) &&
         request.resource.data.onboardingComplete == true &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['workspaceId']) ||
+          (request.resource.data.workspaceId is string && ownsWorkspaceAfter(request.resource.data.workspaceId))) &&
         request.resource.data.displayName is string &&
         request.resource.data.displayName.size() > 0 &&
         request.resource.data.displayName.size() <= 100 &&
@@ -280,8 +339,7 @@ service cloud.firestore {
 
     // Client Projects and production records (Phase 3C)
     match /clientProjects/{projectId} {
-      allow get, list: if isProjectAdmin() ||
-        (isSignedIn() && resource.data.clientUid == request.auth.uid);
+      allow get, list: if isProjectAdmin() || ownsProject(projectId);
       allow create: if isProjectAdmin() &&
         validProjectDocument(projectId, request.resource.data);
       allow update: if isProjectAdmin() &&

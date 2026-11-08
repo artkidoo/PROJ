@@ -7,11 +7,42 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function isWorkspaceAccountActive() {
+      return isSignedIn() &&
+        (!firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)) ||
+          !firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.keys().hasAny(['status']) ||
+          firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.status != 'Suspended');
+    }
+
+    function isWorkspaceOpen(workspaceId) {
+      return workspaceId is string &&
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)) &&
+        (!firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)).data.keys().hasAny(['status']) ||
+          firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)).data.status in ['Active', 'Onboarding']);
+    }
+
+    function ownsProjectWorkspace(workspaceId) {
+      return workspaceId is string &&
+        isWorkspaceOpen(workspaceId) &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
+    }
+
+    function ownsClientProject(projectId) {
+      return isSignedIn() &&
+        isWorkspaceAccountActive() &&
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)) &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid &&
+        (!firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) ||
+          ownsProjectWorkspace(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.workspaceId));
+    }
+
     // Fail-Safe Workspace Ownership Check
     function isWorkspaceOwner(workspaceId) {
       return isSignedIn() && 
         firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)) &&
-        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid &&
+        isWorkspaceAccountActive() &&
+        isWorkspaceOpen(workspaceId);
     }
 
     // Fail-Safe Cross-Service Workspace Membership Check (Enforcing Active Status)
@@ -19,9 +50,12 @@ service firebase.storage {
       return isSignedIn() && (
         (
           firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)) &&
-          firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)).data.status == 'Active'
+          firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(workspaceId)/memberships/$(request.auth.uid)).data.status == 'Active' &&
+          isWorkspaceAccountActive() &&
+          isWorkspaceOpen(workspaceId)
         ) ||
-        isWorkspaceOwner(workspaceId)
+        isWorkspaceOwner(workspaceId) ||
+        isPlatformAdmin()
       );
     }
 
@@ -31,9 +65,7 @@ service firebase.storage {
     }
 
     function ownsPublishedDeliverable(projectId, deliverableId) {
-      return isSignedIn() &&
-        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)) &&
-        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid &&
+      return ownsClientProject(projectId) &&
         firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)/deliverables/$(deliverableId)) &&
         firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)/deliverables/$(deliverableId)).data.clientUid == request.auth.uid &&
         firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)/deliverables/$(deliverableId)).data.isClientPublished == true;

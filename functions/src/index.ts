@@ -97,11 +97,22 @@ function optionalDate(value: unknown, label: string): string {
 }
 
 async function getOwnedPublishedDeliverable(projectId: string, deliverableId: string, uid: string) {
+  const profile = await db.collection('clientProfiles').doc(uid).get();
+  if (!profile.exists || profile.get('onboardingComplete') !== true || profile.get('status') === 'Suspended') {
+    throw new functions.https.HttpsError('permission-denied', 'An active client profile is required for this action.');
+  }
   const projectRef = db.collection('clientProjects').doc(projectId);
   const deliverableRef = projectRef.collection('deliverables').doc(deliverableId);
   const [projectSnap, deliverableSnap] = await Promise.all([projectRef.get(), deliverableRef.get()]);
   if (!projectSnap.exists || projectSnap.get('clientUid') !== uid) {
     throw new functions.https.HttpsError('permission-denied', 'This project is not assigned to your account.');
+  }
+  const workspaceId = projectSnap.get('workspaceId');
+  if (typeof workspaceId === 'string') {
+    const workspace = await db.collection('workspaces').doc(workspaceId).get();
+    if (!workspace.exists || workspace.get('ownerId') !== uid || !['Active', 'Onboarding'].includes(workspace.get('status') || 'Active')) {
+      throw new functions.https.HttpsError('permission-denied', 'This workspace is not available to your account.');
+    }
   }
   if (!deliverableSnap.exists || deliverableSnap.get('clientUid') !== uid || deliverableSnap.get('isClientPublished') !== true) {
     throw new functions.https.HttpsError('not-found', 'Published deliverable not found.');
@@ -116,8 +127,18 @@ export const submitProductionRequest = functions.https.onCall(async (data, conte
 
   const uid = context.auth.uid;
   const profile = await db.collection('clientProfiles').doc(uid).get();
-  if (!profile.exists || profile.get('onboardingComplete') !== true) {
+  if (!profile.exists || profile.get('onboardingComplete') !== true || profile.get('status') === 'Suspended') {
     throw new functions.https.HttpsError('failed-precondition', 'Complete your client profile before submitting a production request.');
+  }
+  const workspaceId = typeof data?.workspaceId === 'string' ? requireText(data.workspaceId, 'Workspace ID', 128) : '';
+  if (workspaceId) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId)) {
+      throw new functions.https.HttpsError('invalid-argument', 'Workspace ID is invalid.');
+    }
+    const workspace = await db.collection('workspaces').doc(workspaceId).get();
+    if (!workspace.exists || workspace.get('ownerId') !== uid || workspace.get('status') === 'Paused' || workspace.get('status') === 'Archived') {
+      throw new functions.https.HttpsError('permission-denied', 'This workspace is not available to your account.');
+    }
   }
   const title = requireText(data?.title, 'Project title', 160);
   const description = requireText(data?.description, 'Project brief', 5000);
@@ -129,6 +150,7 @@ export const submitProductionRequest = functions.https.onCall(async (data, conte
   batch.create(projectRef, {
     id: projectRef.id,
     clientUid: uid,
+    ...(workspaceId ? { workspaceId } : {}),
     title,
     description,
     category: requireText(data?.category, 'Project category', 80),
