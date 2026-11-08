@@ -8,6 +8,8 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { OperationTask } from '../../types';
 import { X, Send, Sparkles, AlertCircle, Calendar, Tag, CheckCircle2 } from 'lucide-react';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../lib/firebase';
 
 interface ClientRequestModalProps {
   isOpen: boolean;
@@ -20,7 +22,7 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
   onClose,
   defaultCategory = 'Creative'
 }) => {
-  const { activeWorkspace, submitClientRequest } = useApp();
+  const { activeWorkspace } = useApp();
 
   const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist' || activeWorkspace.type === 'Personal';
   const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Agency';
@@ -44,10 +46,12 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
       : 'Vector Scalable SVG / 16:9 Landscape 4K Presentation / Brand Assets'
   );
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
@@ -57,21 +61,29 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
       deliverableSpecs.trim()
     ].filter(Boolean).join('\n\n');
 
-    submitClientRequest({
-      title: title.trim(),
-      category,
-      dueDate,
-      priority,
-      notes: fullNotes
-    });
-
-    setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      setTitle('');
-      setNotes('');
-      onClose();
-    }, 1400);
+    setSubmitting(true);
+    setError('');
+    try {
+      const submitRequest = httpsCallable(functions, 'submitProductionRequest');
+      await submitRequest({
+        title: title.trim(),
+        category,
+        dueDate,
+        priority,
+        description: fullNotes,
+      });
+      setSubmitted(true);
+      setTimeout(() => {
+        setSubmitted(false);
+        setTitle('');
+        setNotes('');
+        onClose();
+      }, 1400);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -119,6 +131,7 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
+            {error && <div role="alert" className="flex items-center gap-2 rounded border border-red-500/30 bg-red-950/30 p-3 text-xs text-red-300"><AlertCircle size={14} />{error}</div>}
             {/* Request Title */}
             <div>
               <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
@@ -222,11 +235,12 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
               </button>
               <button
                 type="submit"
+                disabled={submitting}
                 className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white rounded-lg transition-all shadow-md active:scale-95"
                 style={{ backgroundColor: brandAccent }}
               >
                 <Send size={13} />
-                <span>Submit to Production</span>
+                <span>{submitting ? 'Submitting…' : 'Submit to Production'}</span>
               </button>
             </div>
           </form>

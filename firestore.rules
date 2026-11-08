@@ -42,6 +42,144 @@ service cloud.firestore {
       );
     }
 
+    function isProjectAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function ownsProject(projectId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/clientProjects/$(projectId)) &&
+        get(/databases/$(database)/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid;
+    }
+
+    function validProjectAssignment(data) {
+      return data.clientUid is string &&
+        exists(/databases/$(database)/documents/clientProfiles/$(data.clientUid));
+    }
+
+    function validProjectDocument(projectId, data) {
+      return data.keys().hasOnly([
+          'id', 'clientUid', 'title', 'description', 'category', 'status',
+          'progress', 'startDate', 'expectedDeliveryDate', 'createdAt',
+          'updatedAt', 'stage', 'priority', 'deliveredAt'
+        ]) &&
+        data.id == projectId &&
+        validProjectAssignment(data) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 160 &&
+        data.description is string && data.description.size() <= 5000 &&
+        data.category is string && data.category.size() > 0 && data.category.size() <= 160 &&
+        data.status in ['Pending', 'Confirmed', 'In Progress', 'Review', 'Completed', 'On Hold'] &&
+        data.progress is number && data.progress >= 0 && data.progress <= 100 &&
+        data.startDate is string &&
+        data.expectedDeliveryDate is string &&
+        data.createdAt is string &&
+        data.updatedAt is string &&
+        (!data.keys().hasAny(['stage']) ||
+          data.stage in [
+            'New Request', 'Brief Approved', 'In Production', 'Internal QA',
+            'Client Review', 'Revision Required', 'Ready for Delivery', 'Delivered'
+          ]) &&
+        (!data.keys().hasAny(['priority']) ||
+          data.priority in ['Low', 'Medium', 'Normal', 'High', 'Urgent']) &&
+        (!data.keys().hasAny(['deliveredAt']) || data.deliveredAt is string);
+    }
+
+    function validProductionTask(projectId, taskId, data) {
+      return data.keys().hasOnly([
+          'id', 'projectId', 'clientUid', 'title', 'description', 'status',
+          'dueDate', 'clientVisible', 'subtasks', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == taskId &&
+        data.projectId == projectId &&
+        data.clientUid ==
+          get(/databases/$(database)/documents/clientProjects/$(projectId)).data.clientUid &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 300 &&
+        data.status in ['Todo', 'In Progress', 'In Review', 'Done'] &&
+        data.clientVisible is bool &&
+        (!data.keys().hasAny(['description']) ||
+          (data.description is string && data.description.size() <= 5000)) &&
+        (!data.keys().hasAny(['dueDate']) || data.dueDate is string) &&
+        (!data.keys().hasAny(['subtasks']) ||
+          (data.subtasks is list && data.subtasks.size() <= 100)) &&
+        (!data.keys().hasAny(['createdAt']) || data.createdAt is string) &&
+        (!data.keys().hasAny(['updatedAt']) || data.updatedAt is string);
+    }
+
+    function validProductionDeliverable(projectId, deliverableId, data) {
+      return data.keys().hasOnly([
+          'id', 'projectId', 'clientUid', 'title', 'description', 'fileUrl',
+          'storagePath', 'fileName', 'fileType', 'fileSize', 'isClientPublished',
+          'reviewStatus', 'feedback', 'approvedAt', 'approvedBy', 'createdAt',
+          'rejectedAt', 'rejectedBy', 'updatedAt', 'uploadedBy',
+          'legacyVersionNumber', 'currentVersion', 'versions'
+        ]) &&
+        data.id == deliverableId &&
+        data.projectId == projectId &&
+        data.clientUid ==
+          get(/databases/$(database)/documents/clientProjects/$(projectId)).data.clientUid &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 300 &&
+        data.isClientPublished is bool &&
+        data.reviewStatus in [
+          'Draft', 'Awaiting Review', 'Approved', 'Rejected', 'Revision Requested',
+          'Revision In Progress', 'Revised - Awaiting Review'
+        ] &&
+        (!data.keys().hasAny(['description']) ||
+          (data.description is string && data.description.size() <= 5000)) &&
+        (!data.keys().hasAny(['fileUrl']) || data.fileUrl is string) &&
+        (!data.keys().hasAny(['storagePath']) ||
+          data.storagePath == '' ||
+          (data.storagePath is string &&
+            data.storagePath.matches('^production/' + projectId + '/deliverables/' + deliverableId + '/([^/]+|v[1-9][0-9]*/[^/]+)$'))) &&
+        (!data.keys().hasAny(['fileName']) || data.fileName is string) &&
+        (!data.keys().hasAny(['fileType']) || data.fileType is string) &&
+        (!data.keys().hasAny(['fileSize']) ||
+          (data.fileSize is number && data.fileSize >= 0 && data.fileSize < 52428800)) &&
+        (!data.keys().hasAny(['feedback']) ||
+          (data.feedback is string && data.feedback.size() <= 5000)) &&
+        (!data.keys().hasAny(['approvedAt']) || data.approvedAt is string) &&
+        (!data.keys().hasAny(['approvedBy']) || data.approvedBy is string) &&
+        (!data.keys().hasAny(['rejectedAt']) || data.rejectedAt is string) &&
+        (!data.keys().hasAny(['rejectedBy']) || data.rejectedBy is string) &&
+        (!data.keys().hasAny(['createdAt']) || data.createdAt is string) &&
+        (!data.keys().hasAny(['updatedAt']) || data.updatedAt is string) &&
+        (!data.keys().hasAny(['uploadedBy']) || data.uploadedBy is string) &&
+        (!data.keys().hasAny(['legacyVersionNumber']) || data.legacyVersionNumber is string) &&
+        (!data.keys().hasAny(['currentVersion']) ||
+          (data.currentVersion is number && data.currentVersion >= 1)) &&
+        (!data.keys().hasAny(['versions']) ||
+          (data.versions is list && data.versions.size() <= 100));
+    }
+
+    function validProductionRevision(projectId, revisionId, data) {
+      return data.keys().hasOnly([
+          'id', 'projectId', 'deliverableId', 'clientUid', 'feedback', 'status',
+          'submittedAt', 'completedAt', 'adminResponse', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == revisionId &&
+        data.projectId == projectId &&
+        data.clientUid ==
+          get(/databases/$(database)/documents/clientProjects/$(projectId)).data.clientUid &&
+        data.deliverableId is string &&
+        exists(/databases/$(database)/documents/clientProjects/$(projectId)/deliverables/$(data.deliverableId)) &&
+        get(/databases/$(database)/documents/clientProjects/$(projectId)/deliverables/$(data.deliverableId)).data.clientUid ==
+          data.clientUid &&
+        data.feedback is string && data.feedback.size() > 0 && data.feedback.size() <= 5000 &&
+        data.status in ['Submitted', 'In Progress', 'Completed', 'Cancelled'] &&
+        data.submittedAt is string &&
+        data.createdAt is string &&
+        data.updatedAt is string &&
+        (!data.keys().hasAny(['completedAt']) || data.completedAt is string) &&
+        (!data.keys().hasAny(['adminResponse']) ||
+          (data.adminResponse is string && data.adminResponse.size() <= 5000));
+    }
+
+
+    // Administrative Audit Logs (Trusted Backend Writes Only)
+    match /adminAuditLogs/{logId} {
+      allow read: if isPlatformAdmin();
+      allow write: if false; // Writes via trusted Cloud Functions only
+    }
     // Default Deny Everything
     match /{document=**} {
       allow read, write: if false;
@@ -102,18 +240,6 @@ service cloud.firestore {
       match /pressReleases/{pressId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /mediaContacts/{contactId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /campaignDesigns/{designId} { allow read, write: if isWorkspaceMember(workspaceId); }
-      match /productionProjects/{projectId} {
-        allow read: if isWorkspaceMember(workspaceId);
-        allow write: if isWorkspaceOwner(workspaceId) || isPlatformAdmin();
-
-        match /internalNotes/{noteId} {
-          allow read, write: if isPlatformAdmin();
-        }
-        match /deliverables/{delivId} {
-          allow read: if isPlatformAdmin() || (isWorkspaceMember(workspaceId) && resource.data.isClientPublished == true);
-          allow write: if isPlatformAdmin();
-        }
-      }
       match /services/{serviceId} {
         allow read: if isWorkspaceMember(workspaceId);
         allow write: if isWorkspaceOwner(workspaceId);
@@ -139,7 +265,8 @@ service cloud.firestore {
         request.resource.data.uid == resource.data.uid &&
         request.resource.data.email == resource.data.email &&
         request.resource.data.createdAt == resource.data.createdAt &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'accountType', 'organizationName', 'photoURL', 'updatedAt']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'accountType', 'organizationName', 'photoURL', 'onboardingComplete', 'updatedAt']) &&
+        request.resource.data.onboardingComplete == true &&
         request.resource.data.displayName is string &&
         request.resource.data.displayName.size() > 0 &&
         request.resource.data.displayName.size() <= 100 &&
@@ -151,12 +278,130 @@ service cloud.firestore {
       allow delete: if isPlatformAdmin();
     }
 
-    // Client Projects (Phase 2A)
+    // Client Projects and production records (Phase 3C)
     match /clientProjects/{projectId} {
-      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
-      allow create: if isPlatformAdmin();
-      allow update: if isPlatformAdmin();
-      allow delete: if isPlatformAdmin();
+      allow get, list: if isProjectAdmin() ||
+        (isSignedIn() && resource.data.clientUid == request.auth.uid);
+      allow create: if isProjectAdmin() &&
+        validProjectDocument(projectId, request.resource.data);
+      allow update: if isProjectAdmin() &&
+        validProjectDocument(projectId, request.resource.data);
+      allow delete: if false;
+
+      match /admin/{privateDocId} {
+        allow read: if isProjectAdmin();
+        allow create, update: if isProjectAdmin() &&
+          (!request.resource.data.keys().hasAny(['assignedToUid']) ||
+            request.resource.data.assignedToUid == '' ||
+            exists(/databases/$(database)/documents/users/$(request.resource.data.assignedToUid)));
+        allow delete: if false;
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isProjectAdmin() ||
+          (ownsProject(projectId) &&
+            resource.data.projectId == projectId &&
+            resource.data.clientUid == request.auth.uid &&
+            resource.data.clientVisible == true);
+        allow create, update: if isProjectAdmin() &&
+          validProductionTask(projectId, taskId, request.resource.data);
+        allow delete: if false;
+
+        match /admin/{privateDocId} {
+          allow read: if isProjectAdmin();
+          allow create, update: if isProjectAdmin() &&
+            exists(/databases/$(database)/documents/clientProjects/$(projectId)/tasks/$(taskId)) &&
+            (!request.resource.data.keys().hasAny(['assigneeUid']) ||
+              request.resource.data.assigneeUid == '' ||
+              exists(/databases/$(database)/documents/users/$(request.resource.data.assigneeUid)));
+          allow delete: if false;
+        }
+      }
+
+      match /deliverables/{deliverableId} {
+        allow read: if isProjectAdmin() ||
+          (ownsProject(projectId) &&
+            resource.data.projectId == projectId &&
+            resource.data.clientUid == request.auth.uid &&
+            resource.data.isClientPublished == true);
+        allow create, update: if isProjectAdmin() &&
+          validProductionDeliverable(projectId, deliverableId, request.resource.data);
+        allow delete: if false;
+      }
+
+      match /revisionRequests/{revisionId} {
+        allow get, list: if isProjectAdmin() ||
+          (ownsProject(projectId) &&
+            resource.data.projectId == projectId &&
+            resource.data.clientUid == request.auth.uid);
+        allow create: if isProjectAdmin() &&
+          validProductionRevision(projectId, revisionId, request.resource.data);
+        allow update: if isProjectAdmin() &&
+          request.resource.data.projectId == resource.data.projectId &&
+          request.resource.data.clientUid == resource.data.clientUid &&
+          request.resource.data.deliverableId == resource.data.deliverableId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'adminResponse', 'updatedAt']) &&
+          request.resource.data.status in ['Submitted', 'In Progress', 'Completed', 'Cancelled'];
+        allow delete: if false;
+      }
+
+      match /internalNotes/{noteId} {
+        allow read, write: if isProjectAdmin();
+      }
+
+      match /activity/{activityId} {
+        allow read: if isProjectAdmin() ||
+          (ownsProject(projectId) &&
+            resource.data.projectId == projectId &&
+            resource.data.clientVisible == true);
+        allow create: if isProjectAdmin() &&
+          request.resource.data.projectId == projectId &&
+          request.resource.data.actorUid == request.auth.uid &&
+          request.resource.data.keys().hasOnly([
+            'id', 'projectId', 'actorUid', 'actorName', 'action', 'details',
+            'clientVisible', 'createdAt'
+          ]) &&
+          request.resource.data.actorName is string &&
+          request.resource.data.action is string &&
+          request.resource.data.details is string &&
+          request.resource.data.details.size() <= 5000 &&
+          request.resource.data.clientVisible is bool &&
+          request.resource.data.createdAt is string;
+        allow update, delete: if false;
+      }
+    }
+
+    // Collection-group reads power the admin review queue across client projects.
+    // Keep these queries admin-only; direct per-project client reads remain governed above.
+    match /{parentPath=**}/deliverables/{deliverableId} {
+      allow get, list: if isProjectAdmin();
+    }
+
+    match /{parentPath=**}/revisionRequests/{revisionId} {
+      allow get, list: if isProjectAdmin();
+    }
+
+    match /productionTasks/{taskId} {
+      allow get, list: if isProjectAdmin();
+      allow create, update: if isProjectAdmin() &&
+        (!request.resource.data.keys().hasAny(['projectId']) ||
+          (request.resource.data.projectId is string &&
+            exists(/databases/$(database)/documents/clientProjects/$(request.resource.data.projectId)) &&
+            request.resource.data.clientUid ==
+              get(/databases/$(database)/documents/clientProjects/$(request.resource.data.projectId)).data.clientUid)) &&
+        request.resource.data.title is string &&
+        request.resource.data.status in ['Todo', 'In Progress', 'In Review', 'Done'] &&
+        request.resource.data.clientVisible is bool;
+      allow delete: if false;
+
+      match /admin/{privateDocId} {
+        allow read: if isProjectAdmin();
+        allow create, update: if isProjectAdmin() &&
+          (!request.resource.data.keys().hasAny(['assigneeUid']) ||
+            request.resource.data.assigneeUid == '' ||
+            exists(/databases/$(database)/documents/users/$(request.resource.data.assigneeUid)));
+        allow delete: if false;
+      }
     }
 
     // Client Deliverables (Phase 2A + 2C + 2C.2)
@@ -185,6 +430,15 @@ service cloud.firestore {
       allow create: if isPlatformAdmin();
       allow update: if isSignedIn() && resource.data.clientUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) && request.resource.data.read is bool;
       allow delete: if isPlatformAdmin();
+    }
+
+    match /userNotifications/{uid}/items/{notificationId} {
+      allow get, list: if isOwner(uid);
+      allow create, delete: if false;
+      allow update: if isOwner(uid) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'updatedAt']) &&
+        request.resource.data.read is bool &&
+        request.resource.data.updatedAt is string;
     }
 
     // Global Service Packages Catalog (Read: Authenticated Users, Write: Platform Admin)

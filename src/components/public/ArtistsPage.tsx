@@ -37,12 +37,14 @@ export const ArtistsPage: React.FC<Props> = ({ navigate }) => (
                   <p className="text-xs text-neutral-500 font-mono">{r.date} · {r.category}</p>
                   <h3 className="text-white font-semibold">{r.title}</h3>
                   <p className="text-xs text-neutral-400">{r.artist}</p>
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    {r.links.map(l => (
-                      <a key={l.label} href={l.url} className="text-xs px-2 py-1 border border-[#242424] rounded hover:border-[#FF1E1E] hover:text-[#FF1E1E] transition-colors">{l.label}</a>
-                    ))}
-                    <button onClick={() => navigate('journal')} className="text-xs px-2 py-1 border border-[#242424] rounded hover:border-[#FF1E1E] hover:text-[#FF1E1E] transition-colors">Article</button>
-                  </div>
+                  {r.links.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      {r.links.map(link => (
+                        <a key={link.label} href={link.url} target="_blank" rel="noreferrer" className="text-xs px-2 py-1 border border-[#242424] rounded hover:border-[#FF1E1E] hover:text-[#FF1E1E] transition-colors">{link.label}</a>
+                      ))}
+                    </div>
+                  )}
+                  <button onClick={() => navigate('journal')} className="pt-2 text-left text-xs text-neutral-300 hover:text-[#FF1E1E]">Read studio journal <ArrowRight size={12} className="ml-1 inline" /></button>
                 </div>
               </div>
             ))}

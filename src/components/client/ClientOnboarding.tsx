@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
 export interface ClientProfile {
@@ -11,6 +11,7 @@ export interface ClientProfile {
   accountType: 'Artist' | 'Brand' | 'Company';
   organizationName: string;
   onboardingComplete: boolean;
+  status?: 'Active' | 'Suspended';
   createdAt: string;
   updatedAt: string;
 }
@@ -38,16 +39,42 @@ export const ClientOnboarding: React.FC<ClientOnboardingProps> = ({ onComplete }
     setError(null);
     try {
       const now = new Date().toISOString();
-      await setDoc(doc(db, 'clientProfiles', firebaseUser.uid), {
-        uid: firebaseUser.uid, displayName: displayName.trim(), email: firebaseUser.email || '',
-        photoURL: firebaseUser.photoURL || undefined, accountType, organizationName: organizationName.trim(),
-        onboardingComplete: true, createdAt: now, updatedAt: now,
-      }, { merge: true });
-      await setDoc(doc(db, 'users', firebaseUser.uid), {
-        uid: firebaseUser.uid, email: firebaseUser.email || '', displayName: displayName.trim(),
-        photoURL: firebaseUser.photoURL || '', accountType, organizationName: organizationName.trim(),
-        onboardingComplete: true, updatedAt: now,
-      }, { merge: true });
+      const profileRef = doc(db, 'clientProfiles', firebaseUser.uid);
+      const existingProfile = await getDoc(profileRef);
+      const profile = {
+        displayName: displayName.trim(),
+        photoURL: firebaseUser.photoURL || '',
+        accountType,
+        organizationName: organizationName.trim(),
+        onboardingComplete: true,
+        updatedAt: now,
+      };
+      if (existingProfile.exists()) {
+        await setDoc(profileRef, profile, { merge: true });
+      } else {
+        await setDoc(profileRef, {
+          ...profile,
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          createdAt: now,
+        });
+      }
+
+      const userRef = doc(db, 'users', firebaseUser.uid);
+      const existingUser = await getDoc(userRef);
+      if (existingUser.exists()) {
+        await setDoc(userRef, {
+          ...profile,
+          updatedAt: now,
+        }, { merge: true });
+      } else {
+        await setDoc(userRef, {
+          ...profile,
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          createdAt: now,
+        });
+      }
       onComplete();
     } catch (err: any) {
       console.error('Onboarding error:', err);

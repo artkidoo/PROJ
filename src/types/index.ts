@@ -58,6 +58,95 @@ export interface ClientProject {
   updatedAt: string;
   milestones?: { title: string; completed: boolean; date?: string }[];
   recentUpdates?: { message: string; date: string }[];
+  stage?: ProductionStage;
+  priority?: ProductionPriority;
+  workspaceId?: string;
+  deliveredAt?: string;
+}
+
+export interface ProductionTask {
+  id: string;
+  projectId?: string;
+  clientUid?: string;
+  workspaceId?: string;
+  title: string;
+  description?: string;
+  status: 'Todo' | 'In Progress' | 'In Review' | 'Done';
+  dueDate?: string;
+  clientVisible: boolean;
+  subtasks: { id: string; title: string; completed: boolean }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ProductionDeliverableReviewStatus =
+  | 'Draft'
+  | 'Awaiting Review'
+  | 'Approved'
+  | 'Rejected'
+  | 'Revision Requested'
+  | 'Revision In Progress'
+  | 'Revised - Awaiting Review';
+
+export interface ProductionDeliverableVersion {
+  version: number;
+  fileUrl: string;
+  storagePath: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  uploadedBy: string;
+  createdAt: string;
+}
+
+export interface ProductionDeliverable {
+  id: string;
+  projectId: string;
+  clientUid: string;
+  title: string;
+  description?: string;
+  fileUrl: string;
+  storagePath: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  isClientPublished: boolean;
+  reviewStatus: ProductionDeliverableReviewStatus;
+  feedback?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
+  currentVersion?: number;
+  versions?: ProductionDeliverableVersion[];
+  createdAt: string;
+  updatedAt: string;
+  uploadedBy: string;
+}
+
+export interface ProductionRevisionRequest {
+  id: string;
+  projectId: string;
+  deliverableId: string;
+  clientUid: string;
+  feedback: string;
+  status: 'Submitted' | 'In Progress' | 'Completed' | 'Cancelled';
+  submittedAt: string;
+  completedAt?: string;
+  adminResponse?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductionActivity {
+  id: string;
+  projectId: string;
+  actorUid: string;
+  actorName: string;
+  action: string;
+  details: string;
+  clientVisible: boolean;
+  createdAt: string;
 }
 
 export type ClientDeliverableStatus = 'Draft' | 'In Review' | 'Published' | 'Approved' | 'Revision Requested';
@@ -104,6 +193,19 @@ export interface ClientDeliverable {
   updatedAt: string;
 }
 
+export interface ClientProfile {
+  uid: string;
+  displayName: string;
+  email: string;
+  photoURL?: string;
+  accountType: 'Artist' | 'Brand' | 'Company';
+  organizationName: string;
+  onboardingComplete: boolean;
+  status?: 'Active' | 'Suspended';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ClientNotification {
   id: string;
   clientUid: string;
@@ -113,6 +215,20 @@ export interface ClientNotification {
   projectId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProductionNotification {
+  id: string;
+  recipientUid: string;
+  title: string;
+  message: string;
+  type: string;
+  projectId?: string;
+  entityId?: string;
+  read: boolean;
+  createdAt: string;
+  updatedAt: string;
+  dueDate?: string;
 }
 
 export type UserStatus = 'Active' | 'Suspended' | 'Pending';
@@ -295,6 +411,7 @@ export interface ProductionProject {
   versions: DeliverableVersion[];
   internalNotes: ProductionNote[];
   qualityChecks: ProductionQualityCheck[];
+  recentUpdates?: { message: string; date: string }[];
   relatedReleaseId?: string;
   relatedDocumentId?: string;
   relatedTaskId?: string;

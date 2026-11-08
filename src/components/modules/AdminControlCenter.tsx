@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { useApp } from '../../context/AppContext';
+import { db } from '../../lib/firebase';
 import { 
   ServicePackage, 
   ServiceCategory, 
@@ -49,6 +51,7 @@ export const AdminControlCenter: React.FC = () => {
     currentRole, 
     canAccessAdminCenter,
     productionProjects,
+    activities,
     documents,
     tasks,
     releases,
@@ -66,7 +69,7 @@ export const AdminControlCenter: React.FC = () => {
     currentUser
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'clients' | 'services' | 'overview' | 'security' | 'pilot'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'services' | 'overview' | 'security' | 'audit' | 'pilot'>('clients');
 
   // Client Management State
   const [clientSearch, setClientSearch] = useState('');
@@ -112,6 +115,39 @@ export const AdminControlCenter: React.FC = () => {
     storageRules: 'passed'
   });
   const [isEvaluatingPilot, setIsEvaluatingPilot] = useState(false);
+  const [auditEntries, setAuditEntries] = useState<Array<{ id: string; actor: string; action: string; target: string; details: string; timestamp: string }>>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+  const [auditError, setAuditError] = useState('');
+
+  useEffect(() => {
+    if (!canAccessAdminCenter) return;
+
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'adminAuditLogs'), orderBy('createdAt', 'desc')),
+      snapshot => {
+        const entries = snapshot.docs.map(doc => {
+          const data = doc.data() as Record<string, any>;
+          return {
+            id: doc.id,
+            actor: data.actorName || data.actorUid || 'System',
+            action: data.action || 'Admin action',
+            target: data.targetUid || data.target || data.entityType || 'System',
+            details: typeof data.details === 'string' ? data.details : JSON.stringify(data.details ?? {}),
+            timestamp: data.createdAt || new Date().toISOString(),
+          };
+        });
+        setAuditEntries(entries);
+        setAuditLoading(false);
+        setAuditError('');
+      },
+      error => {
+        setAuditError(error.message || 'Unable to load audit history.');
+        setAuditLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [canAccessAdminCenter]);
 
   const runPilotValidationSuite = () => {
     setIsEvaluatingPilot(true);
@@ -186,6 +222,20 @@ export const AdminControlCenter: React.FC = () => {
     });
   }, [servicePackages, serviceCategoryFilter, serviceAudienceFilter]);
 
+  const auditRecords = useMemo(() => {
+    if (auditEntries.length > 0) {
+      return auditEntries;
+    }
+    return activities.map((item, index) => ({
+      id: item.id || `activity-${index}`,
+      actor: item.actor || 'System',
+      action: item.action,
+      target: item.module,
+      details: item.details,
+      timestamp: item.timestamp,
+    }));
+  }, [activities, auditEntries]);
+
   // Financial Calculations strictly from stored documents (Zero Fabrication)
   const financialLedger = useMemo(() => {
     const financialDocs = documents.filter(doc => 
@@ -233,10 +283,11 @@ export const AdminControlCenter: React.FC = () => {
   }, [documents]);
 
   // Workload Metrics
-  const activeProjectsCount = productionProjects.filter(p => p.stage !== 'Delivered').length;
-  const inQaCount = productionProjects.filter(p => p.stage === 'Internal QA').length;
-  const inClientReviewCount = productionProjects.filter(p => p.stage === 'Client Review').length;
-  const deliveredProjectsCount = productionProjects.filter(p => p.stage === 'Delivered').length;
+  const productionProjectList = productionProjects || [];
+  const activeProjectsCount = productionProjectList.filter((p: { stage: string }) => p.stage !== 'Delivered').length;
+  const inQaCount = productionProjectList.filter((p: { stage: string }) => p.stage === 'Internal QA').length;
+  const inClientReviewCount = productionProjectList.filter((p: { stage: string }) => p.stage === 'Client Review').length;
+  const deliveredProjectsCount = productionProjectList.filter((p: { stage: string }) => p.stage === 'Delivered').length;
 
   // Handle Client Onboarding
   const handleOnboardSubmit = (e: React.FormEvent) => {
@@ -444,6 +495,18 @@ export const AdminControlCenter: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('audit')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
+              activeTab === 'audit'
+                ? 'border-[#FF1E1E] text-white font-semibold'
+                : 'border-transparent text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            <FileText size={15} />
+            <span>Audit History</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('pilot')}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
               activeTab === 'pilot'
@@ -555,9 +618,9 @@ export const AdminControlCenter: React.FC = () => {
             {filteredWorkspaces.map(ws => {
               const isMaster = ws.id === 'ws-lyrical-ent';
               const status = ws.status || 'Active';
-              const clientProjects = productionProjects.filter(p => p.workspaceId === ws.id);
-              const clientReleases = releases.filter(r => r.workspaceId === ws.id);
-              const clientDocs = documents.filter(d => d.workspaceId === ws.id);
+              const clientProjects = productionProjectList.filter((p: { workspaceId: string }) => p.workspaceId === ws.id);
+              const clientReleases = releases.filter((r: { workspaceId?: string }) => r.workspaceId === ws.id);
+              const clientDocs = documents.filter((d: { workspaceId?: string }) => d.workspaceId === ws.id);
               const contractedPackages = servicePackages.filter(p => (ws.contractedPackageIds || []).includes(p.id));
 
               const statusColor = 
@@ -1014,6 +1077,61 @@ export const AdminControlCenter: React.FC = () => {
       )}
 
       {/* TAB 4: ROLES & ACCESS GOVERNANCE */}
+      {activeTab === 'audit' && (
+        <div className="space-y-6">
+          <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <FileText size={16} className="text-[#FF1E1E]" />
+                  Audit History
+                </h3>
+                <p className="text-xs text-neutral-400 mt-1">Administrative actions, client updates, workflow approvals and security-sensitive changes.</p>
+              </div>
+            </div>
+
+            {auditLoading ? (
+              <div className="rounded-lg border border-[#2B2B2B] bg-[#111111] p-8 text-center text-sm text-neutral-400">
+                Loading audit history...
+              </div>
+            ) : auditError ? (
+              <div className="rounded-lg border border-red-900/40 bg-red-950/20 p-4 text-sm text-red-300">
+                {auditError}
+              </div>
+            ) : !auditRecords.length ? (
+              <div className="rounded-lg border border-dashed border-[#2B2B2B] bg-[#111111] p-8 text-center text-sm text-neutral-500">
+                No audit records found.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#141414] text-neutral-400 font-mono border-b border-[#1E1E1E]">
+                    <tr>
+                      <th className="py-3 px-4 font-normal">Actor</th>
+                      <th className="py-3 px-4 font-normal">Action</th>
+                      <th className="py-3 px-4 font-normal">Target</th>
+                      <th className="py-3 px-4 font-normal">Details</th>
+                      <th className="py-3 px-4 font-normal">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1A1A1A] align-top">
+                    {auditRecords.map(record => (
+                      <tr key={record.id} className="hover:bg-[#141414] transition-colors">
+                        <td className="py-3 px-4 text-neutral-200 font-medium">{record.actor}</td>
+                        <td className="py-3 px-4 text-white">{record.action}</td>
+                        <td className="py-3 px-4 text-neutral-300 font-mono">{record.target}</td>
+                        <td className="py-3 px-4 text-neutral-300 max-w-md">{record.details}</td>
+                        <td className="py-3 px-4 text-neutral-400 whitespace-nowrap">{new Date(record.timestamp).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'security' && (
         <div className="space-y-6">
           {/* Security Constitution */}
@@ -1683,10 +1801,10 @@ export const AdminControlCenter: React.FC = () => {
             {/* Associated Projects View */}
             <div className="space-y-2">
               <span className="text-xs font-mono text-neutral-400 uppercase block">
-                Linked Production Projects ({productionProjects.filter(p => p.workspaceId === selectedClientForDetails.id).length})
+                Linked Production Projects ({productionProjectList.filter((p: { workspaceId: string }) => p.workspaceId === selectedClientForDetails.id).length})
               </span>
               <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {productionProjects.filter(p => p.workspaceId === selectedClientForDetails.id).map(proj => (
+                {productionProjectList.filter((p: { workspaceId: string }) => p.workspaceId === selectedClientForDetails.id).map((proj: { id: string; title: string; stage: string }) => (
                   <div key={proj.id} className="flex items-center justify-between p-2 rounded bg-[#161616] border border-[#222222] text-xs">
                     <span className="text-white truncate max-w-xs">{proj.title}</span>
                     <span className="text-[10px] font-mono text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">

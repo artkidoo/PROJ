@@ -18,14 +18,8 @@ import {
   WorkspaceBrand,
   WorkspaceMembership,
   CreativeProject,
-  AppMode,
   ProductionProject,
-  ProductionStage,
-  ProductionPriority,
-  ProductionProjectType,
-  DeliverableVersion,
-  ProductionNote,
-  ProductionQualityCheck,
+  AppMode,
   ServicePackage,
   MotionProjectSpec,
   ReleaseDeliverableItem,
@@ -47,9 +41,7 @@ import {
   INITIAL_MEDIA_CONTACTS, 
   INITIAL_BLOGGER_SETTINGS,
   INITIAL_BRAND_GUIDELINES,
-  INITIAL_PRODUCTION_PROJECTS,
-  INITIAL_SERVICE_PACKAGES,
-  INITIAL_MOTION_PROJECTS
+  INITIAL_SERVICE_PACKAGES
 } from '../data/initialData';
 import { 
   auth, 
@@ -64,19 +56,20 @@ import {
   onAuthStateChanged, 
   User as FirebaseUser 
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 interface AppContextType {
   // Firebase Auth & Session
   firebaseUser: FirebaseUser | null;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
+  authError: string | null;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   // Application Mode (Public Landing vs Client Workspace)
   appMode: AppMode;
   setAppMode: (mode: AppMode) => void;
-  enterWorkspace: (workspaceId?: string) => void;
+  enterWorkspace: () => void;
   exitToPublic: () => void;
 
   activeModule: AppModule;
@@ -100,6 +93,7 @@ interface AppContextType {
   brandGuidelines: BrandGuidelinesData;
   releaseProjects: ReleaseProject[];
   campaignDesigns: CampaignDesign[];
+  productionProjects: ProductionProject[];
 
   // Workspace state
   currentUser: PlatformUser;
@@ -110,20 +104,10 @@ interface AppContextType {
   switchWorkspace: (workspaceId: string) => void;
   createWorkspace: (workspace: Omit<Workspace, 'id' | 'createdAt'>) => Workspace;
   updateWorkspaceBrand: (workspaceId: string, updates: Partial<WorkspaceBrand>) => void;
-  submitClientRequest: (request: { title: string; category: OperationTask['category']; dueDate: string; notes: string; priority: OperationTask['priority'] }) => OperationTask;
   approveDeliverable: (releaseId: string) => void;
 
   // Phase 3: Production Center
-  productionProjects: ProductionProject[];
   canAccessProductionCenter: boolean;
-  addProductionProject: (project: Omit<ProductionProject, 'id' | 'createdAt' | 'updatedAt'>) => ProductionProject;
-  updateProductionProject: (id: string, updates: Partial<ProductionProject>) => void;
-  deleteProductionProject: (id: string) => void;
-  updateProductionStage: (id: string, stage: ProductionStage, note?: string) => void;
-  publishDeliverableVersion: (projectId: string, versionId: string, isPublished: boolean) => void;
-  addDeliverableVersion: (projectId: string, version: Omit<DeliverableVersion, 'id' | 'uploadedAt'>) => DeliverableVersion;
-  addProductionNote: (projectId: string, note: Omit<ProductionNote, 'id' | 'timestamp'>) => ProductionNote;
-  toggleQualityCheck: (projectId: string, checkId: string) => void;
 
   // Phase 4: Admin / Operator Control Center
   servicePackages: ServicePackage[];
@@ -139,9 +123,6 @@ interface AppContextType {
 
   // Phase 5: Music Release & Motion Production
   motionProjects: MotionProjectSpec[];
-  addMotionProject: (project: Omit<MotionProjectSpec, 'id' | 'createdAt' | 'updatedAt'>) => MotionProjectSpec;
-  updateMotionProject: (id: string, updates: Partial<MotionProjectSpec>) => void;
-  deleteMotionProject: (id: string) => void;
   updateReleaseDeliverables: (releaseId: string, deliverables: ReleaseDeliverableItem[]) => void;
   updateDeliverableStage: (releaseId: string, deliverableId: string, stage: DeliverableWorkflowStage) => void;
   publishDeliverableToClient: (releaseId: string, deliverableId: string, isPublished: boolean) => void;
@@ -221,16 +202,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  const enterWorkspace = (workspaceId?: string) => {
-    if (workspaceId) {
-      switchWorkspace(workspaceId);
-    }
-    setAppMode('workspace');
-    try {
-      localStorage.setItem('keedohub_app_mode', 'workspace');
-    } catch {}
-  };
-
   const exitToPublic = () => {
     setAppMode('public');
     try {
@@ -287,15 +258,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return stored ? JSON.parse(stored) : INITIAL_BRAND_ASSETS;
     } catch {
       return INITIAL_BRAND_ASSETS;
-    }
-  });
-
-  const [productionProjects, setProductionProjects] = useState<ProductionProject[]>(() => {
-    try {
-      const stored = localStorage.getItem(`${STORAGE_KEY}_productionProjects`);
-      return stored ? JSON.parse(stored) : INITIAL_PRODUCTION_PROJECTS;
-    } catch {
-      return INITIAL_PRODUCTION_PROJECTS;
     }
   });
 
@@ -380,25 +342,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  const [motionProjects, setMotionProjects] = useState<MotionProjectSpec[]>(() => {
+  const [motionProjects] = useState<MotionProjectSpec[]>(() => {
     try {
       const stored = localStorage.getItem(`${STORAGE_KEY}_motionProjects`);
-      return stored ? JSON.parse(stored) : INITIAL_MOTION_PROJECTS;
+      return stored ? JSON.parse(stored) : [];
     } catch {
-      return INITIAL_MOTION_PROJECTS;
+      return [];
+    }
+  });
+
+  const [productionProjects, setProductionProjects] = useState<ProductionProject[]>(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY}_productionProjects`);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
     }
   });
 
   // Firebase Auth State
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<PlatformUser>(INITIAL_PLATFORM_USER);
 
   useEffect(() => {
+    let active = true;
+    let authChangeId = 0;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const currentAuthChangeId = ++authChangeId;
       setFirebaseUser(user);
-      setIsAuthLoading(false);
+      setIsAuthLoading(true);
       if (user) {
+        let isAdmin = false;
+        try {
+          const adminSnapshot = await getDoc(doc(db, 'admins', user.uid));
+          isAdmin = adminSnapshot.exists();
+        } catch (error) {
+          console.error('Platform administrator verification failed:', error);
+          setAuthError('Could not verify platform access. Your account will remain in the client area until verification succeeds.');
+        }
+        if (!active || currentAuthChangeId !== authChangeId) return;
+        setIsPlatformAdmin(isAdmin);
+
         const liveUser: PlatformUser = {
           id: user.uid,
           name: user.displayName || 'Keedohub Member',
@@ -412,45 +399,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Sync authenticated user profile to Firestore
         try {
           const userDocRef = doc(db, 'users', user.uid);
-          await setDoc(userDocRef, {
-            uid: user.uid,
-            email: user.email || '',
-            displayName: user.displayName || 'Keedohub Member',
-            photoURL: user.photoURL || '',
-            role: 'Executive',
-            createdAt: new Date().toISOString()
-          }, { merge: true });
+          const existingUser = await getDoc(userDocRef);
+          const now = new Date().toISOString();
+          if (existingUser.exists()) {
+            await setDoc(userDocRef, {
+              displayName: user.displayName || 'Keedohub Member',
+              photoURL: user.photoURL || '',
+              updatedAt: now,
+            }, { merge: true });
+          } else {
+            await setDoc(userDocRef, {
+              uid: user.uid,
+              email: user.email || '',
+              displayName: user.displayName || 'Keedohub Member',
+              photoURL: user.photoURL || '',
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
         } catch (err) {
           console.warn('Firestore user profile sync warning:', err);
         }
       } else {
+        setIsPlatformAdmin(false);
         setCurrentUser(INITIAL_PLATFORM_USER);
       }
+      if (active && currentAuthChangeId === authChangeId) setIsAuthLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      active = false;
+      authChangeId += 1;
+      unsubscribe();
+    };
   }, []);
 
   const loginWithGoogle = async () => {
+    setAuthError(null);
     try {
       const res = await signInWithPopup(auth, googleProvider);
       if (res?.user) {
-        setAppMode('client');
+        let isAdmin = false;
         try {
-          localStorage.setItem('keedohub_app_mode', 'client');
+          const adminSnapshot = await getDoc(doc(db, 'admins', res.user.uid));
+          isAdmin = adminSnapshot.exists();
+          setIsPlatformAdmin(isAdmin);
+        } catch (error) {
+          console.error('Platform administrator verification failed:', error);
+          setAuthError('Could not verify platform access. Your account will remain in the client area until verification succeeds.');
+        }
+        const nextMode = isAdmin ? 'workspace' : 'client';
+        setAppMode(nextMode);
+        try {
+          localStorage.setItem('keedohub_app_mode', nextMode);
         } catch {}
       }
     } catch (err: any) {
-      if (
-        err?.code === 'auth/popup-closed-by-user' || 
-        err?.code === 'auth/cancelled-popup-request' ||
-        err?.code === 'auth/popup-blocked'
-      ) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
         console.info('Google Sign-In popup closed or cancelled by user.');
         return;
       }
+      if (err?.code === 'auth/popup-blocked') {
+        setAuthError('Your browser blocked the Google sign-in popup. Allow pop-ups for this site and try again.');
+        return;
+      }
       console.error('Google Sign-In Error:', err);
+      setAuthError(err instanceof Error ? err.message : 'Google sign-in failed. Please try again.');
     }
+  };
+
+  const enterWorkspace = () => {
+    if (!firebaseUser) {
+      void loginWithGoogle();
+      return;
+    }
+    const nextMode = isPlatformAdmin ? 'workspace' : 'client';
+    setAppMode(nextMode);
+    try {
+      localStorage.setItem('keedohub_app_mode', nextMode);
+    } catch {}
   };
 
   const logout = async () => {
@@ -462,6 +489,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch {}
     } catch (err) {
       console.error('Sign-Out Error:', err);
+      setAuthError(err instanceof Error ? err.message : 'Sign out failed. Please try again.');
     }
   };
 
@@ -581,69 +609,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logActivity('Updated Workspace Brand', 'brand', `Modified brand parameters for workspace ${workspaceId}`);
   };
 
-  const submitClientRequest = (requestData: {
-    title: string;
-    category: OperationTask['category'];
-    dueDate: string;
-    notes: string;
-    priority: OperationTask['priority'];
-  }): OperationTask => {
-    const newTask: OperationTask = {
-      id: `req-${Date.now().toString().slice(-5)}`,
-      workspaceId: activeWorkspace.id,
-      title: requestData.title,
-      category: requestData.category,
-      dueDate: requestData.dueDate,
-      priority: requestData.priority,
-      assignee: 'KeedoHub Creative Team',
-      status: 'In Review',
-      notes: requestData.notes,
-      createdAt: new Date().toISOString()
-    };
-    setTasks(prev => [newTask, ...prev]);
-    logActivity('Client Creative Request', 'operations', `Submitted creative brief: "${newTask.title}"`);
-
-    // Bridge client request directly into Operator Production Center
-    const newProdProject: ProductionProject = {
-      id: `prod-${Date.now().toString().slice(-5)}`,
-      title: requestData.title,
-      workspaceId: activeWorkspace.id,
-      clientName: activeWorkspace.name,
-      clientCategory: activeWorkspace.clientCategory || 'brand',
-      projectType: requestData.category === 'Creative' ? 'Cover Artwork Design' : requestData.category === 'Marketing' ? 'Marketing Campaign Kit' : 'Corporate Contract & Stationery',
-      stage: 'New Request',
-      priority: requestData.priority,
-      leadProducer: 'KeedoHub Operator',
-      dueDate: requestData.dueDate,
-      brief: {
-        description: requestData.notes,
-        deliverableSpecs: 'Client-submitted creative request. Awaiting operator brief review.'
-      },
-      sourceMaterials: [],
-      versions: [],
-      internalNotes: [
-        {
-          id: `not-${Date.now()}`,
-          author: 'System Intake',
-          role: 'System',
-          content: `Intake ticket created from ${activeWorkspace.name} (${activeWorkspace.clientCategory || 'Client'}) request submission.`,
-          timestamp: new Date().toISOString(),
-          isInternalOnly: true
-        }
-      ],
-      qualityChecks: [
-        { id: `qc-${Date.now()}-1`, label: 'Review brief & confirm deliverable specs', passed: false },
-        { id: `qc-${Date.now()}-2`, label: 'Assign lead producer', passed: false }
-      ],
-      relatedTaskId: newTask.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    setProductionProjects(prev => [newProdProject, ...prev]);
-
-    return newTask;
-  };
-
   const approveDeliverable = (releaseId: string) => {
     setReleases(prev => prev.map(r => {
       if (r.id === releaseId) {
@@ -658,195 +623,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return r;
     }));
 
-    // Synchronize approval state into matching Production Project
-    setProductionProjects(prev => prev.map(p => {
-      if (p.relatedReleaseId === releaseId || (p.workspaceId === activeWorkspace.id && p.projectType.includes('Release'))) {
-        const updatedVersions = p.versions.map(v => 
-          v.isClientPublished ? { ...v, clientReviewStatus: 'Approved' as const, clientFeedback: 'Approved by client in workspace portal' } : v
-        );
-        return {
-          ...p,
-          stage: 'Ready for Delivery' as const,
-          versions: updatedVersions,
-          updatedAt: new Date().toISOString(),
-          internalNotes: [
-            {
-              id: `not-${Date.now()}`,
-              author: 'Client Verification',
-              role: 'Client',
-              content: 'Client executed artwork approval sign-off in workspace review gate.',
-              timestamp: new Date().toISOString(),
-              isInternalOnly: true
-            },
-            ...p.internalNotes
-          ]
-        };
-      }
-      return p;
-    }));
-
     logActivity('Approved Deliverable', 'releases', `Client signed off on artwork for release ${releaseId}`);
   };
 
   // Operator access check (Decoupled from ws-lyrical-ent workspace membership)
-  const canAccessProductionCenter = 
-    ['Executive', 'Label Manager', 'Creative Director', 'A&R Director', 'Operator', 'Admin', 'Platform Admin', 'Lead Producer'].includes(currentRole);
-
-  const addProductionProject = (projectData: Omit<ProductionProject, 'id' | 'createdAt' | 'updatedAt'>): ProductionProject => {
-    const newProj: ProductionProject = {
-      ...projectData,
-      id: `prod-${Date.now().toString().slice(-5)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    setProductionProjects(prev => [newProj, ...prev]);
-    logActivity('Created Production Project', 'production', `Initiated project: "${newProj.title}" for ${newProj.clientName}`);
-    return newProj;
-  };
-
-  const updateProductionProject = (id: string, updates: Partial<ProductionProject>) => {
-    setProductionProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p));
-    logActivity('Updated Production Project', 'production', `Updated project records: ${id}`);
-  };
-
-  const deleteProductionProject = (id: string) => {
-    const proj = productionProjects.find(p => p.id === id);
-    setProductionProjects(prev => prev.filter(p => p.id !== id));
-    logActivity('Deleted Production Project', 'production', `Removed project: "${proj?.title || id}"`);
-  };
-
-  const updateProductionStage = (id: string, stage: ProductionStage, noteText?: string) => {
-    setProductionProjects(prev => prev.map(p => {
-      if (p.id === id) {
-        const notes = noteText ? [
-          {
-            id: `not-${Date.now()}`,
-            author: 'Ojo Abdulkareem',
-            role: currentRole,
-            content: noteText,
-            timestamp: new Date().toISOString(),
-            isInternalOnly: true
-          },
-          ...p.internalNotes
-        ] : p.internalNotes;
-
-        return {
-          ...p,
-          stage,
-          updatedAt: new Date().toISOString(),
-          deliveredAt: stage === 'Delivered' ? (p.deliveredAt || new Date().toISOString()) : p.deliveredAt,
-          internalNotes: notes
-        };
-      }
-      return p;
-    }));
-    logActivity('Updated Production Stage', 'production', `Transitioned project ${id} to stage: "${stage}"`);
-  };
-
-  const publishDeliverableVersion = (projectId: string, versionId: string, isPublished: boolean) => {
-    setProductionProjects(prev => prev.map(p => {
-      if (p.id === projectId) {
-        const updatedVersions = p.versions.map(v => {
-          if (v.id === versionId) {
-            return {
-              ...v,
-              isClientPublished: isPublished,
-              publishedAt: isPublished ? new Date().toISOString() : undefined,
-              clientReviewStatus: isPublished ? (v.clientReviewStatus || 'Pending') : undefined
-            };
-          }
-          return v;
-        });
-        return {
-          ...p,
-          versions: updatedVersions,
-          updatedAt: new Date().toISOString(),
-          internalNotes: [
-            {
-              id: `not-${Date.now()}`,
-              author: 'Ojo Abdulkareem',
-              role: currentRole,
-              content: isPublished 
-                ? `Published version ${versionId} to client portal for review.`
-                : `Unpublished version ${versionId} from client view.`,
-              timestamp: new Date().toISOString(),
-              isInternalOnly: true
-            },
-            ...p.internalNotes
-          ]
-        };
-      }
-      return p;
-    }));
-  };
-
-  const addDeliverableVersion = (projectId: string, versionData: Omit<DeliverableVersion, 'id' | 'uploadedAt'>): DeliverableVersion => {
-    const newVer: DeliverableVersion = {
-      ...versionData,
-      id: `ver-${Date.now().toString().slice(-5)}`,
-      uploadedAt: new Date().toISOString(),
-      publishedAt: versionData.isClientPublished ? new Date().toISOString() : undefined
-    };
-    setProductionProjects(prev => prev.map(p => {
-      if (p.id === projectId) {
-        return {
-          ...p,
-          versions: [newVer, ...p.versions],
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return p;
-    }));
-    return newVer;
-  };
-
-  const addProductionNote = (projectId: string, noteData: Omit<ProductionNote, 'id' | 'timestamp'>): ProductionNote => {
-    const newNote: ProductionNote = {
-      ...noteData,
-      id: `not-${Date.now().toString().slice(-5)}`,
-      timestamp: new Date().toISOString()
-    };
-    setProductionProjects(prev => prev.map(p => {
-      if (p.id === projectId) {
-        return {
-          ...p,
-          internalNotes: [newNote, ...p.internalNotes],
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return p;
-    }));
-    return newNote;
-  };
-
-  const toggleQualityCheck = (projectId: string, checkId: string) => {
-    setProductionProjects(prev => prev.map(p => {
-      if (p.id === projectId) {
-        const updatedChecks = p.qualityChecks.map(qc => {
-          if (qc.id === checkId) {
-            const passed = !qc.passed;
-            return {
-              ...qc,
-              passed,
-              verifiedBy: passed ? currentRole : undefined,
-              verifiedAt: passed ? new Date().toISOString() : undefined
-            };
-          }
-          return qc;
-        });
-        return {
-          ...p,
-          qualityChecks: updatedChecks,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return p;
-    }));
-  };
+  const canAccessProductionCenter = isPlatformAdmin;
 
   // Phase 4: Admin / Operator Access & Management (Decoupled from ws-lyrical-ent workspace membership)
-  const canAccessAdminCenter = 
-    ['Executive', 'Label Manager', 'Admin', 'Platform Admin', 'Operator'].includes(currentRole);
+  const canAccessAdminCenter = isPlatformAdmin;
 
   const addServicePackage = (pkgData: Omit<ServicePackage, 'id' | 'createdAt' | 'updatedAt'>): ServicePackage => {
     const newPkg: ServicePackage = {
@@ -940,29 +724,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return w;
     }));
     logActivity('Removed Service Package', 'admin', `Removed package ${packageId} from client workspace ${workspaceId}`);
-  };
-
-  // Phase 5: Music Release & Motion Production Methods
-  const addMotionProject = (projectData: Omit<MotionProjectSpec, 'id' | 'createdAt' | 'updatedAt'>): MotionProjectSpec => {
-    const newProj: MotionProjectSpec = {
-      ...projectData,
-      id: `mot-${Date.now().toString().slice(-6)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    setMotionProjects(prev => [newProj, ...prev]);
-    logActivity('Created Motion Project', 'motion', `Created motion project: "${newProj.title}"`);
-    return newProj;
-  };
-
-  const updateMotionProject = (id: string, updates: Partial<MotionProjectSpec>) => {
-    setMotionProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p));
-    logActivity('Updated Motion Project', 'motion', `Updated motion project ${id}`);
-  };
-
-  const deleteMotionProject = (id: string) => {
-    setMotionProjects(prev => prev.filter(p => p.id !== id));
-    logActivity('Deleted Motion Project', 'motion', `Removed motion project ${id}`);
   };
 
   const updateReleaseDeliverables = (releaseId: string, deliverables: ReleaseDeliverableItem[]) => {
@@ -1060,7 +821,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(`${STORAGE_KEY}_documents`, JSON.stringify(documents));
       localStorage.setItem(`${STORAGE_KEY}_brandAssets`, JSON.stringify(brandAssets));
       localStorage.setItem(`${STORAGE_KEY}_tasks`, JSON.stringify(tasks));
-      localStorage.setItem(`${STORAGE_KEY}_productionProjects`, JSON.stringify(productionProjects));
       localStorage.setItem(`${STORAGE_KEY}_activities`, JSON.stringify(activities));
       localStorage.setItem(`${STORAGE_KEY}_pressReleases`, JSON.stringify(pressReleases));
       localStorage.setItem(`${STORAGE_KEY}_mediaContacts`, JSON.stringify(mediaContacts));
@@ -1069,13 +829,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(`${STORAGE_KEY}_releaseProjects`, JSON.stringify(releaseProjects));
       localStorage.setItem(`${STORAGE_KEY}_campaignDesigns`, JSON.stringify(campaignDesigns));
       localStorage.setItem(`${STORAGE_KEY}_servicePackages`, JSON.stringify(servicePackages));
-      localStorage.setItem(`${STORAGE_KEY}_motionProjects`, JSON.stringify(motionProjects));
+      localStorage.setItem(`${STORAGE_KEY}_productionProjects`, JSON.stringify(productionProjects));
       localStorage.setItem(`${STORAGE_KEY}_workspaces`, JSON.stringify(workspaces));
       localStorage.setItem(`${STORAGE_KEY}_activeWorkspaceId`, activeWorkspace.id);
     } catch (e) {
       console.warn('Storage sync error:', e);
     }
-  }, [artists, releases, campaigns, documents, brandAssets, tasks, activities, pressReleases, mediaContacts, bloggerSettings, brandGuidelines, releaseProjects, campaignDesigns, productionProjects, servicePackages, motionProjects, workspaces]);
+  }, [artists, releases, campaigns, documents, brandAssets, tasks, activities, pressReleases, mediaContacts, bloggerSettings, brandGuidelines, releaseProjects, campaignDesigns, servicePackages, workspaces, activeWorkspace.id, productionProjects]);
 
   const logActivity = (action: string, module: AppModule, details: string) => {
     const newLog: ActivityLog = {
@@ -1319,16 +1079,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCampaigns(INITIAL_CAMPAIGNS);
     setDocuments(INITIAL_DOCUMENTS);
     setBrandAssets(INITIAL_BRAND_ASSETS);
-    setTasks(INITIAL_TASKS);
-    setProductionProjects(INITIAL_PRODUCTION_PROJECTS);
     setActivities(INITIAL_ACTIVITY);
     setPressReleases(INITIAL_PRESS_RELEASES);
     setMediaContacts(INITIAL_MEDIA_CONTACTS);
     setBloggerSettings(INITIAL_BLOGGER_SETTINGS);
     setBrandGuidelines(INITIAL_BRAND_GUIDELINES);
     setServicePackages(INITIAL_SERVICE_PACKAGES);
-    setMotionProjects(INITIAL_MOTION_PROJECTS);
-    logActivity('Reset Database', 'dashboard', 'Restored official LYRICAL ENT production sample records');
+    logActivity('Reset Database', 'dashboard', 'Restored sample records while preserving existing tasks and production data');
   };
 
   const clearAllData = () => {
@@ -1337,14 +1094,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCampaigns([]);
     setDocuments([]);
     setBrandAssets([]);
-    setTasks([]);
-    setProductionProjects([]);
     setActivities([]);
     setPressReleases([]);
     setMediaContacts([]);
     setServicePackages([]);
-    setMotionProjects([]);
-    logActivity('Cleared Database', 'dashboard', 'All operational records cleared to empty state');
+    logActivity('Cleared Database', 'dashboard', 'Cleared operational records while preserving existing tasks and production data');
   };
 
   const exportDatabaseJson = (): string => {
@@ -1377,13 +1131,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (Array.isArray(data.campaigns)) setCampaigns(data.campaigns);
       if (Array.isArray(data.documents)) setDocuments(data.documents);
       if (Array.isArray(data.brandAssets)) setBrandAssets(data.brandAssets);
-      if (Array.isArray(data.tasks)) setTasks(data.tasks);
-      if (Array.isArray(data.productionProjects)) setProductionProjects(data.productionProjects);
+      if (Array.isArray(data.tasks)) {
+        setTasks(previous => {
+          const existingIds = new Set(previous.map(task => task.id));
+          return [...previous, ...data.tasks.filter((task: OperationTask) => !existingIds.has(task.id))];
+        });
+      }
       if (Array.isArray(data.activities)) setActivities(data.activities);
       if (Array.isArray(data.pressReleases)) setPressReleases(data.pressReleases);
       if (Array.isArray(data.mediaContacts)) setMediaContacts(data.mediaContacts);
       if (Array.isArray(data.servicePackages)) setServicePackages(data.servicePackages);
-      if (Array.isArray(data.motionProjects)) setMotionProjects(data.motionProjects);
       if (data.bloggerSettings) setBloggerSettings(data.bloggerSettings);
       if (data.brandGuidelines) setBrandGuidelines(data.brandGuidelines);
       logActivity('Imported Database', 'export', 'Restored database snapshot from external file');
@@ -1409,6 +1166,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         firebaseUser,
         isAuthenticated: !!firebaseUser,
         isAuthLoading,
+        authError,
         loginWithGoogle,
         logout,
         activeModule,
@@ -1430,6 +1188,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         brandGuidelines,
         releaseProjects,
         campaignDesigns,
+        productionProjects,
         addArtist,
         updateArtist,
         deleteArtist,
@@ -1479,18 +1238,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchWorkspace,
         createWorkspace,
         updateWorkspaceBrand,
-        submitClientRequest,
         approveDeliverable,
-        productionProjects,
         canAccessProductionCenter,
-        addProductionProject,
-        updateProductionProject,
-        deleteProductionProject,
-        updateProductionStage,
-        publishDeliverableVersion,
-        addDeliverableVersion,
-        addProductionNote,
-        toggleQualityCheck,
         // Phase 4: Admin / Operator Control Center
         servicePackages,
         canAccessAdminCenter,
@@ -1504,9 +1253,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removeServicePackageFromWorkspace,
         // Phase 5: Music Release & Motion Production
         motionProjects,
-        addMotionProject,
-        updateMotionProject,
-        deleteMotionProject,
         updateReleaseDeliverables,
         updateDeliverableStage,
         publishDeliverableToClient,

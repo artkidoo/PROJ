@@ -1,576 +1,368 @@
-/**
- * KEEDOHUB — Client Workspace
- * Phase 2B: Client Projects, Deliverables & Progress Tracking
- */
-import React, { useState, useEffect } from 'react';
-import { useApp } from '../../context/AppContext';
-import { collection, query, where, onSnapshot, doc, updateDoc, setDoc } from 'firebase/firestore';
-import { db, functions } from '../../lib/firebase';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  where,
+} from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { ClientProject, ClientDeliverable, ClientNotification, ClientProjectStatus, RevisionRequest } from '../../types';
+import { ClientProject, ProductionActivity, ProductionDeliverable, ProductionRevisionRequest, ProductionTask } from '../../types';
+import { useApp } from '../../context/AppContext';
+import { db, functions } from '../../lib/firebase';
+import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
+import { ClientOnboarding } from './ClientOnboarding';
 
-type ClientTab = 'dashboard' | 'projects' | 'deliverables' | 'notifications' | 'settings';
+type ClientTab = 'projects' | 'deliverables' | 'updates';
 
-const statusColors: Record<ClientProjectStatus, string> = {
-  'Pending': 'text-neutral-400',
-  'Confirmed': 'text-blue-400',
-  'In Progress': 'text-[#FF1E1E]',
-  'Review': 'text-yellow-400',
-  'Completed': 'text-green-400',
-  'On Hold': 'text-neutral-500',
-};
+const STAGE_ORDER = [
+  'New Request',
+  'Brief Approved',
+  'In Production',
+  'Internal QA',
+  'Client Review',
+  'Revision Required',
+  'Ready for Delivery',
+  'Delivered',
+];
+
+function messageFromError(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) return String(error.message);
+  return String(error);
+}
 
 export const ClientWorkspace: React.FC = () => {
   const { firebaseUser, logout } = useApp();
-  const [activeTab, setActiveTab] = useState<ClientTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<ClientTab>('projects');
   const [projects, setProjects] = useState<ClientProject[]>([]);
-  const [deliverables, setDeliverables] = useState<ClientDeliverable[]>([]);
-  const [notifications, setNotifications] = useState<ClientNotification[]>([]);
-  const [selectedProject, setSelectedProject] = useState<ClientProject | null>(null);
+  const [tasks, setTasks] = useState<ProductionTask[]>([]);
+  const [deliverables, setDeliverables] = useState<ProductionDeliverable[]>([]);
+  const [revisions, setRevisions] = useState<ProductionRevisionRequest[]>([]);
+  const [activity, setActivity] = useState<ProductionActivity[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [reviewingDeliverable, setReviewingDeliverable] = useState<ClientDeliverable | null>(null);
-  const [reviewFeedback, setReviewFeedback] = useState('');
-  const [reviewAction, setReviewAction] = useState<'approve' | 'revision' | null>(null);
-  const [submittingReview, setSubmittingReview] = useState(false);
-  const [revisionRequests, setRevisionRequests] = useState<RevisionRequest[]>([]);
+  const [error, setError] = useState('');
+  const [feedbackByDeliverable, setFeedbackByDeliverable] = useState<Record<string, string>>({});
+  const [submittingId, setSubmittingId] = useState('');
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestTitle, setRequestTitle] = useState('');
+  const [requestDescription, setRequestDescription] = useState('');
+  const [requestCategory, setRequestCategory] = useState('Creative');
+  const [requestDueDate, setRequestDueDate] = useState('');
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [profileState, setProfileState] = useState<'loading' | 'required' | 'complete' | 'error'>('loading');
+  const [profileError, setProfileError] = useState('');
+  const [profileCheck, setProfileCheck] = useState(0);
 
-  const tabs: { id: ClientTab; label: string }[] = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'projects', label: 'My Projects' },
-    { id: 'deliverables', label: 'Deliverables' },
-    { id: 'notifications', label: 'Notifications' },
-    { id: 'settings', label: 'Settings' },
-  ];
-
-  // Real-time listeners for client data
   useEffect(() => {
-    if (!firebaseUser) return;
+    let active = true;
+    if (!firebaseUser) {
+      setProfileState('error');
+      setProfileError('Sign in to access your client workspace.');
+      return () => { active = false; };
+    }
+
+    setProfileState('loading');
+    setProfileError('');
+    void getDoc(doc(db, 'clientProfiles', firebaseUser.uid)).then(snapshot => {
+      if (!active) return;
+      setProfileState(snapshot.exists() && snapshot.data().onboardingComplete === true ? 'complete' : 'required');
+    }).catch(error => {
+      if (!active) return;
+      setProfileError(messageFromError(error));
+      setProfileState('error');
+    });
+
+    return () => { active = false; };
+  }, [firebaseUser, profileCheck]);
+
+  useEffect(() => {
+    setProjects([]);
+    setTasks([]);
+    setDeliverables([]);
+    setRevisions([]);
+    setActivity([]);
+    if (!firebaseUser) {
+      setLoading(false);
+      setError('Sign in to view your client workspace.');
+      return;
+    }
 
     setLoading(true);
-    setError(null);
+    setError('');
+    let childUnsubscribers: (() => void)[] = [];
+    const unsubscribeProjects = onSnapshot(
+      query(collection(db, 'clientProjects'), where('clientUid', '==', firebaseUser.uid)),
+      snapshot => {
+        setLoading(true);
+        const clientProjects = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ClientProject));
+        setProjects(clientProjects);
+        childUnsubscribers.forEach(unsubscribe => unsubscribe());
+        childUnsubscribers = [];
+        setTasks([]);
+        setDeliverables([]);
+        setRevisions([]);
+        setActivity([]);
 
-    const unsubscribers: (() => void)[] = [];
+        if (clientProjects.length === 0) {
+          setLoading(false);
+          return;
+        }
 
-    // Projects listener
-    const projectsQuery = query(
-      collection(db, 'clientProjects'),
-      where('clientUid', '==', firebaseUser.uid)
-    );
-    const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as ClientProject));
-      setProjects(data);
-    }, (err) => {
-      console.error('Projects listener error:', err);
-      setError('Failed to load projects.');
-    });
-    unsubscribers.push(unsubProjects);
+        const receivedListeners = new Set<string>();
+        const totalListeners = clientProjects.length * 4;
+        const finishInitialLoad = (listenerId: string) => {
+          receivedListeners.add(listenerId);
+          if (receivedListeners.size >= totalListeners) setLoading(false);
+        };
 
-    // Deliverables listener
-    const deliverablesQuery = query(
-      collection(db, 'clientDeliverables'),
-      where('clientUid', '==', firebaseUser.uid)
+        for (const project of clientProjects) {
+          const projectRef = doc(db, 'clientProjects', project.id);
+          childUnsubscribers.push(
+            onSnapshot(query(collection(projectRef, 'tasks'),
+              where('clientVisible', '==', true),
+              where('clientUid', '==', firebaseUser.uid),
+              where('projectId', '==', project.id)), snapshot => {
+              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionTask));
+              setTasks(previous => [...previous.filter(task => task.projectId !== project.id), ...rows]);
+              finishInitialLoad(`${project.id}:tasks`);
+            }, err => { setError(messageFromError(err)); setLoading(false); }),
+            onSnapshot(query(collection(projectRef, 'deliverables'),
+              where('isClientPublished', '==', true),
+              where('clientUid', '==', firebaseUser.uid),
+              where('projectId', '==', project.id)), snapshot => {
+              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionDeliverable));
+              setDeliverables(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
+              finishInitialLoad(`${project.id}:deliverables`);
+            }, err => { setError(messageFromError(err)); setLoading(false); }),
+            onSnapshot(query(collection(projectRef, 'revisionRequests'),
+              where('clientUid', '==', firebaseUser.uid),
+              where('projectId', '==', project.id)), snapshot => {
+              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionRevisionRequest));
+              setRevisions(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
+              finishInitialLoad(`${project.id}:revisions`);
+            }, err => { setError(messageFromError(err)); setLoading(false); }),
+            onSnapshot(query(collection(projectRef, 'activity'),
+              where('clientVisible', '==', true),
+              where('projectId', '==', project.id)), snapshot => {
+              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionActivity));
+              setActivity(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
+              finishInitialLoad(`${project.id}:activity`);
+            }, err => { setError(messageFromError(err)); setLoading(false); }),
+          );
+        }
+      },
+      err => { setError(messageFromError(err)); setLoading(false); },
     );
-    const unsubDeliverables = onSnapshot(deliverablesQuery, (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as ClientDeliverable));
-      setDeliverables(data);
-    }, (err) => {
-      console.error('Deliverables listener error:', err);
-      setError('Failed to load deliverables.');
-    });
-    unsubscribers.push(unsubDeliverables);
-
-    // Notifications listener
-    const notificationsQuery = query(
-      collection(db, 'clientNotifications'),
-      where('clientUid', '==', firebaseUser.uid)
-    );
-    const unsubNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as ClientNotification));
-      setNotifications(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-      setLoading(false);
-    }, (err) => {
-      console.error('Notifications listener error:', err);
-      setError('Failed to load notifications.');
-      setLoading(false);
-    });
-    // Revision Requests listener
-    const revisionRequestsQuery = query(
-      collection(db, 'revisionRequests'),
-      where('clientUid', '==', firebaseUser.uid)
-    );
-    const unsubRevisionRequests = onSnapshot(revisionRequestsQuery, (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as RevisionRequest));
-      setRevisionRequests(data.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()));
-    }, (err) => {
-      console.error('Revision requests listener error:', err);
-    });
-    unsubscribers.push(unsubRevisionRequests);
 
     return () => {
-      unsubscribers.forEach((unsub) => unsub());
+      unsubscribeProjects();
+      childUnsubscribers.forEach(unsubscribe => unsubscribe());
     };
   }, [firebaseUser]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  const handleApprove = async (deliverable: ClientDeliverable) => {
-    if (!firebaseUser) return;
-    setSubmittingReview(true);
-    try {
-      const approveFn = httpsCallable(functions, 'approveDeliverable');
-      await approveFn({ deliverableId: deliverable.id, feedback: reviewFeedback.trim() || undefined });
-      setReviewingDeliverable(null);
-      setReviewFeedback('');
-      setReviewAction(null);
-    } catch (err: any) {
-      console.error('Approval error:', err);
-      setError(err?.message || 'Failed to approve deliverable. Please try again.');
-    } finally {
-      setSubmittingReview(false);
+  const projectById = useMemo(() => new Map(projects.map(project => [project.id, project])), [projects]);
+  const requestsByProject = useMemo(() => {
+    const grouped = new Map<string, ProductionRevisionRequest[]>();
+    for (const revision of [...revisions].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))) {
+      const current = grouped.get(revision.projectId) || [];
+      current.push(revision);
+      grouped.set(revision.projectId, current);
     }
-  };
+    return grouped;
+  }, [revisions]);
+  const recentActivity = useMemo(
+    () => [...activity].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [activity],
+  );
+  const recentRevisions = useMemo(
+    () => [...revisions].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)),
+    [revisions],
+  );
 
-  const handleRequestRevision = async (deliverable: ClientDeliverable) => {
-    if (!firebaseUser || !reviewFeedback.trim()) return;
-    setSubmittingReview(true);
-    try {
-      const requestRevisionFn = httpsCallable(functions, 'requestRevision');
-      await requestRevisionFn({ deliverableId: deliverable.id, feedback: reviewFeedback.trim() });
-      setReviewingDeliverable(null);
-      setReviewFeedback('');
-      setReviewAction(null);
-    } catch (err: any) {
-      console.error('Revision request error:', err);
-      setError(err?.message || 'Failed to submit revision request. Please try again.');
-    } finally {
-      setSubmittingReview(false);
+  const review = async (deliverable: ProductionDeliverable, action: 'approve' | 'reject' | 'revision') => {
+    const feedback = feedbackByDeliverable[deliverable.id] || '';
+    if (action !== 'approve' && !feedback.trim()) {
+      setError('Add feedback before rejecting or requesting a revision.');
+      return;
     }
-  };
-
-  const markAsRead = async (notificationId: string) => {
+    setSubmittingId(deliverable.id);
+    setError('');
     try {
-      await updateDoc(doc(db, 'clientNotifications', notificationId), { read: true });
+      const functionName = action === 'approve'
+        ? 'approveProductionDeliverable'
+        : action === 'reject'
+          ? 'rejectProductionDeliverable'
+          : 'requestProductionRevision';
+      const callable = httpsCallable(functions, functionName);
+      await callable({
+        projectId: deliverable.projectId,
+        deliverableId: deliverable.id,
+        feedback: feedback.trim(),
+      });
+      setFeedbackByDeliverable(previous => ({ ...previous, [deliverable.id]: '' }));
     } catch (err) {
-      console.error('Failed to mark notification as read:', err);
+      setError(messageFromError(err));
+    } finally {
+      setSubmittingId('');
     }
   };
 
-  const handleRetry = () => {
-    setError(null);
-    setLoading(true);
-    // Re-trigger by toggling firebaseUser dependency
-    // The useEffect will re-run when firebaseUser changes
+  const submitRequest = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!requestTitle.trim() || !requestDescription.trim()) {
+      setError('Enter a project title and brief.');
+      return;
+    }
+    setRequestSubmitting(true);
+    setError('');
+    try {
+      const callable = httpsCallable(functions, 'submitProductionRequest');
+      await callable({
+        title: requestTitle.trim(),
+        description: requestDescription.trim(),
+        category: requestCategory,
+        dueDate: requestDueDate,
+        priority: 'Normal',
+      });
+      setRequestTitle('');
+      setRequestDescription('');
+      setRequestDueDate('');
+      setRequestOpen(false);
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setRequestSubmitting(false);
+    }
   };
+
+  const tabs: { id: ClientTab; title: string }[] = [
+    { id: 'projects', title: 'My projects' },
+    { id: 'deliverables', title: 'Deliverables' },
+    { id: 'updates', title: 'Updates & revisions' },
+  ];
+
+  if (profileState === 'loading') {
+    return <main className="flex min-h-screen items-center justify-center bg-[#080808] text-sm text-neutral-400">Preparing your secure workspace…</main>;
+  }
+  if (profileState === 'error') {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#080808] px-4">
+        <div className="w-full max-w-lg space-y-4 border border-red-500/30 bg-red-950/20 p-6 text-sm text-red-200">
+          <p role="alert">{profileError}</p>
+          <button type="button" onClick={() => setProfileCheck(value => value + 1)} className="border border-red-300/30 px-4 py-2 text-white">Retry</button>
+        </div>
+      </main>
+    );
+  }
+  if (profileState === 'required') {
+    return <ClientOnboarding onComplete={() => setProfileState('complete')} />;
+  }
 
   return (
-    <div className="min-h-screen bg-[#080808] text-[#F3F3F3] flex flex-col antialiased">
-      <header className="sticky top-0 z-40 h-16 bg-[#080808]/90 backdrop-blur border-b border-[#1A1A1A] px-4 md:px-8">
-        <div className="max-w-[1440px] mx-auto h-full flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-black tracking-tighter text-white uppercase">
-              KEEDO<span className="text-[#FF1E1E]">HUB</span>
-            </span>
-            <span className="hidden sm:inline text-neutral-600">/</span>
-            <span className="hidden sm:inline text-[11px] font-mono tracking-widest text-neutral-400 uppercase">
-              Client Workspace
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-neutral-400 hidden sm:inline">
-              {firebaseUser?.displayName || firebaseUser?.email}
-            </span>
-            <button
-              onClick={() => logout()}
-              className="flex items-center gap-2 bg-[#141414] hover:bg-[#1A1A1A] text-white px-3.5 py-1.5 text-xs font-medium rounded border border-[#242424] transition-colors"
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
+    <div className="min-h-screen bg-[#080808] text-[#F3F3F3]">
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[#1A1A1A] bg-[#080808]/95 px-4 sm:px-8">
+        <div><span className="font-black tracking-tight text-white">KEEDO<span className="text-[#FF1E1E]">HUB</span></span><span className="ml-3 text-xs text-neutral-500">CLIENT WORKSPACE</span></div>
+        <div className="flex items-center gap-3"><span className="hidden text-xs text-neutral-400 sm:inline">{firebaseUser?.displayName || firebaseUser?.email}</span>{firebaseUser && <ProductionNotificationCenter uid={firebaseUser.uid} />}<button onClick={() => setRequestOpen(true)} className="rounded bg-[#FF1E1E] px-3 py-1.5 text-xs font-semibold text-white">New request</button><button onClick={() => void logout()} className="rounded border border-[#292929] bg-[#141414] px-3 py-1.5 text-xs text-white">Sign out</button></div>
       </header>
 
-      <div className="flex-1 flex">
-        <nav className="hidden md:flex flex-col w-56 border-r border-[#1A1A1A] px-4 py-6 gap-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`text-left px-3 py-2 text-sm rounded transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-[#141414] text-white'
-                  : 'text-neutral-400 hover:text-white hover:bg-[#0C0C0C]'
-              }`}
-            >
-              {tab.label}
-              {tab.id === 'notifications' && unreadCount > 0 && (
-                <span className="ml-2 bg-[#FF1E1E] text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-          ))}
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-8">
+        <h1 className="text-2xl font-black text-white">Your production workspace</h1>
+        <p className="mt-1 text-sm text-neutral-400">Project progress, assigned tasks and approved client deliverables.</p>
+        <nav className="my-6 flex flex-wrap gap-2 border-b border-[#1A1A1A] pb-3">
+          {tabs.map(tab => <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`rounded px-3 py-2 text-sm ${activeTab === tab.id ? 'bg-white text-black' : 'text-neutral-400 hover:bg-[#141414] hover:text-white'}`}>{tab.title}</button>)}
         </nav>
-
-        <div className="md:hidden flex overflow-x-auto border-b border-[#1A1A1A] px-4 gap-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`whitespace-nowrap px-3 py-2 text-xs rounded transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-[#141414] text-white'
-                  : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm px-4 py-3 rounded mb-6 flex items-center justify-between">
-              <span>{error}</span>
-              <button onClick={handleRetry} className="text-xs underline hover:text-red-300">Retry</button>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="text-neutral-400 text-sm">Loading...</div>
-            </div>
-          ) : (
-            <>
-              {activeTab === 'dashboard' && (
-                <div>
-                  <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white mb-2">
-                    Welcome back{firebaseUser?.displayName ? `, ${firebaseUser.displayName}` : ''}
-                  </h1>
-                  <p className="text-neutral-400 text-sm mb-8">Your client workspace overview.</p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-6">
-                      <h3 className="text-sm font-bold text-white mb-2">My Projects</h3>
-                      <p className="text-3xl font-black text-[#FF1E1E]">{projects.length}</p>
-                      <p className="text-xs text-neutral-500 mt-1">Active projects</p>
+        {error && <div role="alert" className="mb-5 rounded border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
+        {loading ? <p className="py-12 text-center text-sm text-neutral-400">Loading your projects…</p> : (
+          <>
+            {activeTab === 'projects' && (
+              <div className="space-y-4">
+                {projects.length === 0 && <div className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-8 text-center text-sm text-neutral-400">No projects are assigned to your account yet.</div>}
+                {projects.map(project => {
+                  const projectTasks = tasks.filter(task => task.projectId === project.id);
+                  const projectRevisions = requestsByProject.get(project.id) || [];
+                  return <article key={project.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div><h2 className="text-lg font-bold text-white">{project.title}</h2><p className="mt-1 text-sm text-neutral-400">{project.description}</p></div>
+                      <span className="rounded border border-[#333] px-2 py-1 text-xs text-neutral-200">{project.stage || project.status}</span>
                     </div>
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-6">
-                      <h3 className="text-sm font-bold text-white mb-2">Deliverables</h3>
-                      <p className="text-3xl font-black text-[#FF1E1E]">{deliverables.length}</p>
-                      <p className="text-xs text-neutral-500 mt-1">Published deliverables</p>
+                    <div className="mt-4 flex items-center gap-3">
+                      <div className="h-2 flex-1 overflow-hidden rounded bg-[#252525]"><div className="h-full bg-[#FF1E1E]" style={{ width: `${Math.min(100, Math.max(0, project.progress || 0))}%` }} /></div>
+                      <span className="text-xs text-neutral-300">{project.progress || 0}%</span>
                     </div>
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-6">
-                      <h3 className="text-sm font-bold text-white mb-2">Notifications</h3>
-                      <p className="text-3xl font-black text-[#FF1E1E]">{unreadCount}</p>
-                      <p className="text-xs text-neutral-500 mt-1">Unread</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'projects' && !selectedProject && (
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-white mb-6">My Projects</h2>
-                  {projects.length === 0 ? (
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-12 text-center">
-                      <p className="text-neutral-500 text-sm">No projects yet.</p>
-                      <p className="text-neutral-600 text-xs mt-2">Your projects will appear here once created by our team.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {projects.map((project) => (
-                        <div
-                          key={project.id}
-                          onClick={() => setSelectedProject(project)}
-                          className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-6 cursor-pointer hover:border-[#FF1E1E]/30 transition-colors"
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <h3 className="text-lg font-bold text-white">{project.title}</h3>
-                            <span className={`text-[10px] font-mono tracking-widest uppercase ${statusColors[project.status]}`}>
-                              {project.status}
-                            </span>
-                          </div>
-                          <p className="text-neutral-500 text-sm mb-4 line-clamp-2">{project.description}</p>
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1 h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden">
-                              <div className="h-full bg-[#FF1E1E] rounded-full transition-all" style={{ width: `${project.progress}%` }} />
-                            </div>
-                            <span className="text-xs text-neutral-400">{project.progress}%</span>
-                          </div>
-                          <p className="text-[10px] text-neutral-600 mt-3">
-                            Due: {new Date(project.expectedDeliveryDate).toLocaleDateString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTab === 'projects' && selectedProject && (
-                <div>
-                  <button
-                    onClick={() => setSelectedProject(null)}
-                    className="text-[#FF1E1E] hover:text-white transition-colors text-sm mb-6 flex items-center gap-2"
-                  >
-                    ← Back to Projects
-                  </button>
-                  <h2 className="text-2xl font-black tracking-tight text-white mb-2">{selectedProject.title}</h2>
-                  <p className="text-neutral-400 text-sm mb-6">{selectedProject.description}</p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-4">
-                      <label className="text-[10px] font-mono tracking-widest uppercase text-neutral-500 block mb-1">Status</label>
-                      <p className={`text-sm font-bold ${statusColors[selectedProject.status]}`}>{selectedProject.status}</p>
-                    </div>
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-4">
-                      <label className="text-[10px] font-mono tracking-widest uppercase text-neutral-500 block mb-1">Progress</label>
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
-                          <div className="h-full bg-[#FF1E1E] rounded-full transition-all" style={{ width: `${selectedProject.progress}%` }} />
-                        </div>
-                        <span className="text-sm font-bold text-white">{selectedProject.progress}%</span>
-                      </div>
-                    </div>
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-4">
-                      <label className="text-[10px] font-mono tracking-widest uppercase text-neutral-500 block mb-1">Start Date</label>
-                      <p className="text-white text-sm">{new Date(selectedProject.startDate).toLocaleDateString()}</p>
-                    </div>
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-4">
-                      <label className="text-[10px] font-mono tracking-widest uppercase text-neutral-500 block mb-1">Expected Delivery</label>
-                      <p className="text-white text-sm">{new Date(selectedProject.expectedDeliveryDate).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-
-                  {selectedProject.milestones && selectedProject.milestones.length > 0 && (
-                    <div className="mb-8">
-                      <h3 className="text-lg font-bold text-white mb-4">Milestones</h3>
-                      <div className="space-y-3">
-                        {selectedProject.milestones.map((m, i) => (
-                          <div key={i} className="flex items-center gap-3 text-sm">
-                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${m.completed ? 'bg-[#FF1E1E] border-[#FF1E1E]' : 'border-[#242424]'}`}>
-                              {m.completed && <span className="text-white text-[8px]">✓</span>}
-                            </div>
-                            <span className={m.completed ? 'text-white' : 'text-neutral-500'}>{m.title}</span>
-                            {m.date && <span className="text-[10px] text-neutral-600 ml-auto">{new Date(m.date).toLocaleDateString()}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedProject.recentUpdates && selectedProject.recentUpdates.length > 0 && (
-                    <div>
-                      <h3 className="text-lg font-bold text-white mb-4">Recent Updates</h3>
-                      <div className="space-y-3">
-                        {selectedProject.recentUpdates.map((u, i) => (
-                          <div key={i} className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-4">
-                            <p className="text-neutral-400 text-sm">{u.message}</p>
-                            <span className="text-[10px] text-neutral-600 mt-1 block">{new Date(u.date).toLocaleDateString()}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTab === 'deliverables' && (
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-white mb-6">My Deliverables</h2>
-                  {deliverables.length === 0 ? (
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-12 text-center">
-                      <p className="text-neutral-500 text-sm">No deliverables yet.</p>
-                      <p className="text-neutral-600 text-xs mt-2">Deliverables will appear here once published by our team.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {deliverables.map((del) => (
-                        <div key={del.id} className="bg-[#0C0C0C] border border-[#1A1A1A] rounded overflow-hidden">
-                          {del.thumbnailUrl ? (
-                            <img src={del.thumbnailUrl} alt={del.title} className="w-full h-40 object-cover" />
-                          ) : (
-                            <div className="w-full h-40 bg-[#141414] flex items-center justify-center">
-                              <span className="text-neutral-600 text-xs font-mono uppercase">{del.fileType}</span>
-                            </div>
-                          )}
-                          <div className="p-4">
-                            <h3 className="text-sm font-bold text-white mb-1">{del.title}</h3>
-                            <p className="text-neutral-500 text-xs mb-3">{del.description}</p>
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-mono tracking-widest uppercase text-neutral-600">{del.category}</span>
-                              {del.fileUrl && (
-                                <a href={del.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[#FF1E1E] hover:text-white text-xs transition-colors">
-                                  Download
-                                </a>
-                              )}
-                            </div>
-                            {del.publishedDate && (
-                              <p className="text-[10px] text-neutral-600 mt-2">
-                                Published: {new Date(del.publishedDate).toLocaleDateString()}
-                              </p>
-                            )}
-                            {/* Review Status & Actions */}
-                            <div className="mt-3 pt-3 border-t border-[#1A1A1A]">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-[10px] font-mono tracking-widest uppercase text-neutral-600">Review Status</span>
-                                <span className={`text-[10px] font-mono tracking-widest uppercase ${
-                                  del.reviewStatus === 'Approved' ? 'text-green-400' :
-                                  del.reviewStatus === 'Revision Requested' ? 'text-yellow-400' :
-                                  del.reviewStatus === 'Revision In Progress' ? 'text-blue-400' :
-                                  'text-neutral-400'
-                                }`}>{del.reviewStatus || 'Awaiting Review'}</span>
-                              </div>
-                              {del.approval && (
-                                <p className="text-[10px] text-neutral-600 mb-2">
-                                  Approved on {new Date(del.approval.approvedAt).toLocaleDateString()}
-                                </p>
-                              )}
-                              {del.reviewStatus !== 'Approved' && del.reviewStatus !== 'Revision Requested' && (
-                                <div className="flex gap-2 mt-2">
-                                  <button
-                                    onClick={() => { setReviewingDeliverable(del); setReviewAction('approve'); }}
-                                    className="text-xs bg-green-500/10 text-green-400 border border-green-500/20 px-3 py-1 rounded hover:bg-green-500/20 transition-colors"
-                                  >
-                                    Approve
-                                  </button>
-                                  <button
-                                    onClick={() => { setReviewingDeliverable(del); setReviewAction('revision'); }}
-                                    className="text-xs bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-3 py-1 rounded hover:bg-yellow-500/20 transition-colors"
-                                  >
-                                    Request Revision
-                                  </button>
-                                </div>
-                              )}
-                              {del.versions && del.versions.length > 1 && (
-                                <div className="mt-3">
-                                  <p className="text-[10px] font-mono tracking-widest uppercase text-neutral-600 mb-1">Versions: {del.versions.length}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTab === 'notifications' && (
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-white mb-6">Notifications</h2>
-                  {notifications.length === 0 ? (
-                    <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-12 text-center">
-                      <p className="text-neutral-500 text-sm">No notifications.</p>
-                      <p className="text-neutral-600 text-xs mt-2">You will be notified here when updates are available.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {notifications.map((notif) => (
-                        <div
-                          key={notif.id}
-                          className={`bg-[#0C0C0C] border rounded p-4 transition-colors ${notif.read ? 'border-[#1A1A1A]' : 'border-[#FF1E1E]/30'}`}
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <h3 className={`text-sm font-bold ${notif.read ? 'text-neutral-400' : 'text-white'}`}>{notif.title}</h3>
-                              <p className="text-neutral-500 text-xs mt-1">{notif.message}</p>
-                              <span className="text-[10px] text-neutral-600 mt-2 block">{new Date(notif.createdAt).toLocaleDateString()}</span>
-                            </div>
-                            {!notif.read && (
-                              <button
-                                onClick={() => markAsRead(notif.id)}
-                                className="text-[10px] text-[#FF1E1E] hover:text-white transition-colors whitespace-nowrap"
-                              >
-                                Mark read
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'settings' && (
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-white mb-6">Account Settings</h2>
-                  <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded p-6 max-w-lg">
-                    <div className="space-y-4">
-                      <div>
-                        <label className="text-[10px] font-mono tracking-widest uppercase text-neutral-500 block mb-1">Email</label>
-                        <p className="text-white text-sm">{firebaseUser?.email}</p>
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-mono tracking-widest uppercase text-neutral-500 block mb-1">Account Status</label>
-                        <p className="text-white text-sm">Active</p>
-                      </div>
-                      <div className="pt-4">
-                        <button
-                          onClick={() => logout()}
-                          className="bg-[#FF1E1E] hover:bg-[#E01E1E] text-white px-6 py-2 rounded text-sm font-medium transition-colors"
-                        >
-                          Sign Out
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-          {/* Review Dialog */}
-          {reviewingDeliverable && reviewAction && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center px-4">
-              <div className="bg-[#0C0C0C] border border-[#1A1A1A] rounded-lg p-6 max-w-lg w-full">
-                <h3 className="text-xl font-bold text-white mb-4">
-                  {reviewAction === 'approve' ? 'Approve Deliverable' : 'Request Revision'}
-                </h3>
-                <p className="text-neutral-400 text-sm mb-4">
-                  {reviewAction === 'approve'
-                    ? `You are approving "${reviewingDeliverable.title}". This confirms the deliverable is satisfactory.`
-                    : `You are requesting revisions for "${reviewingDeliverable.title}". Please describe the changes needed.`}
-                </p>
-                <textarea
-                  value={reviewFeedback}
-                  onChange={(e) => setReviewFeedback(e.target.value)}
-                  className="w-full bg-[#141414] border border-[#222] text-white px-4 py-3 rounded text-sm focus:border-[#FF1E1E] focus:outline-none transition-colors min-h-[100px] resize-y"
-                  placeholder={reviewAction === 'approve' ? 'Optional feedback...' : 'Describe the requested changes (required)...'}
-                  required={reviewAction === 'revision'}
-                />
-                <div className="flex justify-end gap-3 mt-4">
-                  <button
-                    onClick={() => {
-                      setReviewingDeliverable(null);
-                      setReviewFeedback('');
-                      setReviewAction(null);
-                    }}
-                    className="px-4 py-2 text-sm text-neutral-400 hover:text-white transition-colors"
-                    disabled={submittingReview}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (reviewAction === 'approve') {
-                        handleApprove(reviewingDeliverable);
-                      } else {
-                        handleRequestRevision(reviewingDeliverable);
-                      }
-                    }}
-                    disabled={submittingReview || (reviewAction === 'revision' && !reviewFeedback.trim())}
-                    className={`px-4 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                      reviewAction === 'approve'
-                        ? 'bg-green-500 hover:bg-green-600 text-white'
-                        : 'bg-[#FF1E1E] hover:bg-[#E01E1E] text-white'
-                    }`}
-                  >
-                    {submittingReview ? 'Submitting...' : reviewAction === 'approve' ? 'Confirm Approval' : 'Submit Revision Request'}
-                  </button>
-                </div>
+                    <p className={`mt-2 text-xs ${project.expectedDeliveryDate && project.expectedDeliveryDate < new Date().toISOString().slice(0, 10) && project.stage !== 'Delivered' ? 'text-amber-300' : 'text-neutral-500'}`}>
+                      Expected delivery: {project.expectedDeliveryDate || 'To be confirmed'}
+                      {project.expectedDeliveryDate && project.expectedDeliveryDate < new Date().toISOString().slice(0, 10) && project.stage !== 'Delivered' ? ' · Overdue' : ''}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-1">{STAGE_ORDER.map((stage, index) => {
+                      const currentIndex = STAGE_ORDER.indexOf(project.stage || 'New Request');
+                      const reached = index <= currentIndex;
+                      return <span key={stage} className={`rounded px-2 py-1 text-[10px] ${reached ? 'bg-red-950/50 text-red-200' : 'bg-[#161616] text-neutral-600'}`}>{stage}</span>;
+                    })}</div>
+                    {projectTasks.length > 0 && <div className="mt-4 border-t border-[#222] pt-3"><h3 className="text-xs font-semibold text-neutral-300">Shared tasks</h3>{projectTasks.map(task => {
+                      const overdue = Boolean(task.dueDate && task.dueDate < new Date().toISOString().slice(0, 10) && task.status !== 'Done');
+                      return <div key={task.id} className="mt-2 flex justify-between gap-2 text-xs"><span className="text-neutral-300">{task.title}</span><span className={overdue ? 'text-amber-300' : 'text-neutral-500'}>{task.status}{task.dueDate ? ` · Due ${task.dueDate}` : ''}{overdue ? ' · Overdue' : ''}</span></div>;
+                    })}</div>}
+                    {projectRevisions.length > 0 && <p className="mt-3 text-xs text-neutral-500">{projectRevisions.length} revision request(s) · latest: {projectRevisions[0].status}</p>}
+                  </article>;
+                })}
               </div>
+            )}
+
+            {activeTab === 'deliverables' && (
+              <div className="grid gap-4 md:grid-cols-2">
+                {deliverables.length === 0 && <p className="text-sm text-neutral-500">No deliverables have been published for review.</p>}
+                {deliverables.map(deliverable => {
+                  const project = projectById.get(deliverable.projectId);
+                  const feedback = feedbackByDeliverable[deliverable.id] || '';
+                  const waiting = deliverable.reviewStatus === 'Awaiting Review' || deliverable.reviewStatus === 'Revised - Awaiting Review';
+                  return <article key={deliverable.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-4">
+                    <p className="text-[10px] uppercase tracking-widest text-neutral-500">{project?.title || 'Project'}</p>
+                    <h2 className="mt-1 font-bold text-white">{deliverable.title}</h2>
+                    {deliverable.description && <p className="mt-2 text-sm text-neutral-400">{deliverable.description}</p>}
+                    <p className="mt-2 text-xs text-neutral-500">Review status: {deliverable.reviewStatus}</p>
+                    {deliverable.fileUrl && <div className="mt-3 space-y-2">
+                      {deliverable.fileType.startsWith('image/') && <img src={deliverable.fileUrl} alt={deliverable.title} className="max-h-80 max-w-full rounded border border-[#292929] object-contain" />}
+                      {deliverable.fileType.startsWith('video/') && <video controls preload="metadata" src={deliverable.fileUrl} className="max-h-80 w-full rounded" />}
+                      {deliverable.fileType.startsWith('audio/') && <audio controls preload="metadata" src={deliverable.fileUrl} className="w-full" />}
+                      {deliverable.fileType === 'application/pdf' && <iframe title={`${deliverable.title} preview`} src={deliverable.fileUrl} className="h-80 w-full rounded border border-[#292929]" />}
+                      <a href={deliverable.fileUrl} download={deliverable.fileName} target="_blank" rel="noreferrer" className="inline-block text-sm text-red-300 underline">Download · {deliverable.fileName}</a>
+                    </div>}
+                    {deliverable.versions && deliverable.versions.length > 1 && <details className="mt-3 text-xs text-neutral-400"><summary className="cursor-pointer">Version history ({deliverable.versions.length})</summary><ol className="mt-2 space-y-1">{[...deliverable.versions].reverse().map(version => <li key={version.version}><a href={version.fileUrl} download={version.fileName} target="_blank" rel="noreferrer" className="text-red-300 underline">Version {version.version} · {version.fileName}</a><span className="ml-2 text-neutral-500">{version.createdAt}</span></li>)}</ol></details>}
+                    {waiting && <div className="mt-4 space-y-2"><textarea value={feedback} onChange={event => setFeedbackByDeliverable(previous => ({ ...previous, [deliverable.id]: event.target.value }))} placeholder="Feedback (required to reject or request a revision)" rows={3} maxLength={5000} className="w-full rounded border border-[#333] bg-[#141414] p-2 text-sm text-white" /><div className="flex flex-wrap gap-2"><button disabled={submittingId === deliverable.id} onClick={() => void review(deliverable, 'approve')} className="rounded bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Approve</button><button disabled={submittingId === deliverable.id || !feedback.trim()} onClick={() => void review(deliverable, 'reject')} className="rounded border border-red-900 px-3 py-2 text-xs text-red-200 disabled:opacity-50">Reject</button><button disabled={submittingId === deliverable.id || !feedback.trim()} onClick={() => void review(deliverable, 'revision')} className="rounded border border-[#444] px-3 py-2 text-xs text-white disabled:opacity-50">Request revision</button></div></div>}
+                    {deliverable.reviewStatus === 'Rejected' && <p className="mt-3 rounded border border-red-900/50 bg-red-950/20 p-2 text-xs text-red-200">Rejected: {deliverable.feedback || 'No feedback was provided.'}</p>}
+                  </article>;
+                })}
+              </div>
+            )}
+
+            {activeTab === 'updates' && (
+              <div className="space-y-3">
+                {activity.length === 0 && revisions.length === 0 && <p className="text-sm text-neutral-500">No client-visible updates yet.</p>}
+                {recentActivity.map(item => <article key={item.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-4"><p className="text-sm font-semibold text-white">{item.action}</p><p className="mt-1 text-sm text-neutral-400">{item.details}</p><p className="mt-2 text-[10px] text-neutral-600">{projectById.get(item.projectId)?.title || 'Project'} · {item.createdAt}</p></article>)}
+                {recentRevisions.map(item => <article key={item.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-4"><p className="text-sm font-semibold text-white">Revision · {item.status}</p><p className="mt-1 text-sm text-neutral-400">{item.feedback}</p><p className="mt-2 text-[10px] text-neutral-600">{projectById.get(item.projectId)?.title || 'Project'} · {item.submittedAt}</p></article>)}
+              </div>
+            )}
+          </>
+        )}
+      </main>
+      {requestOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <form onSubmit={submitRequest} className="w-full max-w-lg space-y-3 rounded-xl border border-[#292929] bg-[#0C0C0C] p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Submit a production request</h2>
+              <button type="button" onClick={() => setRequestOpen(false)} className="text-sm text-neutral-400 hover:text-white">Close</button>
             </div>
-          )}
-        </main>
-      </div>
+            <input value={requestTitle} onChange={event => setRequestTitle(event.target.value)} maxLength={160} required placeholder="Project title" className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" />
+            <select value={requestCategory} onChange={event => setRequestCategory(event.target.value)} className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white">
+              <option>Creative</option><option>Marketing</option><option>Distribution</option><option>Legal</option><option>Executive</option>
+            </select>
+            <textarea value={requestDescription} onChange={event => setRequestDescription(event.target.value)} maxLength={5000} required rows={5} placeholder="Describe the work and deliverables" className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" />
+            <label className="block text-xs text-neutral-400">Requested delivery date<input type="date" value={requestDueDate} onChange={event => setRequestDueDate(event.target.value)} className="mt-1 block rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" /></label>
+            <button disabled={requestSubmitting} className="w-full rounded bg-[#FF1E1E] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{requestSubmitting ? 'Submitting…' : 'Submit request'}</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

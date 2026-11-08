@@ -21,7 +21,9 @@ export const ArticlePage: React.FC<Props> = ({ navigate, param }) => {
             <span>{post.category}</span><span>·</span><span>{post.date}</span><span>·</span><span>{post.artist}</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">{post.title}</h1>
-          <p className="text-base text-neutral-400 leading-relaxed">{post.content}</p>
+          <div className="space-y-5 text-base leading-relaxed text-neutral-400">
+            {post.content.split('\n\n').map(paragraph => <p key={paragraph}>{paragraph}</p>)}
+          </div>
         </section>
       </main>
       <PublicFooter navigate={navigate} />

@@ -25,6 +25,20 @@ service firebase.storage {
       );
     }
 
+    function isPlatformAdmin() {
+      return isSignedIn() &&
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid));
+    }
+
+    function ownsPublishedDeliverable(projectId, deliverableId) {
+      return isSignedIn() &&
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)) &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid &&
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)/deliverables/$(deliverableId)) &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)/deliverables/$(deliverableId)).data.clientUid == request.auth.uid &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)/deliverables/$(deliverableId)).data.isClientPublished == true;
+    }
+
     // Explicit Creative Asset MIME Allowlist
     function isValidCreativeAsset() {
       return request.resource.contentType.matches(
@@ -49,13 +63,20 @@ service firebase.storage {
       allow delete: if isWorkspaceMember(workspaceId);
     }
 
-    // Client Deliverable Files (Phase 2C - Private, Authenticated Access)
-    // Client Deliverable Files (Phase 2C - Private, Authenticated Access)
+    // Legacy client deliverables remain private to their owner and platform admins.
     match /clients/{clientUid}/deliverables/{deliverableId}/{fileName} {
       // Only the owner client or platform admin can read
       allow read: if isSignedIn() && (request.auth.uid == clientUid || firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid)));
       // Only platform admin can upload/modify/delete
       allow write: if isSignedIn() && firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid));
+    }
+
+    match /production/{projectId}/deliverables/{deliverableId}/{allPaths=**} {
+      allow read: if isPlatformAdmin() || ownsPublishedDeliverable(projectId, deliverableId);
+      allow create, update: if isPlatformAdmin() &&
+        request.resource.size < 50 * 1024 * 1024 &&
+        isValidCreativeAsset();
+      allow delete: if isPlatformAdmin();
     }
 
     // Default Deny Everything Else

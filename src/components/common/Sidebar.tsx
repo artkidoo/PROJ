@@ -52,7 +52,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
     releases, 
     documents, 
     tasks,
-    productionProjects,
     canAccessProductionCenter,
     canAccessAdminCenter,
     resetToSampleData,
@@ -74,7 +73,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
 
   const pendingTasks = tasks.filter(t => t.status !== 'Done' && t.workspaceId === activeWorkspace.id).length;
   const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;
-  const activeProductionCount = productionProjects.filter(p => p.stage !== 'Delivered').length;
 
   const getNavItems = (): NavItem[] => {
     if (isArtist) {
@@ -341,11 +339,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                     <Briefcase size={16} className={activeModule === 'production' ? 'text-red-400' : 'text-neutral-500 group-hover:text-neutral-300'} />
                     <span className="truncate">Production Center</span>
                   </div>
-                  {activeProductionCount > 0 && (
-                    <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-red-950/90 text-red-300 border border-red-900/50">
-                      {activeProductionCount}
-                    </span>
-                  )}
                 </button>
               )}
 

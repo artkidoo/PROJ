@@ -34,14 +34,14 @@ export const ARTISTS: ArtistProfile[] = [
 
 export interface ReleaseItem { id: string; artist: string; title: string; date: string; category: string; cover: string; links: { label: string; url: string }[]; }
 export const RELEASES: ReleaseItem[] = [
-  { id: 'r1', artist: 'KAYODE OLUWASEUN (K-FLOW)', title: 'Monolith (Single)', date: '2026-03-14', category: 'Afrobeats', cover: vinylPressMockup, links: [{ label: 'Spotify', url: '#' }, { label: 'Apple Music', url: '#' }] },
+  { id: 'r1', artist: 'KAYODE OLUWASEUN (K-FLOW)', title: 'Monolith (Single)', date: '2026-03-14', category: 'Afrobeats', cover: vinylPressMockup, links: [] },
 ];
 
 
 export interface BlogPost { id: string; title: string; artist: string; category: string; date: string; excerpt: string; image: string; content: string; }
 export const BLOG_POSTS: BlogPost[] = [
-  { id: 'b1', title: 'Designing a Release Identity That Travels', artist: 'KeedoHub Studio', category: 'Design', date: '2026-01-10', excerpt: 'How a coherent visual system carries a release from cover art to stage.', image: lyricalStudioHero, content: 'Sample article content. Replace with real editorial copy when connected to Blogger.' },
-  { id: 'b2', title: 'From Concept to Print: Corporate Collateral', artist: 'KeedoHub Studio', category: 'Brand', date: '2026-01-22', excerpt: 'Building executive-grade documents that feel considered and on-brand.', image: lyricalBrandStationery, content: 'Sample article content. Replace with real editorial copy when connected to Blogger.' },
+  { id: 'b1', title: 'Designing a Release Identity That Travels', artist: 'KeedoHub Studio', category: 'Design', date: '2026-01-10', excerpt: 'How a coherent visual system carries a release from cover art to stage.', image: lyricalStudioHero, content: 'A release identity needs to work beyond the cover. Begin with a visual idea that reflects the music, then define the typography, imagery and colour rules that let it adapt across formats. The goal is not to make every asset identical; it is to make each one feel like part of the same world.\n\nPlanning those variations early helps the campaign stay coherent from announcement artwork to streaming graphics and live visuals. Each format has its own constraints, so the system should be flexible enough to respect the medium while keeping the core identity intact.' },
+  { id: 'b2', title: 'From Concept to Print: Corporate Collateral', artist: 'KeedoHub Studio', category: 'Brand', date: '2026-01-22', excerpt: 'Building executive-grade documents that feel considered and on-brand.', image: lyricalBrandStationery, content: 'Corporate collateral is often where a brand meets people in practical, high-attention moments. A letterhead, proposal or presentation should make information easy to follow while carrying the same visual decisions as the wider identity.\n\nStart with hierarchy and use: what must be noticed first, what needs room to breathe, and how the document will be read or printed. Consistent type, spacing and colour create a reliable foundation; careful production checks help that foundation survive from screen to paper.' },
 ];
 
 export interface PricingPackage { id: string; name: string; audience: 'Artist'|'Brand'|'Both'; tier: string; priceLabel: string; deliverables: string[]; revisions: string; turnaround: string; }

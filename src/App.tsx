@@ -9,7 +9,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
 import { QuickActionModal } from './components/modals/QuickActionModal';
-import { PublicHomepage } from './components/public/PublicHomepage';
+import { PublicSite } from './components/public/PublicSite';
 
 // Modules
 import { OverviewDashboard } from './components/modules/OverviewDashboard';
@@ -31,6 +31,7 @@ import { AssetLibrary } from './components/modules/AssetLibrary';
 import { Operations } from './components/modules/Operations';
 import { ExportCenter } from './components/modules/ExportCenter';
 import { AdminControlCenter } from './components/modules/AdminControlCenter';
+import { ClientWorkspace } from './components/client/ClientWorkspace';
 
 const MainLayout: React.FC = () => {
   const { activeModule, currentRole, activeWorkspace } = useApp();
@@ -127,19 +128,27 @@ const MainLayout: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { appMode } = useApp();
+  const { appMode, firebaseUser, isAuthLoading, canAccessAdminCenter } = useApp();
 
-  const navigate = (route: string, param?: string) => {
-    const el = document.querySelector(`#${route}`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
-      window.location.hash = route;
-    }
-  };
+  if (isAuthLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#080808] text-sm text-neutral-400">
+        Loading KeedoHub…
+      </main>
+    );
+  }
 
   if (appMode === 'public') {
-    return <PublicHomepage navigate={navigate} />;
+    return <PublicSite />;
+  }
+  if (!firebaseUser) {
+    return <PublicSite />;
+  }
+  if (appMode === 'client') {
+    return <ClientWorkspace />;
+  }
+  if (!canAccessAdminCenter) {
+    return <ClientWorkspace />;
   }
 
   return <MainLayout />;

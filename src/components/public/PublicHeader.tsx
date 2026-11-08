@@ -27,7 +27,7 @@ const NAV_ITEMS: { label: string; route: PublicRoute }[] = [
 ];
 
 export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate }) => {
-  const { isAuthenticated, loginWithGoogle, enterWorkspace } = useApp();
+  const { isAuthenticated, authError, loginWithGoogle, enterWorkspace } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const go = (route: PublicRoute) => {
@@ -62,9 +62,12 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
 
         <div className="flex items-center gap-2.5 shrink-0">
           <button
+            type="button"
             onClick={() => setMobileOpen(v => !v)}
             className="lg:hidden p-2 text-neutral-300 hover:text-white"
             aria-label="Toggle menu"
+            aria-expanded={mobileOpen}
+            aria-controls="public-mobile-menu"
           >
             {mobileOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
@@ -87,10 +90,10 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
                 <span>Client Sign In</span>
               </button>
               <button
-                onClick={() => enterWorkspace('ws-lyrical-ent')}
+                onClick={() => enterWorkspace()}
                 className="flex items-center gap-1.5 bg-[#FF1E1E] hover:bg-[#E01818] text-white px-3.5 py-1.5 text-xs font-semibold rounded transition-all shadow-sm whitespace-nowrap active:scale-[0.98]"
               >
-                <span>Launch Workspace</span>
+                <span>Sign In / Create Account</span>
                 <ArrowRight size={13} />
               </button>
             </>
@@ -98,8 +101,10 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
         </div>
       </div>
 
+      {authError && <p role="alert" className="mx-auto max-w-[1440px] px-4 py-2 text-xs text-red-300">{authError}</p>}
+
       {mobileOpen && (
-        <div className="lg:hidden border-t border-[#1A1A1A] bg-[#080808] px-4 py-4 space-y-1">
+        <div id="public-mobile-menu" className="lg:hidden border-t border-[#1A1A1A] bg-[#080808] px-4 py-4 space-y-1">
           {NAV_ITEMS.map(item => (
             <button
               key={item.route}
@@ -119,10 +124,10 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
               </button>
             )}
             <button
-              onClick={() => { enterWorkspace('ws-lyrical-ent'); setMobileOpen(false); }}
+              onClick={() => { enterWorkspace(); setMobileOpen(false); }}
               className="w-full flex items-center justify-center gap-2 bg-[#FF1E1E] text-white px-3 py-2 text-sm font-semibold rounded"
             >
-              <LayoutDashboard size={14} /> Launch Workspace
+              <LayoutDashboard size={14} /> Sign In / Create Account
             </button>
           </div>
         </div>
