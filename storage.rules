@@ -32,8 +32,14 @@ service firebase.storage {
         isWorkspaceAccountActive() &&
         firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)) &&
         firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid &&
-        (!firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) ||
-          ownsProjectWorkspace(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.workspaceId));
+        (
+          (firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) &&
+            ownsProjectWorkspace(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.workspaceId)) ||
+          (!firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) &&
+            firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)) &&
+            firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId is string &&
+            ownsProjectWorkspace(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId))
+        );
     }
 
     // Fail-Safe Workspace Ownership Check

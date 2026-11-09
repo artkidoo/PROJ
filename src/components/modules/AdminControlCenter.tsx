@@ -1,15 +1,15 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { useApp } from '../../context/AppContext';
-import { db } from '../../lib/firebase';
+import { db, functions } from '../../lib/firebase';
 import { 
   ServicePackage, 
   ServiceCategory, 
   ServiceTier, 
   Workspace, 
   WorkspaceStatus, 
-  WorkspaceType, 
-  ClientCategory 
+  ClientProject,
 } from '../../types';
 import { 
   ShieldCheck, 
@@ -46,28 +46,26 @@ import {
 
 export const AdminControlCenter: React.FC = () => {
   const { 
-    workspaces, 
     activeWorkspace, 
     currentRole, 
     canAccessAdminCenter,
-    productionProjects,
     activities,
     documents,
-    tasks,
     releases,
-    servicePackages,
-    addServicePackage,
-    updateServicePackage,
-    deleteServicePackage,
-    toggleServicePackageActive,
-    createWorkspace,
-    updateWorkspaceStatus,
-    updateWorkspaceDetails,
-    assignServicePackageToWorkspace,
-    removeServicePackageFromWorkspace,
     switchWorkspace,
-    currentUser
+    firebaseUser,
   } = useApp();
+
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
+  const [productionProjects, setProductionProjects] = useState<ClientProject[]>([]);
+  const [adminRecords, setAdminRecords] = useState<Array<{ id: string; role?: string; grantedAt?: string }>>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [adminDataError, setAdminDataError] = useState('');
+  const [workspaceActionError, setWorkspaceActionError] = useState('');
+  const [workspaceActionPending, setWorkspaceActionPending] = useState(false);
+  const [roleTargetUid, setRoleTargetUid] = useState('');
+  const [roleActionPending, setRoleActionPending] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'clients' | 'services' | 'overview' | 'security' | 'audit' | 'pilot'>('clients');
 
@@ -80,8 +78,7 @@ export const AdminControlCenter: React.FC = () => {
 
   // New Client Onboarding Form State
   const [newClientName, setNewClientName] = useState('');
-  const [newClientType, setNewClientType] = useState<WorkspaceType>('Artist');
-  const [newClientCategory, setNewClientCategory] = useState<ClientCategory>('artist');
+  const [newClientType, setNewClientType] = useState<'Artist' | 'Brand'>('Artist');
   const [newClientEmail, setNewClientEmail] = useState('');
   const [newClientDescription, setNewClientDescription] = useState('');
   const [newClientColor, setNewClientColor] = useState('#D97706');
@@ -107,17 +104,39 @@ export const AdminControlCenter: React.FC = () => {
   const [pkgDeliverablesText, setPkgDeliverablesText] = useState('');
 
   // Pilot Validation Test Suite State
-  const [pilotTestState, setPilotTestState] = useState<Record<string, 'idle' | 'running' | 'passed'>>({
-    isolation: 'passed',
-    permissions: 'passed',
-    zipExport: 'passed',
-    workflow: 'passed',
-    storageRules: 'passed'
-  });
-  const [isEvaluatingPilot, setIsEvaluatingPilot] = useState(false);
   const [auditEntries, setAuditEntries] = useState<Array<{ id: string; actor: string; action: string; target: string; details: string; timestamp: string }>>([]);
   const [auditLoading, setAuditLoading] = useState(true);
   const [auditError, setAuditError] = useState('');
+  const loadAdminRecords = useCallback(async () => {
+    const result = await httpsCallable(functions, 'adminListPlatformRoles')({});
+    const data = result.data as { admins?: Array<{ uid: string; role?: string; grantedAt?: string }> };
+    setAdminRecords((data.admins || []).map(admin => ({
+      id: admin.uid,
+      role: admin.role,
+      grantedAt: admin.grantedAt,
+    })));
+  }, []);
+
+  useEffect(() => {
+    if (!canAccessAdminCenter) return;
+    const unsubscribers = [
+      onSnapshot(collection(db, 'workspaces'), snapshot => {
+        setWorkspaces(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Workspace)));
+        setWorkspaceLoading(false);
+      }, error => {
+        setAdminDataError(error.message || 'Unable to load client workspaces.');
+        setWorkspaceLoading(false);
+      }),
+      onSnapshot(collection(db, 'services'), snapshot => {
+        setServicePackages(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ServicePackage)));
+      }, error => setAdminDataError(error.message || 'Unable to load services.')),
+      onSnapshot(query(collection(db, 'clientProjects'), orderBy('updatedAt', 'desc')), snapshot => {
+        setProductionProjects(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ClientProject)));
+      }, error => setAdminDataError(error.message || 'Unable to load production metrics.')),
+    ];
+    void loadAdminRecords().catch(error => setAdminDataError(error instanceof Error ? error.message : String(error)));
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
+  }, [canAccessAdminCenter, loadAdminRecords]);
 
   useEffect(() => {
     if (!canAccessAdminCenter) return;
@@ -148,28 +167,6 @@ export const AdminControlCenter: React.FC = () => {
 
     return () => unsubscribe();
   }, [canAccessAdminCenter]);
-
-  const runPilotValidationSuite = () => {
-    setIsEvaluatingPilot(true);
-    setPilotTestState({
-      isolation: 'running',
-      permissions: 'running',
-      zipExport: 'running',
-      workflow: 'running',
-      storageRules: 'running'
-    });
-
-    setTimeout(() => {
-      setPilotTestState({
-        isolation: 'passed',
-        permissions: 'passed',
-        zipExport: 'passed',
-        workflow: 'passed',
-        storageRules: 'passed'
-      });
-      setIsEvaluatingPilot(false);
-    }, 1000);
-  };
 
   // Strict Access Guard: If accessed by an unauthorized user or outside master workspace
   if (!canAccessAdminCenter) {
@@ -284,46 +281,55 @@ export const AdminControlCenter: React.FC = () => {
 
   // Workload Metrics
   const productionProjectList = productionProjects || [];
-  const activeProjectsCount = productionProjectList.filter((p: { stage: string }) => p.stage !== 'Delivered').length;
-  const inQaCount = productionProjectList.filter((p: { stage: string }) => p.stage === 'Internal QA').length;
-  const inClientReviewCount = productionProjectList.filter((p: { stage: string }) => p.stage === 'Client Review').length;
-  const deliveredProjectsCount = productionProjectList.filter((p: { stage: string }) => p.stage === 'Delivered').length;
+  const activeProjectsCount = productionProjectList.filter((p: ClientProject) => p.stage !== 'Delivered').length;
+  const inQaCount = productionProjectList.filter((p: ClientProject) => p.stage === 'Internal QA').length;
+  const inClientReviewCount = productionProjectList.filter((p: ClientProject) => p.stage === 'Client Review').length;
+  const deliveredProjectsCount = productionProjectList.filter((p: ClientProject) => p.stage === 'Delivered').length;
 
   // Handle Client Onboarding
-  const handleOnboardSubmit = (e: React.FormEvent) => {
+  const handleOnboardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClientName.trim()) return;
-
-    const createdWs = createWorkspace({
-      name: newClientName.trim(),
-      type: newClientType,
-      clientCategory: newClientCategory,
-      ownerId: currentUser.id,
-      description: newClientDescription.trim() || `${newClientType} Client Workspace`,
-      status: 'Onboarding',
-      contactEmail: newClientEmail.trim() || undefined,
-      contractedPackageIds: newClientInitialPackage ? [newClientInitialPackage] : [],
-      brand: {
+    if (!newClientName.trim() || !newClientEmail.trim()) {
+      setWorkspaceActionError('Workspace name and an existing client email are required.');
+      return;
+    }
+    setWorkspaceActionPending(true);
+    setWorkspaceActionError('');
+    try {
+      const createWorkspaceCallable = httpsCallable(functions, 'adminCreateClientWorkspace');
+      const result = await createWorkspaceCallable({
         name: newClientName.trim(),
-        primaryColor: newClientColor,
-        secondaryColor: '#0B0B0B',
+        email: newClientEmail.trim(),
+        workspaceType: newClientType,
         accentColor: newClientColor,
-        tagline: newClientTagline.trim() || undefined,
-        typography: {
-          displayFont: 'Plus Jakarta Sans',
-          bodyFont: 'Plus Jakarta Sans'
-        }
+        description: newClientDescription.trim(),
+        tagline: newClientTagline.trim(),
+        packageId: newClientInitialPackage,
+      });
+      const { workspaceId, alreadyExists } = result.data as { workspaceId: string; alreadyExists: boolean };
+      if (alreadyExists && newClientInitialPackage) {
+        const existing = workspaces.find(workspace => workspace.id === workspaceId);
+        const packageIds = new Set(existing?.contractedPackageIds || []);
+        packageIds.add(newClientInitialPackage);
+        const updated = await httpsCallable(functions, 'adminUpdateWorkspace')({
+          workspaceId,
+          contractedPackageIds: [...packageIds],
+        });
+        if (!updated.data) throw new Error('The client workspace was linked, but the service assignment could not be confirmed.');
       }
-    });
-
-    // Reset form
-    setNewClientName('');
-    setNewClientEmail('');
-    setNewClientDescription('');
-    setNewClientTagline('');
-    setNewClientInitialPackage('');
-    setIsOnboardingModalOpen(false);
-    setSelectedClientForDetails(createdWs);
+      setIsOnboardingModalOpen(false);
+      setNewClientName('');
+      setNewClientEmail('');
+      setNewClientDescription('');
+      setNewClientTagline('');
+      setNewClientInitialPackage('');
+      const createdWorkspace = workspaces.find(workspace => workspace.id === workspaceId);
+      if (createdWorkspace) setSelectedClientForDetails(createdWorkspace);
+    } catch (error) {
+      setWorkspaceActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWorkspaceActionPending(false);
+    }
   };
 
   // Open Edit Package Modal
@@ -359,50 +365,110 @@ export const AdminControlCenter: React.FC = () => {
   };
 
   // Save Service Package
-  const handleSavePackage = (e: React.FormEvent) => {
+  const handleSavePackage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pkgName.trim()) return;
+    if (!pkgName.trim()) {
+      setAdminDataError('A service package name is required.');
+      return;
+    }
 
     const deliverables = pkgDeliverablesText
       .split('\n')
       .map(line => line.trim())
       .filter(line => line.length > 0);
 
-    if (editingPackage) {
-      updateServicePackage(editingPackage.id, {
+    const id = editingPackage?.id || crypto.randomUUID();
+    try {
+      await httpsCallable(functions, 'adminSaveServicePackage')({
+        id,
         name: pkgName.trim(),
         category: pkgCategory,
         tier: pkgTier,
-        priceUsd: Number(pkgPrice) || 0,
+        priceUsd: Math.max(0, Number(pkgPrice) || 0),
         billingType: pkgBillingType,
         revisionLimit: Number(pkgRevisionLimit),
-        turnaroundDays: Number(pkgTurnaroundDays) || 1,
+        turnaroundDays: Math.max(1, Number(pkgTurnaroundDays) || 1),
         targetAudience: pkgAudience,
         description: pkgDescription.trim(),
-        deliverables: deliverables.length > 0 ? deliverables : ['Standard deliverable specification']
+        deliverables: deliverables.length > 0 ? deliverables : [],
+        isActive: editingPackage?.isActive ?? true,
       });
-    } else {
-      addServicePackage({
-        name: pkgName.trim(),
-        category: pkgCategory,
-        tier: pkgTier,
-        priceUsd: Number(pkgPrice) || 0,
-        billingType: pkgBillingType,
-        revisionLimit: Number(pkgRevisionLimit),
-        turnaroundDays: Number(pkgTurnaroundDays) || 1,
-        targetAudience: pkgAudience,
-        description: pkgDescription.trim(),
-        deliverables: deliverables.length > 0 ? deliverables : ['Standard deliverable specification'],
-        isActive: true
-      });
+      setIsPackageModalOpen(false);
+      setEditingPackage(null);
+      setAdminDataError('');
+    } catch (error) {
+      setAdminDataError(error instanceof Error ? error.message : String(error));
     }
+  };
 
-    setIsPackageModalOpen(false);
-    setEditingPackage(null);
+  const updateWorkspaceAdmin = async (
+    workspaceId: string,
+    updates: { status?: WorkspaceStatus; contractedPackageIds?: string[] },
+  ): Promise<boolean> => {
+    try {
+      await httpsCallable(functions, 'adminUpdateWorkspace')({ workspaceId, ...updates });
+      setWorkspaceActionError('');
+      return true;
+    } catch (error) {
+      setWorkspaceActionError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  };
+
+  const togglePackageActive = async (pkg: ServicePackage) => {
+    try {
+      await httpsCallable(functions, 'adminSetServicePackageActive')({ id: pkg.id, isActive: !pkg.isActive });
+    } catch (error) {
+      setAdminDataError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const removePackage = async (pkg: ServicePackage) => {
+    if (!window.confirm(`Delete service package "${pkg.name}"?`)) return;
+    try {
+      await httpsCallable(functions, 'adminDeleteServicePackage')({ id: pkg.id });
+    } catch (error) {
+      setAdminDataError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const updatePlatformRole = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!roleTargetUid.trim()) return;
+    setRoleActionPending(true);
+    setAdminDataError('');
+    try {
+      await httpsCallable(functions, 'adminUpdatePlatformRole')({
+        targetUid: roleTargetUid.trim(),
+        action: 'grant',
+      });
+      await loadAdminRecords();
+      setRoleTargetUid('');
+    } catch (error) {
+      setAdminDataError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRoleActionPending(false);
+    }
+  };
+
+  const revokePlatformRole = async (uid: string) => {
+    if (!window.confirm(`Remove platform administrator access from ${uid}?`)) return;
+    setRoleActionPending(true);
+    setAdminDataError('');
+    try {
+      await httpsCallable(functions, 'adminUpdatePlatformRole')({ targetUid: uid, action: 'revoke' });
+      await loadAdminRecords();
+    } catch (error) {
+      setAdminDataError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRoleActionPending(false);
+    }
   };
 
   return (
     <div className="space-y-6">
+      {adminDataError && <p role="alert" className="rounded border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">{adminDataError}</p>}
+      {workspaceActionError && <p role="alert" className="rounded border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-200">{workspaceActionError}</p>}
       {/* Top Banner / Operator Identity */}
       <div className="bg-[#0D0D0D] border border-[#1E1E1E] rounded-xl p-6 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-[#FF1E1E]/5 rounded-full blur-3xl pointer-events-none" />
@@ -614,11 +680,11 @@ export const AdminControlCenter: React.FC = () => {
           </div>
 
           {/* Client Workspaces Directory */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {workspaceLoading ? <p className="py-8 text-center text-sm text-neutral-500">Loading live client workspaces…</p> : workspaces.length === 0 ? <p className="rounded border border-[#222] p-8 text-center text-sm text-neutral-500">No workspaces are registered yet.</p> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredWorkspaces.map(ws => {
               const isMaster = ws.id === 'ws-lyrical-ent';
               const status = ws.status || 'Active';
-              const clientProjects = productionProjectList.filter((p: { workspaceId: string }) => p.workspaceId === ws.id);
+              const clientProjects = productionProjectList.filter((p: ClientProject) => p.workspaceId === ws.id);
               const clientReleases = releases.filter((r: { workspaceId?: string }) => r.workspaceId === ws.id);
               const clientDocs = documents.filter((d: { workspaceId?: string }) => d.workspaceId === ws.id);
               const contractedPackages = servicePackages.filter(p => (ws.contractedPackageIds || []).includes(p.id));
@@ -740,7 +806,7 @@ export const AdminControlCenter: React.FC = () => {
                 </div>
               );
             })}
-          </div>
+          </div>}
         </div>
       )}
 
@@ -819,7 +885,7 @@ export const AdminControlCenter: React.FC = () => {
                       </div>
 
                       <button
-                        onClick={() => toggleServicePackageActive(pkg.id)}
+                        onClick={() => void togglePackageActive(pkg)}
                         title={pkg.isActive ? 'Deactivate Package' : 'Activate Package'}
                         className="text-neutral-400 hover:text-white transition-colors"
                       >
@@ -895,9 +961,7 @@ export const AdminControlCenter: React.FC = () => {
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm(`Delete service package "${pkg.name}"?`)) {
-                            deleteServicePackage(pkg.id);
-                          }
+                          void removePackage(pkg);
                         }}
                         className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-[#1A1A1A] rounded transition-colors"
                         title="Delete Package"
@@ -1195,6 +1259,26 @@ export const AdminControlCenter: React.FC = () => {
             </div>
           </div>
 
+          <section className="rounded-xl border border-[#1E1E1E] bg-[#0F0F0F] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-white">Platform administrator accounts</h3>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-400">Administrator access is granted only through a callable that verifies the current admin, confirms the target Firebase account, records an audit event and protects the last administrator.</p>
+              </div>
+              <form onSubmit={updatePlatformRole} className="flex w-full max-w-xl gap-2">
+                <input required value={roleTargetUid} onChange={event => setRoleTargetUid(event.target.value)} placeholder="Firebase Auth UID" className="min-w-0 flex-1 rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white" />
+                <button disabled={roleActionPending} className="rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roleActionPending ? 'Saving…' : 'Grant admin'}</button>
+              </form>
+            </div>
+            <div className="mt-4 divide-y divide-[#222]">
+              {adminRecords.map(record => <div key={record.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div><p className="font-mono text-xs text-white">{record.id}</p><p className="mt-1 text-[10px] text-neutral-500">{record.role || 'Platform Admin'}{record.grantedAt ? ` · granted ${new Date(record.grantedAt).toLocaleString()}` : ''}</p></div>
+                {record.id !== firebaseUser?.uid && <button type="button" disabled={roleActionPending} onClick={() => void revokePlatformRole(record.id)} className="rounded border border-red-900/60 px-2.5 py-1.5 text-[10px] text-red-200 disabled:opacity-50">Revoke access</button>}
+              </div>)}
+              {adminRecords.length === 0 && <p className="py-3 text-xs text-neutral-500">No platform administrators were returned.</p>}
+            </div>
+          </section>
+
           {/* Firestore Security Rules Status */}
           <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl p-5 space-y-4">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
@@ -1262,53 +1346,23 @@ export const AdminControlCenter: React.FC = () => {
               </div>
 
               <button
-                onClick={runPilotValidationSuite}
-                disabled={isEvaluatingPilot}
-                className="flex items-center gap-2 py-2.5 px-5 text-xs font-bold font-mono bg-[#FF1E1E] text-white hover:bg-red-600 rounded-lg transition-colors whitespace-nowrap shadow-lg shadow-red-950/40"
+                type="button"
+                disabled
+                title="Firebase Emulator validation is intentionally deferred."
+                className="flex items-center gap-2 py-2.5 px-5 text-xs font-bold font-mono bg-[#252525] text-neutral-500 rounded-lg whitespace-nowrap cursor-not-allowed"
               >
-                {isEvaluatingPilot ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Running Pilot Checks...</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={15} strokeWidth={2.5} />
-                    <span>Run All Pilot Validation Tests</span>
-                  </>
-                )}
+                <RefreshCw size={15} />
+                <span>Emulator validation deferred</span>
               </button>
             </div>
 
-            {/* Pilot Workspace Scope Card */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-[#1E1E1E]">
-              <div className="p-4 bg-[#141414] border border-[#222222] rounded-lg space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">PILOT ARTIST WORKSPACE</span>
-                  <span className="text-[10px] font-mono text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/40 border border-emerald-800/40">READY</span>
-                </div>
-                <div className="font-bold text-white text-sm">Sariyah (Artist Suite)</div>
-                <p className="text-[11px] text-neutral-400">
-                  Music release projects, audio master stems, 9:16 vertical motion deliverables, campaign schedule, and client review gates.
-                </p>
-              </div>
+            <p className="border-t border-[#1E1E1E] pt-4 text-xs text-neutral-400">
+              These checks are intentionally not reported as passing until the Firebase Emulator Suite is configured and the security and workflow tests have actually run.
+            </p>
 
-              <div className="p-4 bg-[#141414] border border-[#222222] rounded-lg space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono text-blue-400 uppercase font-bold">PILOT BRAND WORKSPACE</span>
-                  <span className="text-[10px] font-mono text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/40 border border-emerald-800/40">READY</span>
-                </div>
-                <div className="font-bold text-white text-sm">Black Slate (Brand Identity Suite)</div>
-                <p className="text-[11px] text-neutral-400">
-                  Brand identity system, corporate document dispatches, marketing creatives, social media kits, and executive invoicing.
-                </p>
-              </div>
-            </div>
-
-            {/* Test Suite Results Grid */}
             <div className="space-y-3 pt-2">
               <div className="text-xs font-mono text-neutral-400 uppercase tracking-wider">
-                PILOT ASSERTION CHECKLIST &amp; TEST RESULTS:
+                Deferred verification checklist:
               </div>
 
               <div className="grid grid-cols-1 gap-2.5">
@@ -1317,31 +1371,26 @@ export const AdminControlCenter: React.FC = () => {
                     id: 'isolation',
                     title: '1. Workspace Isolation & Multi-Tenancy Boundary',
                     desc: 'Verifies that artists and brands cannot access another workspace records or unpublished deliverables.',
-                    status: pilotTestState.isolation
                   },
                   {
                     id: 'permissions',
                     title: '2. RBAC Role Permissions & Privilege Escalation Guard',
                     desc: 'Validates that client members cannot self-assign admin roles or execute owner-only operations.',
-                    status: pilotTestState.permissions
                   },
                   {
                     id: 'zipExport',
                     title: '3. Release ZIP Archive & Metadata Integrity',
                     desc: 'Tests archive packaging, DSP manifests, lossless artwork specifications, and missing asset safety handling.',
-                    status: pilotTestState.zipExport
                   },
                   {
                     id: 'workflow',
                     title: '4. End-to-End Workflow & QA Pipeline State Machine',
                     desc: 'Simulates brief submission → production → internal QA → client review → approval → final delivery.',
-                    status: pilotTestState.workflow
                   },
                   {
                     id: 'storageRules',
                     title: '5. Firebase Storage Security Rules & MIME Allowlist',
                     desc: 'Enforces 50MB file size limits and explicit MIME type regex for audio, video, image, and PDF uploads.',
-                    status: pilotTestState.storageRules
                   }
                 ].map(test => (
                   <div key={test.id} className="flex items-center justify-between p-3.5 bg-[#141414] border border-[#222222] rounded-lg text-xs">
@@ -1350,25 +1399,7 @@ export const AdminControlCenter: React.FC = () => {
                       <div className="text-[11px] text-neutral-400">{test.desc}</div>
                     </div>
 
-                    <div className="flex items-center gap-2 font-mono text-[10px]">
-                      {test.status === 'running' && (
-                        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/50">
-                          <div className="w-3 h-3 border-2 border-amber-300 border-t-transparent rounded-full animate-spin" />
-                          <span>EVALUATING</span>
-                        </span>
-                      )}
-                      {test.status === 'passed' && (
-                        <span className="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/50">
-                          <CheckCircle2 size={13} />
-                          <span>PASSED &amp; VERIFIED</span>
-                        </span>
-                      )}
-                      {test.status === 'idle' && (
-                        <span className="px-2.5 py-1 rounded bg-[#222222] text-neutral-400">
-                          READY TO TEST
-                        </span>
-                      )}
-                    </div>
+                    <span className="rounded bg-[#222222] px-2.5 py-1 font-mono text-[10px] text-neutral-400">NOT RUN</span>
                   </div>
                 ))}
               </div>
@@ -1395,6 +1426,7 @@ export const AdminControlCenter: React.FC = () => {
             </div>
 
             <form onSubmit={handleOnboardSubmit} className="space-y-4 text-xs">
+              {workspaceActionError && <p role="alert" className="rounded border border-red-500/30 bg-red-950/20 p-3 text-red-300">{workspaceActionError}</p>}
               <div>
                 <label className="block text-neutral-400 font-mono mb-1">CLIENT / BRAND NAME *</label>
                 <input
@@ -1412,26 +1444,15 @@ export const AdminControlCenter: React.FC = () => {
                   <label className="block text-neutral-400 font-mono mb-1">WORKSPACE TYPE</label>
                   <select
                     value={newClientType}
-                    onChange={(e) => {
-                      const val = e.target.value as WorkspaceType;
-                      setNewClientType(val);
-                      if (val === 'Artist') {
-                        setNewClientCategory('artist');
-                        setNewClientColor('#D97706');
-                      } else if (val === 'Brand') {
-                        setNewClientCategory('brand');
-                        setNewClientColor('#2563EB');
-                      } else {
-                        setNewClientCategory('label');
-                        setNewClientColor('#FF1E1E');
-                      }
+                    onChange={event => {
+                      const type = event.target.value as 'Artist' | 'Brand';
+                      setNewClientType(type);
+                      setNewClientColor(type === 'Artist' ? '#D97706' : '#2563EB');
                     }}
                     className="w-full bg-[#181818] border border-[#2B2B2B] rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#FF1E1E]"
                   >
                     <option value="Artist">Artist Client</option>
                     <option value="Brand">Brand Client</option>
-                    <option value="Label">Sub-Label / Enterprise</option>
-                    <option value="Agency">Creative Agency</option>
                   </select>
                 </div>
 
@@ -1513,9 +1534,10 @@ export const AdminControlCenter: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#FF1E1E] hover:bg-red-600 text-white font-semibold rounded-lg transition-colors shadow-lg shadow-red-950/40"
+                  disabled={workspaceActionPending}
+                  className="px-4 py-2 bg-[#FF1E1E] hover:bg-red-600 text-white font-semibold rounded-lg transition-colors shadow-lg shadow-red-950/40 disabled:opacity-50"
                 >
-                  Initialize Client Workspace
+                  {workspaceActionPending ? 'Linking client workspace…' : 'Create / link client workspace'}
                 </button>
               </div>
             </form>
@@ -1732,10 +1754,9 @@ export const AdminControlCenter: React.FC = () => {
                 {(['Active', 'Onboarding', 'Paused', 'Archived'] as WorkspaceStatus[]).map(statusOption => (
                   <button
                     key={statusOption}
-                    onClick={() => {
-                      updateWorkspaceStatus(selectedClientForDetails.id, statusOption);
-                      setSelectedClientForDetails(prev => prev ? { ...prev, status: statusOption } : null);
-                    }}
+                    onClick={() => void updateWorkspaceAdmin(selectedClientForDetails.id, { status: statusOption }).then(success => {
+                      if (success) setSelectedClientForDetails(prev => prev ? { ...prev, status: statusOption } : null);
+                    })}
                     className={`px-2.5 py-1 text-[11px] font-mono rounded transition-colors ${
                       (selectedClientForDetails.status || 'Active') === statusOption
                         ? 'bg-[#FF1E1E] text-white font-bold'
@@ -1770,19 +1791,11 @@ export const AdminControlCenter: React.FC = () => {
 
                       <button
                         onClick={() => {
-                          if (isAssigned) {
-                            removeServicePackageFromWorkspace(selectedClientForDetails.id, pkg.id);
-                            setSelectedClientForDetails(prev => prev ? {
-                              ...prev,
-                              contractedPackageIds: (prev.contractedPackageIds || []).filter(id => id !== pkg.id)
-                            } : null);
-                          } else {
-                            assignServicePackageToWorkspace(selectedClientForDetails.id, pkg.id);
-                            setSelectedClientForDetails(prev => prev ? {
-                              ...prev,
-                              contractedPackageIds: [...(prev.contractedPackageIds || []), pkg.id]
-                            } : null);
-                          }
+                          const currentIds = selectedClientForDetails.contractedPackageIds || [];
+                          const nextIds = isAssigned ? currentIds.filter(id => id !== pkg.id) : [...currentIds, pkg.id];
+                          void updateWorkspaceAdmin(selectedClientForDetails.id, { contractedPackageIds: nextIds }).then(success => {
+                            if (success) setSelectedClientForDetails(prev => prev ? { ...prev, contractedPackageIds: nextIds } : null);
+                          });
                         }}
                         className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
                           isAssigned
@@ -1801,10 +1814,10 @@ export const AdminControlCenter: React.FC = () => {
             {/* Associated Projects View */}
             <div className="space-y-2">
               <span className="text-xs font-mono text-neutral-400 uppercase block">
-                Linked Production Projects ({productionProjectList.filter((p: { workspaceId: string }) => p.workspaceId === selectedClientForDetails.id).length})
+                Linked Production Projects ({productionProjectList.filter((p: ClientProject) => p.workspaceId === selectedClientForDetails.id).length})
               </span>
               <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {productionProjectList.filter((p: { workspaceId: string }) => p.workspaceId === selectedClientForDetails.id).map((proj: { id: string; title: string; stage: string }) => (
+                {productionProjectList.filter((p: ClientProject) => p.workspaceId === selectedClientForDetails.id).map((proj: ClientProject) => (
                   <div key={proj.id} className="flex items-center justify-between p-2 rounded bg-[#161616] border border-[#222222] text-xs">
                     <span className="text-white truncate max-w-xs">{proj.title}</span>
                     <span className="text-[10px] font-mono text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">

@@ -9,9 +9,10 @@ import {
   where,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { ClientProfile, ClientProject, ProductionActivity, ProductionDeliverable, ProductionRevisionRequest, ProductionTask, Workspace } from '../../types';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { ClientProfile, ClientProject, ProductionActivity, ProductionDeliverable, ProductionRevisionRequest, ProductionTask, RequestAttachment, Workspace } from '../../types';
 import { useApp } from '../../context/AppContext';
-import { db, functions } from '../../lib/firebase';
+import { db, functions, storage } from '../../lib/firebase';
 import { createClientWorkspaceData, ensureClientWorkspace } from '../../lib/clientWorkspace';
 import { ClientStudio, ClientStudioSection } from './ClientStudio';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
@@ -58,9 +59,14 @@ export const ClientWorkspace: React.FC = () => {
   const [requestOpen, setRequestOpen] = useState(false);
   const [requestTitle, setRequestTitle] = useState('');
   const [requestDescription, setRequestDescription] = useState('');
+  const [requestRequirements, setRequestRequirements] = useState('');
+  const [requestReferences, setRequestReferences] = useState('');
+  const [requestFiles, setRequestFiles] = useState<File[]>([]);
   const [requestCategory, setRequestCategory] = useState('Creative');
   const [requestDueDate, setRequestDueDate] = useState('');
   const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [requestReplyByProject, setRequestReplyByProject] = useState<Record<string, string>>({});
+  const [replySubmittingId, setReplySubmittingId] = useState('');
   const [profileState, setProfileState] = useState<'loading' | 'required' | 'complete' | 'error'>('loading');
   const [profileError, setProfileError] = useState('');
   const [profileCheck, setProfileCheck] = useState(0);
@@ -106,14 +112,19 @@ export const ClientWorkspace: React.FC = () => {
     if (!firebaseUser || profileState !== 'complete') return;
     setWorkspaceError('');
     return onSnapshot(
-      query(collection(db, 'workspaces'), where('ownerId', '==', firebaseUser.uid)),
+      query(
+        collection(db, 'workspaces'),
+        where('ownerId', '==', firebaseUser.uid),
+        where('status', 'in', ['Active', 'Onboarding']),
+      ),
       snapshot => {
         const owned = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Workspace));
         setWorkspaces(owned);
+        const available = owned.filter(workspace => !workspace.status || ['Active', 'Onboarding'].includes(workspace.status));
         setActiveWorkspaceId(current => {
-          if (owned.some(workspace => workspace.id === current)) return current;
-          if (clientProfile?.workspaceId && owned.some(workspace => workspace.id === clientProfile.workspaceId)) return clientProfile.workspaceId;
-          return owned[0]?.id || '';
+          if (available.some(workspace => workspace.id === current)) return current;
+          if (clientProfile?.workspaceId && available.some(workspace => workspace.id === clientProfile.workspaceId)) return clientProfile.workspaceId;
+          return available[0]?.id || '';
         });
       },
       err => setWorkspaceError(messageFromError(err)),
@@ -131,12 +142,20 @@ export const ClientWorkspace: React.FC = () => {
       setError('Sign in to view your client workspace.');
       return;
     }
+    if (!activeWorkspaceId) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError('');
     let childUnsubscribers: (() => void)[] = [];
     const unsubscribeProjects = onSnapshot(
-      query(collection(db, 'clientProjects'), where('clientUid', '==', firebaseUser.uid)),
+      query(
+        collection(db, 'clientProjects'),
+        where('clientUid', '==', firebaseUser.uid),
+        where('workspaceId', '==', activeWorkspaceId),
+      ),
       snapshot => {
         setLoading(true);
         const clientProjects = snapshot.docs.map(item => ({
@@ -207,9 +226,10 @@ export const ClientWorkspace: React.FC = () => {
       unsubscribeProjects();
       childUnsubscribers.forEach(unsubscribe => unsubscribe());
     };
-  }, [firebaseUser, clientProfile?.workspaceId]);
+  }, [firebaseUser, clientProfile?.workspaceId, activeWorkspaceId]);
 
-  const activeWorkspace = workspaces.find(workspace => workspace.id === activeWorkspaceId);
+  const activeWorkspace = workspaces.find(workspace => workspace.id === activeWorkspaceId &&
+    (!workspace.status || ['Active', 'Onboarding'].includes(workspace.status)));
 
   const createWorkspace = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -308,24 +328,76 @@ export const ClientWorkspace: React.FC = () => {
     }
     setRequestSubmitting(true);
     setError('');
+    const uploadedPaths: string[] = [];
     try {
       const callable = httpsCallable(functions, 'submitProductionRequest');
+      const requestId = crypto.randomUUID();
+      const attachments: RequestAttachment[] = [];
+      for (const file of requestFiles) {
+        if (!activeWorkspace?.id || !firebaseUser?.uid) {
+          throw new Error('Choose an active workspace before attaching files.');
+        }
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'attachment';
+        const storagePath = `workspaces/${activeWorkspace.id}/requests/${firebaseUser.uid}/${requestId}/${safeName}`;
+        await uploadBytes(ref(storage, storagePath), file, { contentType: file.type });
+        uploadedPaths.push(storagePath);
+        attachments.push({ fileName: file.name.slice(0, 120), storagePath, fileType: file.type, fileSize: file.size });
+      }
+      const requestBrief = [
+        `Workspace: ${activeWorkspace?.name || clientProfile?.organizationName || 'Client workspace'}`,
+        `Workspace type: ${activeWorkspace?.type || clientProfile?.accountType || 'Client'}`,
+        `Requested service: ${requestCategory}`,
+        '',
+        requestDescription.trim(),
+        requestRequirements.trim() ? `Requirements:\n${requestRequirements.trim()}` : '',
+        requestReferences.trim() ? `References:\n${requestReferences.trim()}` : '',
+      ].filter(Boolean).join('\n').slice(0, 5000);
       await callable({
         title: requestTitle.trim(),
-        description: `Workspace: ${activeWorkspace?.name || clientProfile?.organizationName || 'Client workspace'}\nWorkspace type: ${activeWorkspace?.type || clientProfile?.accountType || 'Client'}\n\n${requestDescription.trim()}`,
+        description: requestBrief,
         category: requestCategory,
         dueDate: requestDueDate,
         priority: 'Normal',
         workspaceId: activeWorkspace?.id,
+        attachments,
       });
       setRequestTitle('');
       setRequestDescription('');
+      setRequestRequirements('');
+      setRequestReferences('');
+      setRequestFiles([]);
       setRequestDueDate('');
       setRequestOpen(false);
     } catch (err) {
-      setError(messageFromError(err));
+      const cleanupResults = await Promise.allSettled(uploadedPaths.map(path => deleteObject(ref(storage, path))));
+      const cleanupFailed = cleanupResults.some(result => result.status === 'rejected');
+      setError(`${messageFromError(err)}${cleanupFailed ? ' Some uploaded files could not be cleaned up; contact support.' : ''}`);
     } finally {
       setRequestSubmitting(false);
+    }
+  };
+
+  const downloadRequestAttachment = async (attachment: RequestAttachment) => {
+    try {
+      const url = await getDownloadURL(ref(storage, attachment.storagePath));
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (downloadError) {
+      setError(messageFromError(downloadError));
+    }
+  };
+
+  const replyToRequest = async (project: ClientProject) => {
+    const message = requestReplyByProject[project.id]?.trim();
+    if (!message) return;
+    setReplySubmittingId(project.id);
+    setError('');
+    try {
+      await httpsCallable(functions, 'replyToProductionRequest')({ projectId: project.id, message });
+      setRequestReplyByProject(previous => ({ ...previous, [project.id]: '' }));
+    } catch (replyError) {
+      setError(messageFromError(replyError));
+    } finally {
+      setReplySubmittingId('');
     }
   };
 
@@ -369,7 +441,11 @@ export const ClientWorkspace: React.FC = () => {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#080808] px-4">
         <div className="w-full max-w-lg space-y-3 rounded border border-[#292929] bg-[#0C0C0C] p-6 text-sm text-neutral-300">
-          {workspaceError ? <p role="alert" className="text-red-300">{workspaceError}</p> : <p>Loading your private workspace…</p>}
+          {workspaceError
+            ? <p role="alert" className="text-red-300">{workspaceError}</p>
+            : workspaces.some(workspace => workspace.status && !['Active', 'Onboarding'].includes(workspace.status))
+              ? <p>Your workspace is paused or archived. Contact KeedoHub support to restore access.</p>
+              : <p>Loading your private workspace…</p>}
           {workspaceError && <button type="button" onClick={() => setProfileCheck(value => value + 1)} className="border border-[#444] px-3 py-2 text-white">Retry</button>}
         </div>
       </main>
@@ -390,7 +466,7 @@ export const ClientWorkspace: React.FC = () => {
               else if (nextWorkspace?.clientCategory === 'brand' || nextWorkspace?.clientCategory === 'business' || nextWorkspace?.type === 'Brand' || nextWorkspace?.type === 'Agency' || nextWorkspace?.type === 'Business' || nextWorkspace?.type === 'Enterprise') setActiveTab('brand');
               else setActiveTab('projects');
             }} className="max-w-[42vw] truncate rounded border border-[#292929] bg-[#121212] px-3 py-2 text-xs font-semibold text-white sm:max-w-56">
-              {workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.clientCategory || workspace.type}</option>)}
+              {workspaces.filter(workspace => !workspace.status || ['Active', 'Onboarding'].includes(workspace.status)).map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.clientCategory || workspace.type}</option>)}
             </select>
             <button type="button" onClick={() => { setNewWorkspaceType(isArtistWorkspace ? 'Brand' : 'Artist'); setCreateWorkspaceOpen(true); }} className="rounded border border-[#303030] px-2.5 py-2 text-xs text-neutral-300 hover:border-[#FF1E1E] hover:text-white">+ Workspace</button>
           </label>
@@ -434,6 +510,24 @@ export const ClientWorkspace: React.FC = () => {
                       <div><h2 className="text-lg font-bold text-white">{project.title}</h2><p className="mt-1 text-sm text-neutral-400">{project.description}</p></div>
                       <span className="rounded border border-[#333] px-2 py-1 text-xs text-neutral-200">{project.stage || project.status}</span>
                     </div>
+                    {project.requestStatus && <p className="mt-3 text-xs text-amber-300">Request: {project.requestStatus}</p>}
+                    {project.requestAttachmentsOwnerUid === firebaseUser?.uid &&
+                      project.requestAttachmentsWorkspaceId === activeWorkspaceId &&
+                      project.requestAttachments && project.requestAttachments.length > 0 && <div className="mt-3 flex flex-wrap gap-2">
+                      {project.requestAttachments.map(attachment => <button key={attachment.storagePath} type="button" onClick={() => void downloadRequestAttachment(attachment)} className="rounded border border-[#333] px-2.5 py-1.5 text-xs text-neutral-300 hover:text-white">{attachment.fileName} · Download</button>)}
+                    </div>}
+                    {project.requestHistory && project.requestHistory.length > 0 && <details className="mt-3 rounded border border-[#242424] bg-[#101010] p-3">
+                      <summary className="cursor-pointer text-xs font-semibold text-neutral-300">Request conversation · {project.requestHistory.length} message(s)</summary>
+                      <ol className="mt-3 space-y-3">{project.requestHistory.map((entry, index) => <li key={`${entry.createdAt}-${index}`} className="border-l border-[#444] pl-3">
+                        <p className="text-[10px] text-neutral-500">{entry.authorName} · {entry.authorRole} · {new Date(entry.createdAt).toLocaleString()}</p>
+                        <p className="mt-1 whitespace-pre-wrap text-xs text-neutral-300">{entry.message}</p>
+                      </li>)}</ol>
+                    </details>}
+                    {project.requestStatus === 'Clarification Requested' && <div className="mt-3 space-y-2 rounded border border-amber-900/40 bg-amber-950/10 p-3">
+                      {project.adminMessage && <p className="text-xs text-amber-100">{project.adminMessage}</p>}
+                      <textarea value={requestReplyByProject[project.id] || ''} onChange={event => setRequestReplyByProject(previous => ({ ...previous, [project.id]: event.target.value }))} maxLength={3000} rows={3} placeholder="Reply with the requested details…" className="w-full rounded border border-[#333] bg-[#141414] p-2 text-sm text-white" />
+                      <button type="button" disabled={replySubmittingId === project.id || !requestReplyByProject[project.id]?.trim()} onClick={() => void replyToRequest(project)} className="rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{replySubmittingId === project.id ? 'Sending…' : 'Send clarification'}</button>
+                    </div>}
                     <div className="mt-4 flex items-center gap-3">
                       <div className="h-2 flex-1 overflow-hidden rounded bg-[#252525]"><div className="h-full bg-[#FF1E1E]" style={{ width: `${Math.min(100, Math.max(0, project.progress || 0))}%` }} /></div>
                       <span className="text-xs text-neutral-300">{project.progress || 0}%</span>
@@ -506,6 +600,24 @@ export const ClientWorkspace: React.FC = () => {
               <option>Creative</option><option>Marketing</option><option>Distribution</option><option>Legal</option><option>Executive</option>
             </select>
             <textarea value={requestDescription} onChange={event => setRequestDescription(event.target.value)} maxLength={5000} required rows={5} placeholder="Describe the work and deliverables" className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" />
+            <textarea value={requestRequirements} onChange={event => setRequestRequirements(event.target.value)} maxLength={3000} rows={3} placeholder="Requirements, specifications or deliverables" className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" />
+            <textarea value={requestReferences} onChange={event => setRequestReferences(event.target.value)} maxLength={2000} rows={2} placeholder="Reference links or creative examples" className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" />
+            <label className="block text-xs text-neutral-400">Reference files · up to 5 files, 100 MB total
+              <input type="file" multiple accept="image/jpeg,image/png,image/svg+xml,image/webp,image/gif,image/avif,audio/mpeg,audio/wav,audio/x-wav,audio/aac,audio/flac,audio/mp4,audio/m4a,audio/ogg,video/mp4,video/webm,video/quicktime,application/pdf,application/json,application/xml,application/zip,application/x-zip-compressed,font/ttf,font/otf,font/woff,font/woff2,text/plain,text/xml" onChange={event => {
+                const files = Array.from(event.target.files || []);
+                const allowedType = /^(image\/(jpeg|png|svg\+xml|webp|gif|avif)|audio\/(mpeg|wav|x-wav|aac|flac|mp4|m4a|ogg)|video\/(mp4|webm|quicktime)|application\/(pdf|json|xml|zip|x-zip-compressed|font-woff)|font\/(ttf|otf|woff|woff2)|text\/(plain|xml))$/;
+                const invalid = files.length > 5 || files.some(file => file.size <= 0 || file.size >= 50 * 1024 * 1024 || !allowedType.test(file.type)) || files.reduce((total, file) => total + file.size, 0) > 100 * 1024 * 1024;
+                if (invalid) {
+                  setRequestFiles([]);
+                  setError('Choose up to five supported files, each under 50 MB and no more than 100 MB total.');
+                  event.target.value = '';
+                  return;
+                }
+                setError('');
+                setRequestFiles(files);
+              }} className="mt-1 block w-full text-xs text-neutral-300 file:mr-3 file:rounded file:border-0 file:bg-[#252525] file:px-3 file:py-2 file:text-xs file:text-white" />
+            </label>
+            {requestFiles.length > 0 && <p className="text-[11px] text-neutral-500">{requestFiles.map(file => file.name).join(' · ')}</p>}
             <label className="block text-xs text-neutral-400">Requested delivery date<input type="date" value={requestDueDate} onChange={event => setRequestDueDate(event.target.value)} className="mt-1 block rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" /></label>
             <button disabled={requestSubmitting} className="w-full rounded bg-[#FF1E1E] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{requestSubmitting ? 'Submitting…' : 'Submit request'}</button>
           </form>

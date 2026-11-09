@@ -72,7 +72,7 @@ export const PublicSite: React.FC = () => {
     case 'journal': return <JournalPage {...common} />;
     case 'article': return <ArticlePage {...common} param={param} />;
     case 'pricing': return <PricingPage {...common} />;
-    case 'contact': return <ContactPage {...common} />;
+    case 'contact': return <ContactPage {...common} serviceParam={param} />;
     case 'faq': return <FaqPage {...common} />;
     case 'terms': return <TermsPage {...common} />;
     case 'privacy': return <PrivacyPage {...common} />;

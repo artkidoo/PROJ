@@ -82,8 +82,14 @@ service cloud.firestore {
         isWorkspaceAccountActive() &&
         exists(/databases/$(database)/documents/clientProjects/$(projectId)) &&
         get(/databases/$(database)/documents/clientProjects/$(projectId)).data.clientUid == request.auth.uid &&
-        (!get(/databases/$(database)/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) ||
-          ownsProjectWorkspace(get(/databases/$(database)/documents/clientProjects/$(projectId)).data.workspaceId));
+        (
+          (get(/databases/$(database)/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) &&
+            ownsProjectWorkspace(get(/databases/$(database)/documents/clientProjects/$(projectId)).data.workspaceId)) ||
+          (!get(/databases/$(database)/documents/clientProjects/$(projectId)).data.keys().hasAny(['workspaceId']) &&
+            exists(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId is string &&
+            ownsProjectWorkspace(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId))
+        );
     }
 
     function validProjectAssignment(data) {
@@ -95,7 +101,9 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'id', 'clientUid', 'title', 'description', 'category', 'status',
           'progress', 'startDate', 'expectedDeliveryDate', 'createdAt',
-          'updatedAt', 'stage', 'priority', 'deliveredAt', 'workspaceId'
+          'updatedAt', 'stage', 'priority', 'deliveredAt', 'workspaceId',
+          'requestStatus', 'adminMessage', 'requestHistory', 'requestAttachments',
+          'requestAttachmentsOwnerUid', 'requestAttachmentsWorkspaceId'
         ]) &&
         data.id == projectId &&
         validProjectAssignment(data) &&
@@ -120,7 +128,19 @@ service cloud.firestore {
           ]) &&
         (!data.keys().hasAny(['priority']) ||
           data.priority in ['Low', 'Medium', 'Normal', 'High', 'Urgent']) &&
-        (!data.keys().hasAny(['deliveredAt']) || data.deliveredAt is string);
+        (!data.keys().hasAny(['deliveredAt']) || data.deliveredAt is string) &&
+        (!data.keys().hasAny(['requestStatus']) ||
+          data.requestStatus in ['Pending', 'Clarification Requested', 'Accepted', 'Rejected']) &&
+        (!data.keys().hasAny(['adminMessage']) ||
+          (data.adminMessage is string && data.adminMessage.size() <= 5000)) &&
+        (!data.keys().hasAny(['requestHistory']) ||
+          (data.requestHistory is list && data.requestHistory.size() <= 100)) &&
+        (!data.keys().hasAny(['requestAttachments']) ||
+          (data.requestAttachments is list && data.requestAttachments.size() <= 5)) &&
+        (!data.keys().hasAny(['requestAttachmentsOwnerUid']) ||
+          data.requestAttachmentsOwnerUid == data.clientUid) &&
+        (!data.keys().hasAny(['requestAttachmentsWorkspaceId']) ||
+          data.requestAttachmentsWorkspaceId == data.workspaceId);
     }
 
     function validProductionTask(projectId, taskId, data) {
@@ -218,6 +238,11 @@ service cloud.firestore {
       allow read: if isPlatformAdmin();
       allow write: if false; // Writes via trusted Cloud Functions only
     }
+
+    match /serviceEnquiries/{enquiryId} {
+      allow read: if isPlatformAdmin();
+      allow write: if false;
+    }
     // Default Deny Everything
     match /{document=**} {
       allow read, write: if false;
@@ -254,7 +279,10 @@ service cloud.firestore {
       // Users can only read workspace metadata if they are an owner or active member
       allow read: if isWorkspaceMember(workspaceId) ||
         isWorkspaceOwner(workspaceId) ||
-        (isWorkspaceAccountActive() && resource.data.ownerId == request.auth.uid);
+        (isWorkspaceAccountActive() &&
+          resource.data.ownerId == request.auth.uid &&
+          (!resource.data.keys().hasAny(['status']) ||
+            resource.data.status in ['Active', 'Onboarding']));
 
       // Users can create a workspace setting themselves as owner
       allow create: if isSignedIn() &&
@@ -499,10 +527,10 @@ service cloud.firestore {
         request.resource.data.updatedAt is string;
     }
 
-    // Global Service Packages Catalog (Read: Authenticated Users, Write: Platform Admin)
+    // Public active services; catalog writes are restricted to audited Cloud Functions.
     match /services/{serviceId} {
-      allow read: if isSignedIn();
-      allow write: if isPlatformAdmin();
+      allow read: if isPlatformAdmin() || resource.data.isActive == true;
+      allow write: if false;
     }
   }
 }

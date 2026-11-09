@@ -44,6 +44,13 @@ export type AppMode = 'public' | 'workspace' | 'client' | 'admin';
 
 export type ClientProjectStatus = 'Pending' | 'Confirmed' | 'In Progress' | 'Review' | 'Completed' | 'On Hold';
 
+export interface RequestAttachment {
+  fileName: string;
+  storagePath: string;
+  fileType: string;
+  fileSize: number;
+}
+
 export interface ClientProject {
   id: string;
   clientUid: string;
@@ -62,6 +69,18 @@ export interface ClientProject {
   priority?: ProductionPriority;
   workspaceId?: string;
   deliveredAt?: string;
+  requestStatus?: 'Pending' | 'Clarification Requested' | 'Accepted' | 'Rejected';
+  adminMessage?: string;
+  requestAttachments?: RequestAttachment[];
+  requestAttachmentsOwnerUid?: string;
+  requestAttachmentsWorkspaceId?: string;
+  requestHistory?: {
+    authorUid: string;
+    authorName: string;
+    authorRole: 'Client' | 'Admin';
+    message: string;
+    createdAt: string;
+  }[];
 }
 
 export interface ProductionTask {

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../../lib/firebase';
 import { ClientProfile } from '../../types';
@@ -17,6 +16,7 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -32,7 +32,7 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
       }
     );
     return () => unsub();
-  });
+  }, []);
   const [editingClient, setEditingClient] = useState<ClientProfile | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({ displayName: '', organizationName: '', accountType: 'Artist', status: 'Active' });
@@ -46,7 +46,12 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
 
   const saveClient = async () => {
     if (!editingClient) return;
+    if (!editForm.displayName.trim() || !editForm.organizationName.trim()) {
+      setActionError('Display name and organization name are required.');
+      return;
+    }
     setSaveStatus('saving');
+    setActionError('');
     const fn = httpsCallable(functions, 'adminUpdateClientProfile');
     try {
       await fn({
@@ -60,17 +65,22 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
       setSaveStatus('idle');
     } catch (err: any) {
       console.error('Client update failed:', err);
+      setActionError(err?.message || 'Unable to save client changes.');
       setSaveStatus('idle');
     }
   };
 
   const toggleClientStatus = async (uid: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'Active' ? 'Suspended' : 'Active';
+    const client = clients.find(item => item.uid === uid);
+    if (!window.confirm(`${nextStatus === 'Suspended' ? 'Suspend' : 'Reactivate'} ${client?.displayName || 'this client'}?`)) return;
     const fn = httpsCallable(functions, 'adminUpdateClientProfile');
+    setActionError('');
     try {
       await fn({ uid, status: nextStatus });
     } catch (err: any) {
       console.error('Client status update failed:', err);
+      setActionError(err?.message || 'Unable to update client status.');
     }
   };
 
@@ -79,7 +89,10 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
       const q = search.toLowerCase();
       const matchesSearch = !q || c.displayName.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.organizationName.toLowerCase().includes(q);
       const matchesCat = categoryFilter === 'All' || c.accountType === categoryFilter;
-      const matchesStatus = statusFilter === 'All' || (statusFilter === 'Active' ? c.onboardingComplete : !c.onboardingComplete);
+      const matchesStatus = statusFilter === 'All' ||
+        (statusFilter === 'Active' && c.status !== 'Suspended' && c.onboardingComplete) ||
+        (statusFilter === 'Suspended' && c.status === 'Suspended') ||
+        (statusFilter === 'Onboarding' && !c.onboardingComplete);
       return matchesSearch && matchesCat && matchesStatus;
     });
   }, [clients, search, categoryFilter, statusFilter]);
@@ -105,10 +118,12 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[#0C0C0C] border border-[#222] text-white px-3 py-2 rounded text-sm">
           <option value="All">All Statuses</option>
-          <option value="Active">Onboarding Complete</option>
-          <option value="Pending">Onboarding Incomplete</option>
+          <option value="Active">Active</option>
+          <option value="Suspended">Suspended</option>
+          <option value="Onboarding">Onboarding Incomplete</option>
         </select>
       </div>
+      {actionError && <p role="alert" className="mb-4 rounded border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">{actionError}</p>}
 
       <div className="overflow-x-auto border border-[#1A1A1A] rounded">
         <table className="w-full text-sm">
@@ -131,7 +146,7 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
                 <td className="px-4 py-3 text-neutral-400">{c.organizationName}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-1 rounded ${c.onboardingComplete ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
-                    {c.onboardingComplete ? 'Onboarding Complete' : 'Onboarding Incomplete'}
+                    {c.onboardingComplete ? (c.status === 'Suspended' ? 'Suspended' : 'Active') : 'Onboarding Incomplete'}
                   </span>
                   {c.status && (
                     <span className={`ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded ${c.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>
@@ -172,6 +187,7 @@ export const ClientsDirectory: React.FC<Props> = ({ onSelectClient }) => {
           <button type="button" onClick={() => setEditOpen(false)} className="text-sm text-neutral-400 hover:text-white">Close</button>
         </div>
         <div className="space-y-3">
+          {actionError && <p role="alert" className="rounded border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-300">{actionError}</p>}
           <div>
             <label className="text-[10px] font-mono uppercase text-neutral-500">Display name</label>
             <input value={editForm.displayName} onChange={e => setEditForm(f => ({ ...f, displayName: e.target.value }))} className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white" />

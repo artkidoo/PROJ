@@ -6,12 +6,14 @@ import {
   deleteField,
   doc,
   getDoc,
+  limit,
   onSnapshot,
   orderBy,
   query,
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import {
   ClientProfile,
@@ -23,7 +25,7 @@ import {
   ProductionTask,
   ProductionStage,
 } from '../../types';
-import { db, storage } from '../../lib/firebase';
+import { db, functions, storage } from '../../lib/firebase';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { useApp } from '../../context/AppContext';
 import {
@@ -48,6 +50,20 @@ const STAGES: ProductionStage[] = [
 const PRIORITIES = ['Low', 'Medium', 'Normal', 'High', 'Urgent'] as const;
 const TASK_STATUSES = ['Todo', 'In Progress', 'In Review', 'Done'] as const;
 const MAX_DELIVERABLE_SIZE = 50 * 1024 * 1024;
+interface ServiceEnquiry {
+  id: string;
+  name: string;
+  email: string;
+  service: string;
+  message: string;
+  requirements?: string;
+  references?: string;
+  status: 'New' | 'In Review' | 'Contacted' | 'Closed' | 'Converted';
+  adminNote?: string;
+  projectId?: string;
+  createdAt: string;
+}
+
 const ALLOWED_DELIVERABLE_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/svg+xml', 'image/webp', 'image/gif', 'image/avif',
   'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/aac', 'audio/flac', 'audio/mp4', 'audio/m4a', 'audio/ogg',
@@ -90,6 +106,7 @@ export const AdminProduction: React.FC = () => {
   const [allRevisions, setAllRevisions] = useState<ProductionRevisionRequest[]>([]);
   const [notes, setNotes] = useState<Record<string, { id: string; content: string; authorName: string; createdAt: string }[]>>({});
   const [activity, setActivity] = useState<ProductionActivity[]>([]);
+  const [serviceEnquiries, setServiceEnquiries] = useState<ServiceEnquiry[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [projectTab, setProjectTab] = useState<'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity'>('overview');
   const [saving, setSaving] = useState(false);
@@ -116,9 +133,19 @@ export const AdminProduction: React.FC = () => {
   const [deliverableDescription, setDeliverableDescription] = useState('');
   const [deliverableFile, setDeliverableFile] = useState<File | null>(null);
   const [revisionResponses, setRevisionResponses] = useState<Record<string, string>>({});
+  const [requestResponse, setRequestResponse] = useState('');
 
   const selectedProject = projects.find(project => project.id === selectedProjectId) || null;
   const selectedTasks = projectTasks;
+
+  const downloadRequestAttachment = async (attachment: NonNullable<ClientProject['requestAttachments']>[number]) => {
+    try {
+      const url = await getDownloadURL(ref(storage, attachment.storagePath));
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (downloadError) {
+      setError(friendlyError(downloadError));
+    }
+  };
 
   useEffect(() => {
     setIsAdmin(false);
@@ -133,6 +160,7 @@ export const AdminProduction: React.FC = () => {
     setRevisions([]);
     setNotes({});
     setActivity([]);
+    setServiceEnquiries([]);
     if (!user) {
       setLoading(false);
       setError('Sign in with an authorized admin account to manage production.');
@@ -168,6 +196,9 @@ export const AdminProduction: React.FC = () => {
           }, err => setError(friendlyError(err))),
           onSnapshot(collectionGroup(db, 'revisionRequests'), snapshot => {
             setAllRevisions(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionRevisionRequest)));
+          }, err => setError(friendlyError(err))),
+          onSnapshot(query(collection(db, 'serviceEnquiries'), orderBy('createdAt', 'desc'), limit(50)), snapshot => {
+            setServiceEnquiries(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ServiceEnquiry)));
           }, err => setError(friendlyError(err))),
         ];
         unsubscribeData = () => unsubscribers.forEach(unsubscribe => unsubscribe());
@@ -283,6 +314,7 @@ export const AdminProduction: React.FC = () => {
       await setDoc(projectRef, {
         id: projectRef.id,
         clientUid: client.uid,
+        ...(client.workspaceId ? { workspaceId: client.workspaceId } : {}),
         title: projectTitle.trim(),
         description: projectDescription.trim(),
         category: projectType,
@@ -294,6 +326,7 @@ export const AdminProduction: React.FC = () => {
         updatedAt: now,
         stage,
         priority: projectPriority,
+        requestStatus: stage === 'New Request' ? 'Pending' : 'Accepted',
       });
       await setDoc(doc(projectRef, 'admin', 'details'), {
         projectType,
@@ -337,6 +370,48 @@ export const AdminProduction: React.FC = () => {
       setError(friendlyError(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const reviewRequest = async (status: 'Accepted' | 'Rejected' | 'Clarification Requested') => {
+    if (!selectedProject) return;
+    if (status !== 'Accepted' && !requestResponse.trim()) {
+      setError('Enter a message before requesting clarification or rejecting this request.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await httpsCallable(functions, 'reviewProductionRequest')({
+        projectId: selectedProject.id,
+        status,
+        message: requestResponse.trim(),
+      });
+      setRequestResponse('');
+    } catch (reviewError) {
+      setError(friendlyError(reviewError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateEnquiryStatus = async (enquiryId: string, status: ServiceEnquiry['status']) => {
+    setError('');
+    try {
+      await httpsCallable(functions, 'reviewPublicEnquiry')({ enquiryId, status });
+    } catch (reviewError) {
+      setError(friendlyError(reviewError));
+    }
+  };
+
+  const convertEnquiry = async (enquiryId: string) => {
+    setError('');
+    try {
+      const result = await httpsCallable<{ enquiryId: string }, { projectId: string }>(functions, 'convertServiceEnquiryToProject')({ enquiryId });
+      setSelectedProjectId(result.data.projectId);
+      setProjectTab('overview');
+    } catch (convertError) {
+      setError(friendlyError(convertError));
     }
   };
 
@@ -677,6 +752,38 @@ export const AdminProduction: React.FC = () => {
 
       {error && <div role="alert" className="rounded border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
 
+      <section className="rounded border border-[#292929] bg-[#0C0C0C] p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-white">Public service enquiries</h2>
+            <p className="mt-1 text-xs text-neutral-500">Contact form submissions are stored here for admin follow-up.</p>
+          </div>
+          <span className="rounded border border-[#333] px-2 py-1 text-xs text-neutral-300">{serviceEnquiries.filter(item => item.status !== 'Closed').length} open · latest 50</span>
+        </div>
+        {serviceEnquiries.length === 0 ? <p className="mt-4 text-sm text-neutral-500">No public enquiries received.</p> : (
+          <div className="mt-4 space-y-3">
+            {serviceEnquiries.map(enquiry => (
+              <article key={enquiry.id} className="rounded border border-[#242424] bg-[#101010] p-3 sm:p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-white">{enquiry.name} · <a className="text-red-300 underline" href={`mailto:${encodeURIComponent(enquiry.email)}`}>{enquiry.email}</a></h3>
+                    <p className="mt-1 text-xs text-neutral-400">{enquiry.service} · {new Date(enquiry.createdAt).toLocaleString()}</p>
+                  </div>
+                  <select aria-label={`Enquiry status for ${enquiry.name}`} value={enquiry.status} onChange={event => void updateEnquiryStatus(enquiry.id, event.target.value as ServiceEnquiry['status'])} className="rounded border border-[#333] bg-[#141414] px-2 py-1 text-xs text-white">
+                    <option>New</option><option>In Review</option><option>Contacted</option><option>Converted</option><option>Closed</option>
+                  </select>
+                </div>
+                <p className="mt-3 whitespace-pre-wrap text-sm text-neutral-300">{enquiry.message}</p>
+                {enquiry.requirements && <p className="mt-2 whitespace-pre-wrap text-xs text-neutral-400"><strong>Requirements:</strong> {enquiry.requirements}</p>}
+                {enquiry.references && <p className="mt-2 whitespace-pre-wrap text-xs text-neutral-400"><strong>References:</strong> {enquiry.references}</p>}
+                {enquiry.status !== 'Converted' && enquiry.status !== 'Closed' && <button type="button" onClick={() => void convertEnquiry(enquiry.id)} className="mt-3 rounded border border-red-900/60 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/30">Convert to production request</button>}
+                {enquiry.projectId && <p className="mt-2 text-[10px] text-emerald-300">Linked production request: {enquiry.projectId}</p>}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="space-y-3 rounded border border-[#1A1A1A] bg-[#0C0C0C] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="text-sm font-bold text-white">Deliverable review queue</h2><p className="mt-1 text-xs text-neutral-500">Review status across all client projects.</p></div>
@@ -780,16 +887,60 @@ export const AdminProduction: React.FC = () => {
               {projectTab === 'overview' && (
                 <div className="space-y-4">
                   <p className="text-sm text-neutral-300">{selectedProject.description}</p>
+                  {selectedProject.requestAttachments && selectedProject.requestAttachments.length > 0 && <div className="flex flex-wrap gap-2">
+                    {selectedProject.requestAttachments.map(attachment => <button key={attachment.storagePath} type="button" onClick={() => void downloadRequestAttachment(attachment)} className="rounded border border-[#333] px-2.5 py-1.5 text-xs text-neutral-300 hover:text-white">{attachment.fileName} · Download reference</button>)}
+                  </div>}
+                  {selectedProject.requestHistory && selectedProject.requestHistory.length > 0 && <details className="rounded border border-[#292929] bg-[#101010] p-3">
+                    <summary className="cursor-pointer text-xs font-semibold text-neutral-300">Request conversation · {selectedProject.requestHistory.length} message(s)</summary>
+                    <ol className="mt-3 space-y-3">{selectedProject.requestHistory.map((entry, index) => <li key={`${entry.createdAt}-${index}`} className="border-l border-[#444] pl-3">
+                      <p className="text-[10px] text-neutral-500">{entry.authorName} · {entry.authorRole} · {new Date(entry.createdAt).toLocaleString()}</p>
+                      <p className="mt-1 whitespace-pre-wrap text-xs text-neutral-300">{entry.message}</p>
+                    </li>)}</ol>
+                  </details>}
+                  {(selectedProject.requestStatus === 'Pending' || selectedProject.requestStatus === 'Clarification Requested' || (!selectedProject.requestStatus && selectedProject.stage === 'New Request')) && (
+                    <section className="space-y-2 rounded border border-amber-900/40 bg-amber-950/10 p-3">
+                      <div><p className="text-xs font-semibold text-amber-200">Creative request · {selectedProject.requestStatus || 'Pending review'}</p><p className="mt-1 text-[10px] text-neutral-400">Accept this request into production, ask the client to clarify scope, or close it.</p></div>
+                      <textarea value={requestResponse} onChange={event => setRequestResponse(event.target.value)} maxLength={5000} rows={3} placeholder="Response to client (required for clarification or rejection)" className="w-full rounded border border-[#333] bg-[#141414] p-2 text-sm text-white" />
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" disabled={saving} onClick={() => void reviewRequest('Accepted')} className="rounded bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Accept &amp; start production</button>
+                        <button type="button" disabled={saving || !requestResponse.trim()} onClick={() => void reviewRequest('Clarification Requested')} className="rounded border border-amber-700 px-3 py-2 text-xs text-amber-100 disabled:opacity-50">Request clarification</button>
+                        <button type="button" disabled={saving || !requestResponse.trim()} onClick={() => void reviewRequest('Rejected')} className="rounded border border-red-900 px-3 py-2 text-xs text-red-200 disabled:opacity-50">Reject request</button>
+                      </div>
+                    </section>
+                  )}
                   <label className="block text-xs text-neutral-400">Assigned client
                     <select value={selectedProject.clientUid} onChange={event => {
                       const nextClient = clients.find(client => client.uid === event.target.value);
                       setProjectClientUid(event.target.value);
-                      void updateProject({ clientUid: event.target.value });
-                      if (nextClient) void updatePrivateProjectDetails({ clientName: nextClient.displayName || nextClient.organizationName });
+                      if (!nextClient) return;
+                      setSaving(true);
+                      setError('');
+                      void (async () => {
+                        try {
+                          await updateDoc(doc(db, 'clientProjects', selectedProject.id), {
+                            clientUid: nextClient.uid,
+                            workspaceId: nextClient.workspaceId || deleteField(),
+                            updatedAt: new Date().toISOString(),
+                          });
+                          await updatePrivateProjectDetails({ clientName: nextClient.displayName || nextClient.organizationName });
+                        } catch (assignError) {
+                          setError(friendlyError(assignError));
+                        } finally {
+                          setSaving(false);
+                        }
+                      })();
                     }} className="ml-2 rounded border border-[#333] bg-[#141414] px-2 py-1 text-white">
                       {clients.map(client => <option key={client.uid} value={client.uid}>{client.displayName || client.organizationName} · {client.email}</option>)}
                     </select>
                   </label>
+                  {!selectedProject.workspaceId && clients.find(client => client.uid === selectedProject.clientUid)?.workspaceId && (
+                    <button type="button" disabled={saving} onClick={() => {
+                      const workspaceId = clients.find(client => client.uid === selectedProject.clientUid)?.workspaceId;
+                      if (workspaceId) void updateProject({ workspaceId });
+                    }} className="rounded border border-amber-900/50 px-3 py-2 text-xs text-amber-200 disabled:opacity-50">
+                      Link this legacy project to the client's primary workspace
+                    </button>
+                  )}
                   <label className="block text-xs text-neutral-400">Progress: {selectedProject.progress || 0}%
                     <input type="range" min="0" max="100" value={projectProgress} onChange={event => setProjectProgress(Number(event.target.value))} onMouseUp={() => void updateProject({ progress: projectProgress })} onTouchEnd={() => void updateProject({ progress: projectProgress })} onKeyUp={() => void updateProject({ progress: projectProgress })} className="mt-2 block w-full accent-red-500" />
                   </label>
