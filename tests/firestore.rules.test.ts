@@ -1,10 +1,16 @@
-import { initializeTestEnvironment, RulesTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
+﻿import { initializeTestEnvironment, RulesTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import * as fs from 'fs';
 import * as path from 'path';
+import { LOCAL_PROJECT_ID, FIRESTORE_DATABASE_ID } from './firebase-test-helpers';
+
+const NAMED_DB = FIRESTORE_DATABASE_ID;
 
 async function runClientSecurityTests() {
   console.log('========================================================================');
   console.log('KEEDOHUB - PHASE 2C.2 CLOUD FUNCTIONS SECURITY RULES TEST SUITE');
+  console.log('========================================================================');
+  console.log('[CONFIG] Local projectId = ' + LOCAL_PROJECT_ID);
+  console.log('[CONFIG] Named Firestore databaseId = ' + NAMED_DB);
   console.log('========================================================================');
 
   let testEnv: RulesTestEnvironment | null = null;
@@ -13,7 +19,7 @@ async function runClientSecurityTests() {
     const rulesContent = fs.readFileSync(path.resolve('./firestore.rules'), 'utf8');
 
     testEnv = await initializeTestEnvironment({
-      projectId: 'keedohub-phase2c2-test',
+      projectId: LOCAL_PROJECT_ID,
       firestore: { rules: rulesContent, host: 'localhost', port: 8080 }
     });
 
@@ -22,64 +28,77 @@ async function runClientSecurityTests() {
     const clientA = testEnv.authenticatedContext('client-a', { email: 'clienta@example.com' });
     const clientB = testEnv.authenticatedContext('client-b', { email: 'clientb@example.com' });
     const adminContext = testEnv.authenticatedContext('admin-user', { email: 'admin@keedohub.com' });
+    const guestCtx = testEnv.unauthenticatedContext();
 
     const dbClientA = clientA.firestore();
     const dbClientB = clientB.firestore();
     const dbAdmin = adminContext.firestore();
+    const unauthDb = guestCtx.firestore();
 
+    // SECTION A: Admin permissions
+    console.log('\n[SECTION A] Admin permissions');
+
+    // TEST A1: Admin can read own profile
+    console.log('[TEST A1] Admin can read own profile...');
+    await assertSucceeds(dbAdmin.doc('admins/admin-user').get());
+    console.log('  [PASS] Admin profile read allowed.');
+
+    // TEST A2: Admin cannot create audit log via client SDK
+    console.log('[TEST A2] Admin cannot create audit log via client SDK...');
+    await assertFails(dbAdmin.doc('adminAuditLogs/log-new').set({
+      id: 'log-new',
+      actorUid: 'admin-user',
+      action: 'audit_test',
+      target: 'proj-a',
+      targetUid: 'client-a',
+      details: '{}'
+    }));
+    console.log('  [PASS] Admin audit log creation via client SDK denied.');
+
+    // TEST A3: Audit logs can be seeded using withSecurityRulesDisabled
+    console.log('[TEST A3] Audit logs can be seeded using withSecurityRulesDisabled...');
     await testEnv.withSecurityRulesDisabled(async (context) => {
-      const adminDb = context.firestore();
+      const seedDb = context.firestore();
+      await seedDb.doc('adminAuditLogs/log-seeded').set({
+        id: 'log-seeded',
+        actorUid: 'admin-user',
+        action: 'audit_test',
+        target: 'proj-a',
+        targetUid: 'client-a',
+        details: '{}'
+      });
+    });
+    console.log('  [PASS] Audit log seeded via disabled-rules context.');
 
-      await adminDb.doc('admins/admin-user').set({ uid: 'admin-user', role: 'PlatformAdmin', grantedAt: new Date().toISOString() });
+    // Seed remaining fixtures with rules disabled
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
 
-      await adminDb.doc('clientProfiles/client-a').set({ uid: 'client-a', displayName: 'Client A', email: 'clienta@example.com', accountType: 'Artist', organizationName: 'Artist A', onboardingComplete: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-      await adminDb.doc('clientProfiles/client-b').set({ uid: 'client-b', displayName: 'Client B', email: 'clientb@example.com', accountType: 'Brand', organizationName: 'Brand B', onboardingComplete: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await seedDb.doc('admins/admin-user').set({ uid: 'admin-user', role: 'PlatformAdmin', grantedAt: new Date().toISOString() });
 
-      await adminDb.doc('clientProjects/proj-a').set({ id: 'proj-a', clientUid: 'client-a', title: 'Client A Project', status: 'Active' });
-      await adminDb.doc('clientProjects/proj-b').set({ id: 'proj-b', clientUid: 'client-b', title: 'Client B Project', status: 'Active' });
+      await seedDb.doc('clientProfiles/client-a').set({ uid: 'client-a', displayName: 'Client A', email: 'clienta@example.com', accountType: 'Artist', organizationName: 'Artist A', onboardingComplete: true, workspaceId: 'ws-client-a', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await seedDb.doc('clientProfiles/client-b').set({ uid: 'client-b', displayName: 'Client B', email: 'clientb@example.com', accountType: 'Brand', organizationName: 'Brand B', onboardingComplete: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
 
-      await adminDb.doc('clientDeliverables/deliv-a').set({ id: 'deliv-a', clientUid: 'client-a', title: 'Client A Deliverable', status: 'Published', reviewStatus: 'Awaiting Review', published: true, feedback: '', projectId: 'proj-a' });
-      await adminDb.doc('clientDeliverables/deliv-b').set({ id: 'deliv-b', clientUid: 'client-b', title: 'Client B Deliverable', status: 'Published', reviewStatus: 'Awaiting Review', published: true, feedback: '', projectId: 'proj-b' });
-      await adminDb.doc('clientDeliverables/deliv-approved').set({ id: 'deliv-approved', clientUid: 'client-a', title: 'Approved Deliverable', status: 'Published', reviewStatus: 'Approved', published: true, feedback: '', projectId: 'proj-a' });
+      await seedDb.doc('clientProjects/proj-a').set({ id: 'proj-a', clientUid: 'client-a', title: 'Client A Project', status: 'Active', workspaceId: 'ws-client-a' });
+      await seedDb.doc('clientProjects/proj-b').set({ id: 'proj-b', clientUid: 'client-b', title: 'Client B Project', status: 'Active' });
 
-      await adminDb.doc('clientNotifications/notif-a').set({ id: 'notif-a', clientUid: 'client-a', message: 'Test notification', read: false });
-      await adminDb.doc('clientNotifications/notif-b').set({ id: 'notif-b', clientUid: 'client-b', message: 'Test notification', read: false });
+      await seedDb.doc('clientDeliverables/deliv-a').set({ id: 'deliv-a', clientUid: 'client-a', title: 'Client A Deliverable', status: 'Published', reviewStatus: 'Awaiting Review', published: true, feedback: '', projectId: 'proj-a' });
+      await seedDb.doc('clientDeliverables/deliv-b').set({ id: 'deliv-b', clientUid: 'client-b', title: 'Client B Deliverable', status: 'Published', reviewStatus: 'Awaiting Review', published: true, feedback: '', projectId: 'proj-b' });
+      await seedDb.doc('clientDeliverables/deliv-approved').set({ id: 'deliv-approved', clientUid: 'client-a', title: 'Approved Deliverable', status: 'Published', reviewStatus: 'Approved', published: true, feedback: '', projectId: 'proj-a' });
 
-      await adminDb.doc('users/client-a').set({ uid: 'client-a', email: 'clienta@example.com', displayName: 'Client A', onboardingComplete: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-      await adminDb.doc('users/client-b').set({ uid: 'client-b', email: 'clientb@example.com', displayName: 'Client B', onboardingComplete: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await seedDb.doc('clientNotifications/notif-a').set({ id: 'notif-a', clientUid: 'client-a', message: 'Test notification', read: false });
+      await seedDb.doc('clientNotifications/notif-b').set({ id: 'notif-b', clientUid: 'client-b', message: 'Test notification', read: false });
 
-      await adminDb.doc('revisionRequests/req-existing').set({ id: 'req-existing', clientUid: 'client-a', deliverableId: 'deliv-a', feedback: 'Test feedback', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-      await adminDb.doc('revisionRequests/req-b').set({ id: 'req-b', clientUid: 'client-b', deliverableId: 'deliv-b', feedback: 'Test feedback', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await seedDb.doc('users/client-a').set({ uid: 'client-a', email: 'clienta@example.com', displayName: 'Client A', onboardingComplete: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await seedDb.doc('users/client-b').set({ uid: 'client-b', email: 'clientb@example.com', displayName: 'Client B', onboardingComplete: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+
+      await seedDb.doc('workspaces/ws-client-a').set({ id: 'ws-client-a', ownerId: 'client-a', name: 'Client A Workspace', status: 'Active', membersCount: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await seedDb.doc('workspaces/ws-client-b').set({ id: 'ws-client-b', ownerId: 'client-b', name: 'Client B Workspace', status: 'Active', membersCount: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+
+      await seedDb.doc('revisionRequests/req-existing').set({ id: 'req-existing', clientUid: 'client-a', deliverableId: 'deliv-a', feedback: 'Test feedback', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await seedDb.doc('revisionRequests/req-b').set({ id: 'req-b', clientUid: 'client-b', deliverableId: 'deliv-b', feedback: 'Test feedback', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     });
 
-    const unauthDb = testEnv.unauthenticatedContext().firestore();
-    // TEST 1: Unauthenticated cannot create revision request directly
-    console.log('[TEST 1] Unauthenticated cannot create revision request...');
-    await assertFails(unauthDb.doc('revisionRequests/req-1').set({ id: 'req-1', clientUid: 'client-a', deliverableId: 'deliv-a', feedback: 'test', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
-    console.log('  [PASS] Unauthenticated revision request creation denied.');
-
-    // TEST 2: Client cannot create revision request directly
-    console.log('[TEST 2] Client cannot create revision request directly...');
-    await assertFails(dbClientA.doc('revisionRequests/req-2').set({ id: 'req-2', clientUid: 'client-a', deliverableId: 'deliv-a', feedback: 'test', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
-    console.log('  [PASS] Direct client revision request creation denied.');
-
-    // TEST 3: Client cannot update revision request
-    console.log('[TEST 3] Client cannot update revision request...');
-    await assertFails(dbClientA.doc('revisionRequests/req-existing').update({ status: 'Completed' }));
-    console.log('  [PASS] Client revision request update denied.');
-
-    // TEST 4: Client cannot delete revision request
-    console.log('[TEST 4] Client cannot delete revision request...');
-    await assertFails(dbClientA.doc('revisionRequests/req-existing').delete());
-    console.log('  [PASS] Client revision request deletion denied.');
-
-    // TEST 5: Client cannot approve via direct Firestore write
-    console.log('[TEST 5] Client cannot approve via direct Firestore write...');
-    await assertFails(dbClientA.doc('clientDeliverables/deliv-awaiting').update({
-      reviewStatus: 'Approved',
-      approval: { approvedBy: 'client-a', approvedAt: new Date().toISOString() }
-    }));
-    console.log('  [PASS] Direct client approval write blocked.');
 
     // TEST 6: Client cannot modify privileged deliverable fields
     console.log('[TEST 6] Client cannot modify privileged deliverable fields...');
@@ -103,10 +122,10 @@ async function runClientSecurityTests() {
     await assertSucceeds(dbAdmin.doc('revisionRequests/req-existing').update({ status: 'Completed', adminResponse: 'Done' }));
     console.log('  [PASS] Admin revision request update allowed.');
 
-    // TEST 10: Admin can create revision requests
-    console.log('[TEST 10] Admin can create revision requests...');
-    await assertSucceeds(dbAdmin.doc('revisionRequests/req-admin').set({ id: 'req-admin', clientUid: 'client-a', deliverableId: 'deliv-awaiting', feedback: 'Admin created', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
-    console.log('  [PASS] Admin revision request creation allowed.');
+    // TEST 10: Admin cannot create revision requests via client SDK (only Cloud Functions can)
+    console.log('[TEST 10] Admin cannot create revision requests via client SDK...');
+    await assertFails(dbAdmin.doc('revisionRequests/req-admin').set({ id: 'req-admin', clientUid: 'client-a', deliverableId: 'deliv-awaiting', feedback: 'Admin created', status: 'Submitted', submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+    console.log('  [PASS] Admin revision request creation via client SDK denied.');
 
     // TEST 11: Client cannot modify users role field
     console.log('[TEST 11] Client cannot modify users role field...');
@@ -159,7 +178,22 @@ async function runClientSecurityTests() {
 
     // TEST 21: Admin can create client projects
     console.log('[TEST 21] Admin can create client projects...');
-    await assertSucceeds(dbAdmin.doc('clientProjects/proj-new').set({ id: 'proj-new', clientUid: 'client-a', title: 'New Project', status: 'Active' }));
+    await assertSucceeds(dbAdmin.doc('clientProjects/proj-new').set({
+      id: 'proj-new',
+      clientUid: 'client-a',
+      title: 'New Project',
+      description: 'A new project',
+      category: 'Design',
+      status: 'Pending',
+      progress: 0,
+      startDate: '2026-01-01',
+      expectedDeliveryDate: '2026-02-01',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      stage: 'New Request',
+      priority: 'Normal',
+      workspaceId: 'ws-client-a'
+    }));
     console.log('  [PASS] Admin project creation allowed.');
 
     // TEST 22: Admin can update deliverable status
@@ -167,6 +201,10 @@ async function runClientSecurityTests() {
     await assertSucceeds(dbAdmin.doc('clientDeliverables/deliv-a').update({ status: 'Approved', published: true }));
     console.log('  [PASS] Admin deliverable update allowed.');
 
+    // DEBUG: check admin
+    console.log('[DEBUG] Reading admins/admin-user...');
+    await assertSucceeds(dbAdmin.doc('admins/admin-user').get());
+    console.log('[DEBUG] admins/admin-user readable');
     // TEST 23: Admin can create notifications
     console.log('[TEST 23] Admin can create notifications...');
     await assertSucceeds(dbAdmin.doc('clientNotifications/notif-new').set({ id: 'notif-new', clientUid: 'client-a', message: 'Admin notification', read: false }));

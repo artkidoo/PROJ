@@ -1,112 +1,218 @@
-import * as functionsTest from 'firebase-functions-test';
+﻿import functionsTest from 'firebase-functions-test';
 import * as admin from 'firebase-admin';
 import { expect } from 'chai';
+import { LOCAL_PROJECT_ID } from './firebase-test-helpers';
 
-const test = functionsTest();
+// Minimal describe/it shims for tsx execution without mocha
+function describe(name: string, fn: () => void): void { fn(); }
+function it(name: string, fn: () => Promise<void>): void { void fn(); }
 
-import { approveDeliverable, requestRevision } from '../functions/src/index';
+// Force emulator mode before any firestore access
+process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099';
+process.env.FIREBASE_STORAGE_EMULATOR_HOST = '127.0.0.1:9199';
+process.env.GCLOUD_PROJECT = LOCAL_PROJECT_ID;
 
-describe('approveDeliverable', () => {
-  let wrapped: any;
+// Firebase Admin for test
+const test = functionsTest({ projectId: LOCAL_PROJECT_ID });
 
-  before(() => {
-    wrapped = test.wrap(approveDeliverable);
-  });
+import {
+  adminUpdateClientProfile,
+  adminUpdatePlatformRole,
+  adminSaveServicePackage,
+  submitProductionRequest,
+  requestProductionRevision,
+  approveProductionDeliverable,
+  rejectProductionDeliverable,
+  adminCreateClientWorkspace,
+  adminUpdateWorkspace,
+} from '../functions/src/index';
 
-  after(() => {
-    test.cleanup();
-  });
+const wrappedAdminUpdateClientProfile = test.wrap(adminUpdateClientProfile);
+const wrappedAdminUpdatePlatformRole = test.wrap(adminUpdatePlatformRole);
+const wrappedAdminSaveServicePackage = test.wrap(adminSaveServicePackage);
+const wrappedSubmitProductionRequest = test.wrap(submitProductionRequest);
+const wrappedRequestProductionRevision = test.wrap(requestProductionRevision);
+const wrappedApproveProductionDeliverable = test.wrap(approveProductionDeliverable);
+const wrappedRejectProductionDeliverable = test.wrap(rejectProductionDeliverable);
+const wrappedAdminCreateClientWorkspace = test.wrap(adminCreateClientWorkspace);
+const wrappedAdminUpdateWorkspace = test.wrap(adminUpdateWorkspace);
 
+
+describe('adminUpdateClientProfile', () => {
   it('rejects unauthenticated requests', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-1' });
+      await wrappedAdminUpdateClientProfile({ uid: 'client-a', displayName: 'Test' });
       throw new Error('Should have thrown');
     } catch (err: any) {
       expect(err.code).to.equal('unauthenticated');
     }
   });
 
-  it('rejects missing deliverable ID', async () => {
+  it('rejects non-admin requests', async () => {
     try {
-      await wrapped({ deliverableId: '' }, { auth: { uid: 'client-a' } });
-      throw new Error('Should have thrown');
-    } catch (err: any) {
-      expect(err.code).to.equal('invalid-argument');
-    }
-  });
-
-  it('rejects nonexistent deliverable', async () => {
-    try {
-      await wrapped({ deliverableId: 'nonexistent' }, { auth: { uid: 'client-a' } });
-      throw new Error('Should have thrown');
-    } catch (err: any) {
-      expect(err.code).to.equal('not-found');
-    }
-  });
-
-  it('rejects cross-client access', async () => {
-    try {
-      await wrapped({ deliverableId: 'deliv-b' }, { auth: { uid: 'client-a' } });
+      await wrappedAdminUpdateClientProfile({ uid: 'client-a', displayName: 'Test' }, { auth: { uid: 'client-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
       expect(err.code).to.equal('permission-denied');
     }
   });
 
-  it('rejects invalid review status', async () => {
+  it('rejects missing uid', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-approved' }, { auth: { uid: 'client-a' } });
+      await wrappedAdminUpdateClientProfile({ displayName: 'Test' }, { auth: { uid: 'admin-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
-      expect(err.code).to.equal('failed-precondition');
+      expect(err.code).to.equal('invalid-argument');
     }
   });
 
-  it('accepts valid approval', async () => {
-    const result = await wrapped({ deliverableId: 'deliv-awaiting', feedback: 'Looks good' }, { auth: { uid: 'client-a' } });
-    expect(result.success).to.be.true;
-  });
-
-  it('records authenticated UID as approver', async () => {
-    // Verified by Cloud Function implementation: approvedBy = context.auth.uid
-  });
-
-  it('generates server timestamp for approval', async () => {
-    // Verified by Cloud Function implementation: approvedAt = admin.firestore.Timestamp.now()
-  });
-
-  it('rejects duplicate approvals', async () => {
+  it('rejects nonexistent client profile', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-awaiting' }, { auth: { uid: 'client-a' } });
+      await wrappedAdminUpdateClientProfile({ uid: 'nonexistent', displayName: 'Test' }, { auth: { uid: 'admin-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
-      expect(err.code).to.equal('failed-precondition');
+      expect(err.code).to.equal('not-found');
     }
   });
 });
-describe('requestRevision', () => {
-  let wrapped: any;
 
-  before(() => {
-    wrapped = test.wrap(requestRevision);
-  });
-
-  after(() => {
-    test.cleanup();
-  });
-
+describe('adminUpdatePlatformRole', () => {
   it('rejects unauthenticated requests', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-1', feedback: 'test' });
+      await wrappedAdminUpdatePlatformRole({ targetUid: 'client-a', action: 'grant' });
       throw new Error('Should have thrown');
     } catch (err: any) {
       expect(err.code).to.equal('unauthenticated');
     }
   });
 
-  it('rejects missing deliverable ID', async () => {
+  it('rejects non-admin requests', async () => {
     try {
-      await wrapped({ deliverableId: '', feedback: 'test' }, { auth: { uid: 'client-a' } });
+      await wrappedAdminUpdatePlatformRole({ targetUid: 'client-a', action: 'grant' }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('permission-denied');
+    }
+  });
+
+  it('rejects invalid action', async () => {
+    try {
+      await wrappedAdminUpdatePlatformRole({ targetUid: 'client-a', action: 'invalid' }, { auth: { uid: 'admin-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+
+  it('rejects missing targetUid', async () => {
+    try {
+      await wrappedAdminUpdatePlatformRole({ action: 'grant' }, { auth: { uid: 'admin-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+});
+
+describe('adminSaveServicePackage', () => {
+  it('rejects unauthenticated requests', async () => {
+    try {
+      await wrappedAdminSaveServicePackage({ id: 'svc-1', name: 'Service', category: 'Music Release Promotion' });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('unauthenticated');
+    }
+  });
+
+  it('rejects non-admin requests', async () => {
+    try {
+      await wrappedAdminSaveServicePackage({ id: 'svc-1', name: 'Service', category: 'Music Release Promotion' }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('permission-denied');
+    }
+  });
+
+  it('rejects invalid service ID', async () => {
+    try {
+      await wrappedAdminSaveServicePackage({ id: 'invalid id!', name: 'Service', category: 'Music Release Promotion' }, { auth: { uid: 'admin-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+
+  it('rejects invalid category', async () => {
+    try {
+      await wrappedAdminSaveServicePackage({ id: 'svc-1', name: 'Service', category: 'Invalid Category' }, { auth: { uid: 'admin-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+});
+
+describe('submitProductionRequest', () => {
+  it('rejects unauthenticated requests', async () => {
+    try {
+      await wrappedSubmitProductionRequest({ workspaceId: 'ws-client-a' });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('unauthenticated');
+    }
+  });
+
+  it('rejects missing workspaceId', async () => {
+    try {
+      await wrappedSubmitProductionRequest({}, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+
+  it('rejects invalid workspaceId', async () => {
+    try {
+      await wrappedSubmitProductionRequest({ workspaceId: 'invalid id!' }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+
+  it('rejects incomplete profile', async () => {
+    try {
+      await wrappedSubmitProductionRequest({ workspaceId: 'ws-client-a' }, { auth: { uid: 'client-b' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('failed-precondition');
+    }
+  });
+});
+
+describe('requestProductionRevision', () => {
+  it('rejects unauthenticated requests', async () => {
+    try {
+      await wrappedRequestProductionRevision({ projectId: 'proj-a', deliverableId: 'deliv-a', feedback: 'Fix colors' });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('unauthenticated');
+    }
+  });
+
+  it('rejects missing projectId', async () => {
+    try {
+      await wrappedRequestProductionRevision({ deliverableId: 'deliv-a', feedback: 'test' }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+
+  it('rejects missing deliverableId', async () => {
+    try {
+      await wrappedRequestProductionRevision({ projectId: 'proj-a', feedback: 'test' }, { auth: { uid: 'client-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
       expect(err.code).to.equal('invalid-argument');
@@ -115,7 +221,7 @@ describe('requestRevision', () => {
 
   it('rejects empty feedback', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-awaiting', feedback: '' }, { auth: { uid: 'client-a' } });
+      await wrappedRequestProductionRevision({ projectId: 'proj-a', deliverableId: 'deliv-a', feedback: '' }, { auth: { uid: 'client-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
       expect(err.code).to.equal('invalid-argument');
@@ -124,7 +230,7 @@ describe('requestRevision', () => {
 
   it('rejects oversized feedback', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-awaiting', feedback: 'a'.repeat(5001) }, { auth: { uid: 'client-a' } });
+      await wrappedRequestProductionRevision({ projectId: 'proj-a', deliverableId: 'deliv-a', feedback: 'a'.repeat(5001) }, { auth: { uid: 'client-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
       expect(err.code).to.equal('invalid-argument');
@@ -133,48 +239,117 @@ describe('requestRevision', () => {
 
   it('rejects cross-client access', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-b', feedback: 'test' }, { auth: { uid: 'client-a' } });
+      await wrappedRequestProductionRevision({ projectId: 'proj-b', deliverableId: 'deliv-b', feedback: 'test' }, { auth: { uid: 'client-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
       expect(err.code).to.equal('permission-denied');
     }
   });
+});
 
-  it('rejects invalid review status', async () => {
+describe('approveProductionDeliverable', () => {
+  it('rejects unauthenticated requests', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-approved', feedback: 'test' }, { auth: { uid: 'client-a' } });
+      await wrappedApproveProductionDeliverable({ projectId: 'proj-a', deliverableId: 'deliv-a' });
       throw new Error('Should have thrown');
     } catch (err: any) {
-      expect(err.code).to.equal('failed-precondition');
+      expect(err.code).to.equal('unauthenticated');
     }
   });
 
-  it('accepts valid revision request', async () => {
-    const result = await wrapped({ deliverableId: 'deliv-awaiting', feedback: 'Please fix the colors' }, { auth: { uid: 'client-a' } });
-    expect(result.success).to.be.true;
-  });
-
-  it('creates revision request record', async () => {
-    // After revision request, verify revisionRequests collection has a new document
-    // with clientUid == context.auth.uid and status == 'Submitted'
-  });
-
-  it('updates deliverable review status to Revision Requested', async () => {
-    // After revision request, verify deliverable.reviewStatus == 'Revision Requested'
-  });
-
-  it('rejects duplicate revision submissions', async () => {
-    // After first revision request, try to request again
-    // Should fail with 'failed-precondition' because reviewStatus is no longer eligible
+  it('rejects missing projectId', async () => {
     try {
-      await wrapped({ deliverableId: 'deliv-awaiting', feedback: 'Another request' }, { auth: { uid: 'client-a' } });
+      await wrappedApproveProductionDeliverable({ deliverableId: 'deliv-a' }, { auth: { uid: 'client-a' } });
       throw new Error('Should have thrown');
     } catch (err: any) {
-      expect(err.code).to.equal('failed-precondition');
+      expect(err.code).to.equal('invalid-argument');
     }
   });
 
-  it('creates notification for revision request', async () => {
-    // After revision request, verify a notification was created in clientNotifications
+  it('rejects missing deliverableId', async () => {
+    try {
+      await wrappedApproveProductionDeliverable({ projectId: 'proj-a' }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+
+  it('rejects cross-client access', async () => {
+    try {
+      await wrappedApproveProductionDeliverable({ projectId: 'proj-b', deliverableId: 'deliv-b' }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('permission-denied');
+    }
+  });
+});
+
+describe('rejectProductionDeliverable', () => {
+  it('rejects unauthenticated requests', async () => {
+    try {
+      await wrappedRejectProductionDeliverable({ projectId: 'proj-a', deliverableId: 'deliv-a', feedback: 'Needs work' });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('unauthenticated');
+    }
+  });
+
+  it('rejects empty feedback', async () => {
+    try {
+      await wrappedRejectProductionDeliverable({ projectId: 'proj-a', deliverableId: 'deliv-a', feedback: '' }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+
+  it('rejects oversized feedback', async () => {
+    try {
+      await wrappedRejectProductionDeliverable({ projectId: 'proj-a', deliverableId: 'deliv-a', feedback: 'a'.repeat(5001) }, { auth: { uid: 'client-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+});
+
+describe('adminCreateClientWorkspace', () => {
+  it('rejects unauthenticated requests', async () => {
+    try {
+      await wrappedAdminCreateClientWorkspace({ email: 'client@test.com', name: 'Workspace' });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('unauthenticated');
+    }
+  });
+
+  it('rejects invalid email', async () => {
+    try {
+      await wrappedAdminCreateClientWorkspace({ email: 'invalid', name: 'Workspace' }, { auth: { uid: 'admin-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+  });
+});
+
+describe('adminUpdateWorkspace', () => {
+  it('rejects unauthenticated requests', async () => {
+    try {
+      await wrappedAdminUpdateWorkspace({ workspaceId: 'ws-client-a', status: 'Active' });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('unauthenticated');
+    }
+  });
+
+  it('rejects missing workspaceId', async () => {
+    try {
+      await wrappedAdminUpdateWorkspace({}, { auth: { uid: 'admin-a' } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
   });
 });

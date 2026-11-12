@@ -1,13 +1,16 @@
 import { initializeTestEnvironment, RulesTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import * as fs from 'fs';
 import * as path from 'path';
+import { LOCAL_PROJECT_ID, FIRESTORE_DATABASE_ID } from './firebase-test-helpers';
+
+const NAMED_DB = FIRESTORE_DATABASE_ID;
 
 async function runPhase3CSecurityTests() {
   const rules = fs.readFileSync(path.resolve('./firestore.rules'), 'utf8');
   let testEnv: RulesTestEnvironment | null = null;
   try {
     testEnv = await initializeTestEnvironment({
-      projectId: 'keedohub-phase3c-test',
+      projectId: LOCAL_PROJECT_ID,
       firestore: { rules, host: 'localhost', port: 8080 },
     });
 
@@ -19,8 +22,10 @@ async function runPhase3CSecurityTests() {
       const db = context.firestore();
       await db.doc('admins/admin-user').set({ uid: 'admin-user' });
       for (const uid of ['client-a', 'client-b']) {
-        await db.doc(`clientProfiles/${uid}`).set({ uid, displayName: uid });
+        await db.doc(`clientProfiles/${uid}`).set({ uid, displayName: uid, workspaceId: `ws-${uid}` });
       }
+      await db.doc('workspaces/ws-client-a').set({ id: 'ws-client-a', ownerId: 'client-a', name: 'Client A Workspace', status: 'Active', membersCount: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+      await db.doc('workspaces/ws-client-b').set({ id: 'ws-client-b', ownerId: 'client-b', name: 'Client B Workspace', status: 'Active', membersCount: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
       await db.doc('users/staff-a').set({ uid: 'staff-a', displayName: 'Staff A' });
       await db.doc('userNotifications/client-a/items/notice-a').set({
         recipientUid: 'client-a',
@@ -55,6 +60,7 @@ async function runPhase3CSecurityTests() {
         updatedAt: '2026-01-01T00:00:00.000Z',
         stage: 'In Production',
         priority: 'Normal',
+        workspaceId: 'ws-client-a'
       });
       await db.doc('clientProjects/project-b').set({
         id: 'project-b',
@@ -70,6 +76,7 @@ async function runPhase3CSecurityTests() {
         updatedAt: '2026-01-01T00:00:00.000Z',
         stage: 'New Request',
         priority: 'Normal',
+        workspaceId: 'ws-client-b'
       });
       await db.doc('clientProjects/project-b/deliverables/deliverable-b').set({
         id: 'deliverable-b',

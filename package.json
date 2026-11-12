@@ -10,7 +10,15 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:security": "tsx test-pilot-security.ts",
-    "test:firestore-rules": "tsx tests/firestore.phase3c.rules.test.ts"
+    "test:firestore-rules": "tsx tests/firestore.rules.test.ts",
+    "test:firestore-phase3c": "tsx tests/firestore.phase3c.rules.test.ts",
+    "test:storage-rules": "tsx tests/storage.rules.test.ts",
+    "test:functions": "tsx tests/functions.test.ts",
+    "test:firebase": "npm run test:firestore-rules && npm run test:firestore-phase3c && npm run test:storage-rules && npm run test:functions",
+    "emulators:start": "firebase emulators:start --only auth,firestore,storage,functions --project demo-keedohub --ui",
+    "emulators:stop": "firebase emulators:stop",
+    "emulators:log": "firebase emulators:start --only auth,firestore,storage,functions --project demo-keedohub --ui --inspect-functions --export-on-exit",
+    "test": "npm run emulators:start & sleep 5 && npm run test:firebase && npm run emulators:stop"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -35,7 +43,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
+    "chai": "^5.3.3",
     "esbuild": "^0.25.0",
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0",
+    "firebase-functions-test": "^3.4.1",
+    "mocha": "^12.0.3",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
