@@ -21,7 +21,7 @@ function decodeService(value?: string | null): string {
 }
 
 export const ContactPage: React.FC<Props> = ({ navigate, serviceParam }) => {
-  const { isAuthenticated, loginWithGoogle, enterWorkspace, authError } = useApp();
+  const { isAuthenticated, enterWorkspace, authError } = useApp();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [service, setService] = useState(() => decodeService(serviceParam));
@@ -106,7 +106,7 @@ export const ContactPage: React.FC<Props> = ({ navigate, serviceParam }) => {
           )}
           <button
             type="button"
-            onClick={() => isAuthenticated ? enterWorkspace() : loginWithGoogle()}
+            onClick={() => isAuthenticated ? enterWorkspace() : navigate('login')}
             className="inline-flex min-h-11 items-center gap-3 border border-[#333] px-4 py-2.5 text-xs font-semibold text-neutral-200 transition-colors hover:border-white hover:text-white"
           >
             {isAuthenticated ? <><span>Open your workspace</span><ArrowRight size={14} /></> : <><LogIn size={14} /><span>Sign in / create a client workspace</span></>}

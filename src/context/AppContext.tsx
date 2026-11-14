@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   UserRole, 
   AppModule, 
@@ -23,7 +23,8 @@ import {
   ServicePackage,
   MotionProjectSpec,
   ReleaseDeliverableItem,
-  DeliverableWorkflowStage
+  DeliverableWorkflowStage,
+  ClientProfile
 } from '../types';
 import { ReleaseProject, CampaignDesign } from '../types/campaign';
 import { 
@@ -51,20 +52,53 @@ import {
   OperationType 
 } from '../lib/firebase';
 import { 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
   signInWithPopup, 
   signOut as firebaseSignOut, 
   onAuthStateChanged, 
   User as FirebaseUser 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, Unsubscribe } from 'firebase/firestore';
+import { ensureClientWorkspace } from '../lib/clientWorkspace';
+import {
+  friendlyFirebaseAuthError,
+  isAdminRecordActive,
+  validateEmailInput,
+  validatePasswordInput,
+} from '../lib/firebaseAuth';
+
+export interface RegisterWithEmailInput {
+  fullName: string;
+  email: string;
+  password: string;
+  accountType: 'Artist' | 'Brand';
+  organizationName?: string;
+}
+
+export interface GoogleLoginOptions {
+  intent?: 'login' | 'register';
+  accountType?: 'Artist' | 'Brand';
+  organizationName?: string;
+  fullName?: string;
+}
 
 interface AppContextType {
   // Firebase Auth & Session
   firebaseUser: FirebaseUser | null;
+  clientProfile: ClientProfile | null;
+  isClientProfileLoading: boolean;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
   authError: string | null;
-  loginWithGoogle: () => Promise<void>;
+  clearAuthError: () => void;
+  loginWithGoogle: (options?: GoogleLoginOptions) => Promise<void>;
+  registerWithEmail: (input: RegisterWithEmailInput) => Promise<void>;
+  loginWithEmail: (email: string, password: string) => Promise<void>;
+  loginAdminWithEmail: (email: string, password: string) => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   // Application Mode (Public Landing vs Client Workspace)
   appMode: AppMode;
@@ -201,12 +235,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return 'public';
     }
   });
+  const appModeRef = useRef<AppMode>(appMode);
+  useEffect(() => {
+    appModeRef.current = appMode;
+  }, [appMode]);
+
+  const persistAppMode = (mode: AppMode) => {
+    appModeRef.current = mode;
+    setAppMode(mode);
+    try {
+      localStorage.setItem('keedohub_app_mode', mode);
+    } catch {}
+  };
+
+  const clearPublicAuthHash = () => {
+    if (typeof window === 'undefined') return;
+    const currentHash = window.location.hash.replace(/^#\/?/, '');
+    if (['login', 'register', 'forgot-password', 'admin-login'].includes(currentHash)) {
+      window.location.hash = '';
+    }
+  };
 
   const exitToPublic = () => {
-    setAppMode('public');
-    try {
-      localStorage.setItem('keedohub_app_mode', 'public');
-    } catch {}
+    persistAppMode('public');
   };
 
   const [activeModule, setActiveModule] = useState<AppModule>('dashboard');
@@ -362,48 +413,173 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Firebase Auth State
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  const [isClientProfileLoading, setIsClientProfileLoading] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<PlatformUser>(INITIAL_PLATFORM_USER);
+  const registrationInFlightRef = useRef(false);
+  const initialAuthResolvedRef = useRef(false);
+  const adminDocActiveRef = useRef(false);
+  const profileSuspendedRef = useRef(false);
+
+  const clearAuthError = () => setAuthError(null);
 
   useEffect(() => {
     let active = true;
     let authChangeId = 0;
+    let adminUnsubscribe: Unsubscribe | null = null;
+    let profileUnsubscribe: Unsubscribe | null = null;
+
+    const cleanupDocListeners = () => {
+      adminUnsubscribe?.();
+      adminUnsubscribe = null;
+      profileUnsubscribe?.();
+      profileUnsubscribe = null;
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       const currentAuthChangeId = ++authChangeId;
+      cleanupDocListeners();
       setFirebaseUser(user);
-      setIsAuthLoading(true);
-      if (user) {
-        let isAdmin = false;
-        try {
-          const adminSnapshot = await getDoc(doc(db, 'admins', user.uid));
-          isAdmin = adminSnapshot.exists();
-        } catch (error) {
-          console.error('Platform administrator verification failed:', error);
-          setAuthError('Could not verify platform access. Your account will remain in the client area until verification succeeds.');
+      if (!initialAuthResolvedRef.current) {
+        setIsAuthLoading(true);
+      }
+
+      if (!user) {
+        adminDocActiveRef.current = false;
+        profileSuspendedRef.current = false;
+        setIsPlatformAdmin(false);
+        setClientProfile(null);
+        setIsClientProfileLoading(false);
+        setCurrentUser(INITIAL_PLATFORM_USER);
+        setActiveModule('dashboard');
+        if (appModeRef.current !== 'public') {
+          persistAppMode('public');
         }
-        if (!active || currentAuthChangeId !== authChangeId) return;
-        setIsPlatformAdmin(isAdmin);
+        if (active && currentAuthChangeId === authChangeId) {
+          initialAuthResolvedRef.current = true;
+          setIsAuthLoading(false);
+        }
+        return;
+      }
 
-        const liveUser: PlatformUser = {
-          id: user.uid,
-          name: user.displayName || 'Keedohub Member',
-          email: user.email || 'user@keedohub.com',
-          status: 'Active',
-          avatarUrl: user.photoURL || undefined,
-          createdAt: new Date().toISOString()
-        };
-        setCurrentUser(liveUser);
+      setIsClientProfileLoading(true);
+      let isAdmin = false;
+      let loadedProfile: ClientProfile | null = null;
 
-        // Sync authenticated user profile to Firestore
+      try {
+        const [adminSnapshot, profileSnapshot] = await Promise.all([
+          getDoc(doc(db, 'admins', user.uid)),
+          getDoc(doc(db, 'clientProfiles', user.uid)),
+        ]);
+        isAdmin = isAdminRecordActive(adminSnapshot);
+        loadedProfile = profileSnapshot.exists()
+          ? ({ uid: user.uid, ...profileSnapshot.data() } as ClientProfile)
+          : null;
+      } catch (error) {
+        console.error('Platform authorization verification failed:', error);
+        isAdmin = false;
+        loadedProfile = null;
+        if (active && currentAuthChangeId === authChangeId && (appModeRef.current === 'workspace' || appModeRef.current === 'admin')) {
+          persistAppMode('public');
+          setActiveModule('dashboard');
+        }
+      }
+
+      if (!active || currentAuthChangeId !== authChangeId) return;
+
+      const isSuspended = loadedProfile?.status === 'Suspended';
+      adminDocActiveRef.current = isAdmin;
+      profileSuspendedRef.current = isSuspended;
+      const effectiveAdmin = isAdmin && !isSuspended;
+      setIsPlatformAdmin(effectiveAdmin);
+      setClientProfile(loadedProfile);
+      setIsClientProfileLoading(false);
+
+      if ((appModeRef.current === 'workspace' || appModeRef.current === 'admin') && !effectiveAdmin) {
+        persistAppMode('public');
+        setActiveModule('dashboard');
+        setAuthError(
+          isSuspended
+            ? 'This account has been suspended. Contact KeedoHub support for access.'
+            : 'Administrator access is not active for this account.',
+        );
+      }
+
+      const liveUser: PlatformUser = {
+        id: user.uid,
+        name: loadedProfile?.displayName || user.displayName || 'Keedohub Member',
+        email: user.email || loadedProfile?.email || 'user@keedohub.com',
+        status: isSuspended ? 'Suspended' : 'Active',
+        avatarUrl: user.photoURL || loadedProfile?.photoURL || undefined,
+        createdAt: loadedProfile?.createdAt || new Date().toISOString(),
+      };
+      setCurrentUser(liveUser);
+
+      // Attach live listeners so mid-session admin revocation or client suspension takes effect immediately
+      adminUnsubscribe = onSnapshot(
+        doc(db, 'admins', user.uid),
+        (snapshot) => {
+          if (!active || currentAuthChangeId !== authChangeId) return;
+          const docActive = isAdminRecordActive(snapshot);
+          adminDocActiveRef.current = docActive;
+          const nextAdmin = docActive && !profileSuspendedRef.current;
+          setIsPlatformAdmin(nextAdmin);
+          if (!nextAdmin && (appModeRef.current === 'workspace' || appModeRef.current === 'admin')) {
+            persistAppMode('public');
+            setActiveModule('dashboard');
+            setAuthError('Your administrator access has been revoked or suspended.');
+          }
+        },
+        (error) => {
+          console.warn('Admin status listener warning:', error);
+        },
+      );
+
+      profileUnsubscribe = onSnapshot(
+        doc(db, 'clientProfiles', user.uid),
+        (snapshot) => {
+          if (!active || currentAuthChangeId !== authChangeId) return;
+          const nextProfile = snapshot.exists()
+            ? ({ uid: user.uid, ...snapshot.data() } as ClientProfile)
+            : null;
+          const nextSuspended = nextProfile?.status === 'Suspended';
+          profileSuspendedRef.current = nextSuspended;
+          setClientProfile(nextProfile);
+          setCurrentUser((prev) => ({
+            ...prev,
+            id: user.uid,
+            name: nextProfile?.displayName || user.displayName || 'Keedohub Member',
+            email: user.email || nextProfile?.email || 'user@keedohub.com',
+            status: nextSuspended ? 'Suspended' : 'Active',
+            avatarUrl: user.photoURL || nextProfile?.photoURL || undefined,
+            createdAt: nextProfile?.createdAt || prev.createdAt || new Date().toISOString(),
+          }));
+          const nextAdmin = adminDocActiveRef.current && !nextSuspended;
+          setIsPlatformAdmin(nextAdmin);
+          if (nextSuspended && (appModeRef.current === 'workspace' || appModeRef.current === 'admin')) {
+            persistAppMode('public');
+            setActiveModule('dashboard');
+            setAuthError('This account has been suspended. Contact KeedoHub support for access.');
+          }
+        },
+        (error) => {
+          console.warn('Client profile listener warning:', error);
+        },
+      );
+
+      // Sync authenticated user document when registration is not managing creation
+      if (!registrationInFlightRef.current) {
         try {
           const userDocRef = doc(db, 'users', user.uid);
           const existingUser = await getDoc(userDocRef);
+          if (!active || currentAuthChangeId !== authChangeId || registrationInFlightRef.current) return;
           const now = new Date().toISOString();
           if (existingUser.exists()) {
             await setDoc(userDocRef, {
-              displayName: user.displayName || 'Keedohub Member',
+              displayName: loadedProfile?.displayName || user.displayName || 'Keedohub Member',
               photoURL: user.photoURL || '',
               updatedAt: now,
             }, { merge: true });
@@ -411,7 +587,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             await setDoc(userDocRef, {
               uid: user.uid,
               email: user.email || '',
-              displayName: user.displayName || 'Keedohub Member',
+              displayName: loadedProfile?.displayName || user.displayName || 'Keedohub Member',
               photoURL: user.photoURL || '',
               createdAt: now,
               updatedAt: now,
@@ -420,76 +596,418 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch (err) {
           console.warn('Firestore user profile sync warning:', err);
         }
-      } else {
-        setIsPlatformAdmin(false);
-        setCurrentUser(INITIAL_PLATFORM_USER);
       }
-      if (active && currentAuthChangeId === authChangeId) setIsAuthLoading(false);
+
+      if (active && currentAuthChangeId === authChangeId) {
+        initialAuthResolvedRef.current = true;
+        setIsAuthLoading(false);
+      }
     });
 
     return () => {
       active = false;
       authChangeId += 1;
+      cleanupDocListeners();
       unsubscribe();
     };
   }, []);
 
-  const loginWithGoogle = async () => {
+  const registerWithEmail = async ({
+    fullName,
+    email,
+    password,
+    accountType,
+    organizationName,
+  }: RegisterWithEmailInput) => {
     setAuthError(null);
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim();
+    const trimmedOrg = (organizationName || '').trim() || trimmedName;
+
+    if (!trimmedName || trimmedName.length > 100) {
+      throw new Error('Enter your full name (up to 100 characters).');
+    }
+    const emailIssue = validateEmailInput(trimmedEmail);
+    if (emailIssue) {
+      throw new Error(emailIssue);
+    }
+    const passwordIssue = validatePasswordInput(password);
+    if (passwordIssue) {
+      throw new Error(passwordIssue);
+    }
+    if (accountType !== 'Artist' && accountType !== 'Brand') {
+      throw new Error('Choose either Artist or Brand for your workspace experience.');
+    }
+    if (trimmedOrg.length > 100) {
+      throw new Error('Workspace name must be 100 characters or fewer.');
+    }
+
+    registrationInFlightRef.current = true;
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+      const user = credential.user;
+      await updateProfile(user, { displayName: trimmedName });
+
+      const now = new Date().toISOString();
+      const profilePayload: ClientProfile = {
+        uid: user.uid,
+        displayName: trimmedName,
+        email: user.email || trimmedEmail,
+        photoURL: user.photoURL || '',
+        accountType,
+        organizationName: trimmedOrg,
+        onboardingComplete: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await setDoc(doc(db, 'clientProfiles', user.uid), profilePayload);
+      const workspace = await ensureClientWorkspace(user.uid);
+
+      const userRef = doc(db, 'users', user.uid);
+      const existingUser = await getDoc(userRef);
+      if (existingUser.exists()) {
+        await setDoc(userRef, {
+          displayName: trimmedName,
+          photoURL: user.photoURL || '',
+          accountType,
+          organizationName: trimmedOrg,
+          onboardingComplete: true,
+          updatedAt: now,
+        }, { merge: true });
+      } else {
+        await setDoc(userRef, {
+          uid: user.uid,
+          email: user.email || trimmedEmail,
+          displayName: trimmedName,
+          photoURL: user.photoURL || '',
+          accountType,
+          organizationName: trimmedOrg,
+          onboardingComplete: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      adminDocActiveRef.current = false;
+      profileSuspendedRef.current = false;
+      setClientProfile({ ...profilePayload, workspaceId: workspace.id });
+      setIsPlatformAdmin(false);
+      setCurrentUser({
+        id: user.uid,
+        name: trimmedName,
+        email: user.email || trimmedEmail,
+        status: 'Active',
+        avatarUrl: user.photoURL || undefined,
+        createdAt: now,
+      });
+      clearPublicAuthHash();
+      persistAppMode('client');
+    } catch (error) {
+      const message = friendlyFirebaseAuthError(error, 'Could not create your account. Please try again.');
+      setAuthError(message);
+      throw new Error(message);
+    } finally {
+      registrationInFlightRef.current = false;
+    }
+  };
+
+  const loginWithEmail = async (email: string, password: string) => {
+    setAuthError(null);
+    const trimmedEmail = email.trim();
+    const emailIssue = validateEmailInput(trimmedEmail);
+    if (emailIssue) {
+      throw new Error(emailIssue);
+    }
+    if (!password) {
+      throw new Error('Enter your password.');
+    }
+
+    try {
+      const credential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+      const profileSnapshot = await getDoc(doc(db, 'clientProfiles', credential.user.uid));
+      const profile = profileSnapshot.exists()
+        ? ({ uid: credential.user.uid, ...profileSnapshot.data() } as ClientProfile)
+        : null;
+
+      if (profile?.status === 'Suspended') {
+        await firebaseSignOut(auth);
+        adminDocActiveRef.current = false;
+        profileSuspendedRef.current = true;
+        setIsPlatformAdmin(false);
+        setClientProfile(null);
+        persistAppMode('public');
+        const suspendedMessage = 'This client account is suspended. Contact KeedoHub support for access.';
+        setAuthError(suspendedMessage);
+        throw new Error(suspendedMessage);
+      }
+
+      profileSuspendedRef.current = false;
+      setClientProfile(profile);
+      clearPublicAuthHash();
+      // Client sign-in always enters the unified client workspace, never Admin HQ
+      persistAppMode('client');
+    } catch (error) {
+      const message = friendlyFirebaseAuthError(error, 'Sign in failed. Please check your credentials.');
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const loginAdminWithEmail = async (email: string, password: string) => {
+    setAuthError(null);
+    const trimmedEmail = email.trim();
+    const emailIssue = validateEmailInput(trimmedEmail);
+    if (emailIssue) {
+      throw new Error(emailIssue);
+    }
+    if (!password) {
+      throw new Error('Enter your password.');
+    }
+
+    try {
+      const credential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+      const [adminSnapshot, profileSnapshot] = await Promise.all([
+        getDoc(doc(db, 'admins', credential.user.uid)),
+        getDoc(doc(db, 'clientProfiles', credential.user.uid)),
+      ]);
+
+      const profile = profileSnapshot.exists()
+        ? ({ uid: credential.user.uid, ...profileSnapshot.data() } as ClientProfile)
+        : null;
+      const activeAdmin = isAdminRecordActive(adminSnapshot);
+
+      if (!activeAdmin || profile?.status === 'Suspended') {
+        await firebaseSignOut(auth);
+        adminDocActiveRef.current = false;
+        profileSuspendedRef.current = profile?.status === 'Suspended';
+        setIsPlatformAdmin(false);
+        setClientProfile(null);
+        persistAppMode('public');
+        const deniedMessage = adminSnapshot.exists() || profile?.status === 'Suspended'
+          ? 'Administrator access for this account has been revoked or suspended.'
+          : 'This account is not authorized to access KeedoHub Admin HQ.';
+        setAuthError(deniedMessage);
+        throw new Error(deniedMessage);
+      }
+
+      adminDocActiveRef.current = true;
+      profileSuspendedRef.current = false;
+      setIsPlatformAdmin(true);
+      setClientProfile(profile);
+      clearPublicAuthHash();
+      persistAppMode('workspace');
+    } catch (error) {
+      const message = friendlyFirebaseAuthError(error, 'Administrator sign-in failed.');
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const sendPasswordReset = async (email: string) => {
+    setAuthError(null);
+    const trimmedEmail = email.trim();
+    const emailIssue = validateEmailInput(trimmedEmail);
+    if (emailIssue) {
+      throw new Error(emailIssue);
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, trimmedEmail);
+    } catch (error: any) {
+      // Do not reveal whether an account exists for a given email address
+      if (error?.code === 'auth/user-not-found') {
+        return;
+      }
+      const message = friendlyFirebaseAuthError(error, 'Could not send password reset instructions.');
+      setAuthError(message);
+      throw new Error(message);
+    }
+  };
+
+  const loginWithGoogle = async (options?: GoogleLoginOptions) => {
+    setAuthError(null);
+    const intent = options?.intent === 'register' ? 'register' : 'login';
+    if (intent === 'register') {
+      registrationInFlightRef.current = true;
+    }
     try {
       const res = await signInWithPopup(auth, googleProvider);
       if (res?.user) {
         let isAdmin = false;
+        let isSuspended = false;
+        let existingProfile: ClientProfile | null = null;
         try {
-          const adminSnapshot = await getDoc(doc(db, 'admins', res.user.uid));
-          isAdmin = adminSnapshot.exists();
-          setIsPlatformAdmin(isAdmin);
+          const [adminSnapshot, profileSnapshot] = await Promise.all([
+            getDoc(doc(db, 'admins', res.user.uid)),
+            getDoc(doc(db, 'clientProfiles', res.user.uid)),
+          ]);
+          isAdmin = isAdminRecordActive(adminSnapshot);
+          existingProfile = profileSnapshot.exists()
+            ? ({ uid: res.user.uid, ...profileSnapshot.data() } as ClientProfile)
+            : null;
+          isSuspended = existingProfile?.status === 'Suspended';
         } catch (error) {
           console.error('Platform administrator verification failed:', error);
+          adminDocActiveRef.current = false;
+          setIsPlatformAdmin(false);
           setAuthError('Could not verify platform access. Your account will remain in the client area until verification succeeds.');
+          clearPublicAuthHash();
+          persistAppMode('client');
+          return;
         }
-        const nextMode = isAdmin ? 'workspace' : 'client';
-        setAppMode(nextMode);
-        try {
-          localStorage.setItem('keedohub_app_mode', nextMode);
-        } catch {}
+
+        if (isSuspended) {
+          await firebaseSignOut(auth);
+          adminDocActiveRef.current = false;
+          profileSuspendedRef.current = true;
+          setIsPlatformAdmin(false);
+          setClientProfile(null);
+          persistAppMode('public');
+          setAuthError('This client account is suspended. Contact KeedoHub support for access.');
+          return;
+        }
+
+        let resolvedProfile: ClientProfile | null = existingProfile;
+
+        if (intent === 'register' && (!existingProfile || existingProfile.onboardingComplete !== true)) {
+          const accountType: 'Artist' | 'Brand' = options?.accountType === 'Brand' ? 'Brand' : 'Artist';
+          const fallbackName = res.user.email?.split('@')[0] || 'Keedohub Member';
+          const trimmedName = ((options?.fullName || res.user.displayName || fallbackName).trim() || fallbackName).slice(0, 100);
+          const trimmedOrg = ((options?.organizationName || trimmedName).trim() || trimmedName).slice(0, 100);
+          const now = new Date().toISOString();
+
+          const profileRef = doc(db, 'clientProfiles', res.user.uid);
+          if (existingProfile) {
+            await setDoc(profileRef, {
+              displayName: trimmedName,
+              photoURL: res.user.photoURL || existingProfile.photoURL || '',
+              accountType,
+              organizationName: trimmedOrg,
+              onboardingComplete: true,
+              updatedAt: now,
+            }, { merge: true });
+          } else {
+            await setDoc(profileRef, {
+              uid: res.user.uid,
+              displayName: trimmedName,
+              email: res.user.email || '',
+              photoURL: res.user.photoURL || '',
+              accountType,
+              organizationName: trimmedOrg,
+              onboardingComplete: true,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+
+          const workspace = await ensureClientWorkspace(res.user.uid);
+
+          const userRef = doc(db, 'users', res.user.uid);
+          const existingUser = await getDoc(userRef);
+          if (existingUser.exists()) {
+            await setDoc(userRef, {
+              displayName: trimmedName,
+              photoURL: res.user.photoURL || '',
+              accountType,
+              organizationName: trimmedOrg,
+              onboardingComplete: true,
+              updatedAt: now,
+            }, { merge: true });
+          } else {
+            await setDoc(userRef, {
+              uid: res.user.uid,
+              email: res.user.email || '',
+              displayName: trimmedName,
+              photoURL: res.user.photoURL || '',
+              accountType,
+              organizationName: trimmedOrg,
+              onboardingComplete: true,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+
+          resolvedProfile = {
+            uid: res.user.uid,
+            displayName: trimmedName,
+            email: res.user.email || existingProfile?.email || '',
+            photoURL: res.user.photoURL || existingProfile?.photoURL || '',
+            accountType,
+            organizationName: trimmedOrg,
+            onboardingComplete: true,
+            workspaceId: workspace.id,
+            createdAt: existingProfile?.createdAt || now,
+            updatedAt: now,
+          };
+          setCurrentUser({
+            id: res.user.uid,
+            name: trimmedName,
+            email: res.user.email || existingProfile?.email || 'user@keedohub.com',
+            status: 'Active',
+            avatarUrl: res.user.photoURL || undefined,
+            createdAt: existingProfile?.createdAt || now,
+          });
+        } else if (resolvedProfile && resolvedProfile.onboardingComplete === true) {
+          // Returning Google user: preserve existing accountType & organizationName and ensure workspace exists
+          try {
+            const workspace = await ensureClientWorkspace(res.user.uid);
+            resolvedProfile = { ...resolvedProfile, workspaceId: workspace.id };
+          } catch (workspaceErr) {
+            console.warn('Returning client workspace check warning:', workspaceErr);
+          }
+        }
+
+        profileSuspendedRef.current = false;
+        adminDocActiveRef.current = isAdmin;
+        setClientProfile(resolvedProfile);
+        setIsPlatformAdmin(isAdmin);
+        clearPublicAuthHash();
+        // Public registration always opens the unified client workspace; verified admins signing in route consistently
+        const nextMode = intent === 'register' ? 'client' : (isAdmin ? 'workspace' : 'client');
+        persistAppMode(nextMode);
       }
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
         console.info('Google Sign-In popup closed or cancelled by user.');
         return;
       }
-      if (err?.code === 'auth/popup-blocked') {
-        setAuthError('Your browser blocked the Google sign-in popup. Allow pop-ups for this site and try again.');
-        return;
-      }
+      const message = friendlyFirebaseAuthError(err, 'Google sign-in failed. Please try again.');
       console.error('Google Sign-In Error:', err);
-      setAuthError(err instanceof Error ? err.message : 'Google sign-in failed. Please try again.');
+      setAuthError(message);
+    } finally {
+      registrationInFlightRef.current = false;
     }
   };
 
   const enterWorkspace = () => {
     if (!firebaseUser) {
-      void loginWithGoogle();
+      if (typeof window !== 'undefined') {
+        window.location.hash = 'login';
+      }
+      persistAppMode('public');
       return;
     }
-    const nextMode = isPlatformAdmin ? 'workspace' : 'client';
-    setAppMode(nextMode);
-    try {
-      localStorage.setItem('keedohub_app_mode', nextMode);
-    } catch {}
+    clearPublicAuthHash();
+    const nextMode = isPlatformAdmin && clientProfile?.status !== 'Suspended' ? 'workspace' : 'client';
+    persistAppMode(nextMode);
   };
 
   const logout = async () => {
     try {
       await firebaseSignOut(auth);
-      setAppMode('public');
-      try {
-        localStorage.setItem('keedohub_app_mode', 'public');
-      } catch {}
+      adminDocActiveRef.current = false;
+      profileSuspendedRef.current = false;
+      setIsPlatformAdmin(false);
+      setClientProfile(null);
+      setIsClientProfileLoading(false);
+      setCurrentUser(INITIAL_PLATFORM_USER);
+      setActiveModule('dashboard');
+      setAuthError(null);
+      persistAppMode('public');
     } catch (err) {
       console.error('Sign-Out Error:', err);
-      setAuthError(err instanceof Error ? err.message : 'Sign out failed. Please try again.');
+      setAuthError(friendlyFirebaseAuthError(err, 'Sign out failed. Please try again.'));
     }
   };
 
@@ -627,10 +1145,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Operator access check (Decoupled from ws-lyrical-ent workspace membership)
-  const canAccessProductionCenter = isPlatformAdmin;
+  const canAccessProductionCenter = isPlatformAdmin && clientProfile?.status !== 'Suspended';
 
   // Phase 4: Admin / Operator Access & Management (Decoupled from ws-lyrical-ent workspace membership)
-  const canAccessAdminCenter = isPlatformAdmin;
+  const canAccessAdminCenter = isPlatformAdmin && clientProfile?.status !== 'Suspended';
 
   const addServicePackage = (pkgData: Omit<ServicePackage, 'id' | 'createdAt' | 'updatedAt'>): ServicePackage => {
     const newPkg: ServicePackage = {
@@ -1160,14 +1678,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         appMode,
-        setAppMode,
+        setAppMode: persistAppMode,
         enterWorkspace,
         exitToPublic,
         firebaseUser,
+        clientProfile,
+        isClientProfileLoading,
         isAuthenticated: !!firebaseUser,
         isAuthLoading,
         authError,
+        clearAuthError,
         loginWithGoogle,
+        registerWithEmail,
+        loginWithEmail,
+        loginAdminWithEmail,
+        sendPasswordReset,
         logout,
         activeModule,
         setActiveModule,

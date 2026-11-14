@@ -65,9 +65,20 @@ service firebase.storage {
       );
     }
 
+    function isAdminRecordActive(adminData) {
+      return (!adminData.keys().hasAny(['status']) ||
+          !(adminData.status is string) ||
+          !(adminData.status.trim().lower() in ['suspended', 'revoked', 'inactive', 'disabled'])) &&
+        (!adminData.keys().hasAny(['revoked']) || adminData.revoked != true) &&
+        (!adminData.keys().hasAny(['suspended']) || adminData.suspended != true) &&
+        (!adminData.keys().hasAny(['active']) || adminData.active != false);
+    }
+
     function isPlatformAdmin() {
       return isSignedIn() &&
-        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid));
+        isWorkspaceAccountActive() &&
+        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid)) &&
+        isAdminRecordActive(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid)).data);
     }
 
     function ownsPublishedDeliverable(projectId, deliverableId) {
@@ -86,8 +97,7 @@ service firebase.storage {
 
     // Operator Internal Notes & Confidential Staging (Restricted to Platform Admins)
     match /workspaces/{workspaceId}/internal/{allPaths=**} {
-      allow read, write: if isSignedIn() && 
-        firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid));
+      allow read, write: if isPlatformAdmin();
     }
 
     // Workspace Private Files Path (Multi-Tenant Authorization, Volumetric & Content-Type Guards)
@@ -103,10 +113,10 @@ service firebase.storage {
 
     // Legacy client deliverables remain private to their owner and platform admins.
     match /clients/{clientUid}/deliverables/{deliverableId}/{fileName} {
-      // Only the owner client or platform admin can read
-      allow read: if isSignedIn() && (request.auth.uid == clientUid || firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid)));
+      // Only the active owner client or platform admin can read
+      allow read: if isPlatformAdmin() || (isWorkspaceAccountActive() && request.auth.uid == clientUid);
       // Only platform admin can upload/modify/delete
-      allow write: if isSignedIn() && firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/admins/$(request.auth.uid));
+      allow write: if isPlatformAdmin();
     }
 
     match /production/{projectId}/deliverables/{deliverableId}/{allPaths=**} {

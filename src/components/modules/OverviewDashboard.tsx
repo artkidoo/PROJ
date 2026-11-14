@@ -182,6 +182,7 @@ export const OverviewDashboard: React.FC = () => {
         <ClientRequestModal
           isOpen={isRequestModalOpen}
           onClose={() => setIsRequestModalOpen(false)}
+          workspaceId={activeWorkspace?.id}
         />
       </div>
     );
@@ -1128,6 +1129,7 @@ export const OverviewDashboard: React.FC = () => {
       <ClientRequestModal 
         isOpen={isRequestModalOpen} 
         onClose={() => setIsRequestModalOpen(false)} 
+        workspaceId={activeWorkspace?.id}
       />
     </div>
   );

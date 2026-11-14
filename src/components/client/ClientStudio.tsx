@@ -11,16 +11,16 @@ import {
 } from 'firebase/firestore';
 import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
 import { ArrowDownToLine, FilePlus2, ImagePlus, Music2, Pencil, Plus, Save, Trash2, Upload, X } from 'lucide-react';
-import { BrandAsset, BrandWorkspaceProfile, ClientProject, CorporateDocument, DocumentType, Workspace } from '../../types';
+import { BrandAsset, BrandWorkspaceProfile, ClientProject, CorporateDocument, DocumentItem, DocumentType, PaymentRecord, Workspace } from '../../types';
 import { db, storage } from '../../lib/firebase';
 import { generateCorporateDocumentPdf } from '../../utils/pdfGenerator';
 
-export type ClientStudioSection = 'profile' | 'releases' | 'content' | 'assets' | 'brand' | 'documents';
+export type ClientStudioSection = 'profile' | 'releases' | 'content' | 'assets' | 'brand' | 'documents' | 'invoices' | 'proposals';
 type ReleaseStatus = 'Draft' | 'Scheduled' | 'Live' | 'Archived';
 type ContentKind = 'Caption' | 'Lyrics' | 'Promotional copy' | 'Creative idea' | 'Social post' | 'Guideline';
 type ContentPhase = 'Pre-release' | 'Release day' | 'Post-release' | 'Ongoing';
 type ContentStatus = 'Draft' | 'In progress' | 'Ready' | 'Published';
-type StudioDocumentStatus = 'Draft' | 'Under Review' | 'Approved' | 'Issued';
+type StudioDocumentStatus = 'Draft' | 'Under Review' | 'Approved' | 'Issued' | 'Partially Paid' | 'Paid' | 'Overdue' | 'Cancelled' | 'Accepted' | 'Declined';
 
 interface StudioRelease {
   id: string;
@@ -82,15 +82,22 @@ interface StudioDocument {
   title: string;
   referenceNo: string;
   date: string;
+  validityDate?: string;
   recipientName: string;
   recipientOrg: string;
   recipientEmail: string;
   projectId?: string;
   subject: string;
   bodyContent: string;
+  items?: DocumentItem[];
   totalAmount?: number;
+  totalPaid?: number;
+  balanceDue?: number;
+  payments?: PaymentRecord[];
   paymentTerms?: string;
   status: StudioDocumentStatus;
+  clientAction?: 'Accepted' | 'Declined';
+  clientActionDate?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -948,15 +955,259 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({ section, workspace, 
     </div>
   );
 
+  const handleClientProposalAction = async (docId: string, action: 'Accepted' | 'Declined') => {
+    setError('');
+    try {
+      await updateDoc(doc(db, 'documents', docId), {
+        clientAction: action,
+        clientActionDate: new Date().toISOString(),
+        status: action === 'Accepted' ? 'Accepted' : 'Declined',
+        updatedAt: new Date().toISOString(),
+      });
+      setError(`Proposal successfully ${action.toLowerCase()}.`);
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  };
+
+  const renderInvoices = () => {
+    const invoices = documents.filter(d => d.type === 'invoice');
+    const totalInvoiced = invoices.reduce((acc, i) => acc + (i.totalAmount || 0), 0);
+    const totalPaid = invoices.reduce((acc, i) => acc + (i.totalPaid || 0), 0);
+    const balanceDue = invoices.reduce((acc, i) => acc + (i.balanceDue !== undefined ? i.balanceDue : (i.totalAmount || 0) - (i.totalPaid || 0)), 0);
+
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className={panelClass}>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-neutral-500">Total Invoiced</p>
+            <p className="mt-2 text-2xl font-bold text-white">${totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className={panelClass}>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-400">Total Settled</p>
+            <p className="mt-2 text-2xl font-bold text-emerald-400">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className={panelClass}>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">Balance Due</p>
+            <p className="mt-2 text-2xl font-bold text-blue-400">${balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+
+        <section className={panelClass}>
+          <div className="mb-5">
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">Workspace Billing</p>
+            <h2 className="mt-1 text-xl font-bold text-white">Invoices & Settlement History</h2>
+            <p className="mt-1 text-sm text-neutral-400">Review commercial invoices, verify wire/ACH/card payment history, and download official PDF statements.</p>
+          </div>
+
+          {invoices.length === 0 ? (
+            <p className="rounded border border-dashed border-[#333] p-6 text-center text-sm text-neutral-500">No invoices have been issued to this workspace yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {invoices.map(inv => {
+                const paid = inv.totalPaid || 0;
+                const total = inv.totalAmount || 0;
+                const balance = inv.balanceDue !== undefined ? inv.balanceDue : Math.max(0, total - paid);
+                const isPaid = inv.status === 'Paid' || balance <= 0;
+
+                return (
+                  <article key={inv.id} className="rounded-lg border border-[#252525] bg-[#111] p-5 space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-bold text-white">{inv.title}</h3>
+                          <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                            isPaid ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30' :
+                            inv.status === 'Partially Paid' ? 'bg-blue-950/60 text-blue-300 border border-blue-500/30' :
+                            inv.status === 'Overdue' ? 'bg-red-950/60 text-red-300 border border-red-500/30' :
+                            'bg-amber-950/60 text-amber-300 border border-amber-500/30'
+                          }`}>
+                            {inv.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-neutral-400">Ref: {inv.referenceNo} · Issued: {inv.date}{inv.validityDate ? ` · Due: ${inv.validityDate}` : ''}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-white">${total.toFixed(2)}</p>
+                        <p className="text-xs text-neutral-400">Balance due: <strong className="text-blue-400">${balance.toFixed(2)}</strong></p>
+                      </div>
+                    </div>
+
+                    {inv.items && inv.items.length > 0 && (
+                      <div className="rounded border border-[#222] bg-[#0A0A0A] p-3 text-xs space-y-1">
+                        <p className="font-semibold text-neutral-300 uppercase tracking-wider text-[10px] mb-2">Line Items</p>
+                        {inv.items.map((item, idx) => (
+                          <div key={idx} className="flex justify-between text-neutral-400">
+                            <span>{item.quantity}x {item.description} (${(item.unitPrice || 0).toFixed(2)} ea)</span>
+                            <span className="font-mono text-white">${(item.total || 0).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {inv.payments && inv.payments.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-mono uppercase tracking-[0.16em] text-neutral-500">Recorded Payments</p>
+                        <div className="space-y-1.5">
+                          {inv.payments.map((p, idx) => (
+                            <div key={idx} className="flex flex-wrap items-center justify-between rounded bg-[#161616] px-3 py-2 text-xs">
+                              <span className="text-emerald-400 font-semibold">+${p.amount.toFixed(2)} <span className="text-neutral-400 font-normal">({p.method})</span></span>
+                              <span className="text-neutral-500">{p.date} {p.reference ? `· Ref: ${p.reference}` : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#222]">
+                      <p className="text-xs text-neutral-500">Terms: {inv.paymentTerms || 'Net 30'}</p>
+                      <button
+                        onClick={() => generateCorporateDocumentPdf({
+                          ...inv,
+                          workspaceId: workspace.id,
+                          recipientAddress: '',
+                          authorName: accountName,
+                          authorRole: 'Client Review',
+                          items: inv.items || [{ description: inv.subject || inv.title, quantity: 1, unitPrice: total, total }],
+                          paymentTerms: inv.paymentTerms || 'Net 30',
+                          createdAt: inv.createdAt,
+                          updatedAt: inv.updatedAt,
+                        } as CorporateDocument, workspace)}
+                        className="inline-flex items-center gap-1.5 rounded border border-[#333] bg-[#161616] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#222]"
+                      >
+                        <ArrowDownToLine size={13} /> Download Official PDF Invoice
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className={panelClass}>
+          <h3 className="text-sm font-bold text-white mb-2">Payment Remittance Instructions</h3>
+          <p className="text-xs text-neutral-400 leading-relaxed">
+            KeedoHub accepts wire transfers, ACH settlements, major credit cards, and approved corporate checks. Please include the invoice reference number on all transfer memos. For billing inquiries, contact billing@keedohub.com.
+          </p>
+        </section>
+      </div>
+    );
+  };
+
+  const renderProposals = () => {
+    const proposals = documents.filter(d => ['quotation', 'partnership_proposal', 'sponsorship_proposal'].includes(d.type));
+
+    return (
+      <div className="space-y-6">
+        <section className={panelClass}>
+          <div className="mb-5">
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-purple-400">Commercial Agreements</p>
+            <h2 className="mt-1 text-xl font-bold text-white">Proposals & Quotations</h2>
+            <p className="mt-1 text-sm text-neutral-400">Review project quotations, partnership scopes, and sponsorship proposals issued by KeedoHub.</p>
+          </div>
+
+          {proposals.length === 0 ? (
+            <p className="rounded border border-dashed border-[#333] p-6 text-center text-sm text-neutral-500">No proposals or quotations have been issued to this workspace yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {proposals.map(prop => {
+                const isAccepted = prop.clientAction === 'Accepted' || prop.status === 'Accepted';
+                const isDeclined = prop.clientAction === 'Declined' || prop.status === 'Declined';
+
+                return (
+                  <article key={prop.id} className="rounded-lg border border-[#252525] bg-[#111] p-5 space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-bold text-white">{prop.title}</h3>
+                          <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                            isAccepted ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30' :
+                            isDeclined ? 'bg-red-950/60 text-red-300 border border-red-500/30' :
+                            'bg-purple-950/60 text-purple-300 border border-purple-500/30'
+                          }`}>
+                            {prop.clientAction || prop.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-neutral-400">Type: {prop.type.replaceAll('_', ' ')} · Ref: {prop.referenceNo} · Issued: {prop.date}{prop.validityDate ? ` · Valid until: ${prop.validityDate}` : ''}</p>
+                      </div>
+                      {prop.totalAmount !== undefined && prop.totalAmount > 0 && (
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-white">${prop.totalAmount.toFixed(2)}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-sm text-neutral-300 whitespace-pre-wrap leading-relaxed">{prop.bodyContent}</p>
+
+                    {prop.items && prop.items.length > 0 && (
+                      <div className="rounded border border-[#222] bg-[#0A0A0A] p-3 text-xs space-y-1">
+                        <p className="font-semibold text-neutral-300 uppercase tracking-wider text-[10px] mb-2">Proposed Scope & Deliverables</p>
+                        {prop.items.map((item, idx) => (
+                          <div key={idx} className="flex justify-between text-neutral-400">
+                            <span>{item.quantity}x {item.description} (${(item.unitPrice || 0).toFixed(2)} ea)</span>
+                            <span className="font-mono text-white">${(item.total || 0).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#222]">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => void handleClientProposalAction(prop.id, 'Accepted')}
+                          disabled={isAccepted}
+                          className="rounded bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                        >
+                          {isAccepted ? '✓ Proposal Accepted' : 'Accept Proposal'}
+                        </button>
+                        <button
+                          onClick={() => void handleClientProposalAction(prop.id, 'Declined')}
+                          disabled={isDeclined}
+                          className="rounded border border-red-500/40 bg-red-950/30 px-4 py-2 text-xs font-semibold text-red-200 hover:bg-red-950/60 disabled:opacity-50"
+                        >
+                          {isDeclined ? 'Proposal Declined' : 'Decline'}
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => generateCorporateDocumentPdf({
+                          ...prop,
+                          workspaceId: workspace.id,
+                          recipientAddress: '',
+                          authorName: accountName,
+                          authorRole: 'Client Review',
+                          items: prop.items || [{ description: prop.subject || prop.title, quantity: 1, unitPrice: prop.totalAmount || 0, total: prop.totalAmount || 0 }],
+                          paymentTerms: prop.paymentTerms || '',
+                          createdAt: prop.createdAt,
+                          updatedAt: prop.updatedAt,
+                        } as CorporateDocument, workspace)}
+                        className="inline-flex items-center gap-1.5 rounded border border-[#333] bg-[#161616] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#222]"
+                      >
+                        <ArrowDownToLine size={13} /> Download PDF Proposal
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-5">
-      {error && <div role={error.includes('saved.') ? 'status' : 'alert'} className={`rounded border p-3 text-sm ${error.includes('saved.') ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-red-500/30 bg-red-950/30 text-red-300'}`}>{error}</div>}
+      {error && <div role={error.includes('saved.') || error.includes('successfully') ? 'status' : 'alert'} className={`rounded border p-3 text-sm ${error.includes('saved.') || error.includes('successfully') ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300' : 'border-red-500/30 bg-red-950/30 text-red-300'}`}>{error}</div>}
       {section === 'profile' && renderProfile()}
       {section === 'releases' && renderReleases()}
       {section === 'content' && renderContent()}
       {section === 'assets' && renderAssets()}
       {section === 'brand' && renderBrandIdentity()}
       {section === 'documents' && renderDocuments()}
+      {section === 'invoices' && renderInvoices()}
+      {section === 'proposals' && renderProposals()}
     </div>
   );
 };

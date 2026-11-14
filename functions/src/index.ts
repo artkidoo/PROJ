@@ -50,6 +50,29 @@ async function notifyUser(
   });
 }
 
+function isAdminDocActive(adminSnap: admin.firestore.DocumentSnapshot): boolean {
+  if (!adminSnap.exists) return false;
+  const data = adminSnap.data() || {};
+  const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
+  if (['suspended', 'revoked', 'inactive', 'disabled'].includes(status)) {
+    return false;
+  }
+  if (data.revoked === true || data.suspended === true || data.active === false) {
+    return false;
+  }
+  return true;
+}
+
+async function assertActiveAdmin(uid: string, deniedMessage = 'Admin only.'): Promise<void> {
+  const [adminSnap, profileSnap] = await Promise.all([
+    db.collection('admins').doc(uid).get(),
+    db.collection('clientProfiles').doc(uid).get(),
+  ]);
+  if (!isAdminDocActive(adminSnap) || profileSnap.get('status') === 'Suspended') {
+    throw new functions.https.HttpsError('permission-denied', deniedMessage);
+  }
+}
+
 async function notifyAdmins(
   eventKey: string,
   title: string,
@@ -59,15 +82,14 @@ async function notifyAdmins(
   entityId?: string,
 ) {
   const admins = await db.collection('admins').get();
-  await Promise.all(admins.docs.map(adminDoc =>
+  await Promise.all(admins.docs.filter(isAdminDocActive).map(adminDoc =>
     notifyUser(adminDoc.id, eventKey, title, message, type, projectId, entityId)
   ));
 }
 
 export const adminUpdateClientProfile = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  const adminSnap = await db.collection('admins').doc(context.auth.uid).get();
-  if (!adminSnap.exists) throw new functions.https.HttpsError('permission-denied', 'Admin only.');
+  await assertActiveAdmin(context.auth.uid);
   const uid = String(data?.uid || '');
   if (!uid) throw new functions.https.HttpsError('invalid-argument', 'uid required.');
   const profileRef = db.collection('clientProfiles').doc(uid);
@@ -167,8 +189,7 @@ export const submitPublicEnquiry = functions.https.onCall(async (data, context) 
 
 export const reviewPublicEnquiry = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  const adminSnap = await db.collection('admins').doc(context.auth.uid).get();
-  if (!adminSnap.exists) throw new functions.https.HttpsError('permission-denied', 'Admin only.');
+  await assertActiveAdmin(context.auth.uid);
   const enquiryId = requireText(data?.enquiryId, 'Enquiry ID', 128);
   const status = data?.status;
   if (!['New', 'In Review', 'Contacted', 'Closed'].includes(status)) {
@@ -199,8 +220,7 @@ export const reviewPublicEnquiry = functions.https.onCall(async (data, context) 
 
 export const convertServiceEnquiryToProject = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  const adminSnap = await db.collection('admins').doc(context.auth.uid).get();
-  if (!adminSnap.exists) throw new functions.https.HttpsError('permission-denied', 'Admin only.');
+  await assertActiveAdmin(context.auth.uid);
   const enquiryId = requireText(data?.enquiryId, 'Enquiry ID', 128);
   const enquiryRef = db.collection('serviceEnquiries').doc(enquiryId);
   const enquiry = await enquiryRef.get();
@@ -297,9 +317,7 @@ export const convertServiceEnquiryToProject = functions.https.onCall(async (data
 
 export const adminCreateClientWorkspace = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  if (!(await db.collection('admins').doc(context.auth.uid).get()).exists) {
-    throw new functions.https.HttpsError('permission-denied', 'Admin only.');
-  }
+  await assertActiveAdmin(context.auth.uid);
   const email = requireText(data?.email, 'Client email', 254).toLowerCase();
   const name = requireText(data?.name, 'Workspace name', 100);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -397,9 +415,7 @@ export const adminCreateClientWorkspace = functions.https.onCall(async (data, co
 
 export const adminUpdateWorkspace = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  if (!(await db.collection('admins').doc(context.auth.uid).get()).exists) {
-    throw new functions.https.HttpsError('permission-denied', 'Admin only.');
-  }
+  await assertActiveAdmin(context.auth.uid);
   const workspaceId = requireText(data?.workspaceId, 'Workspace ID', 128);
   const updates: Record<string, unknown> = {};
   if (data.status !== undefined) {
@@ -437,12 +453,10 @@ export const adminUpdateWorkspace = functions.https.onCall(async (data, context)
 
 export const adminListPlatformRoles = functions.https.onCall(async (_data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  if (!(await db.collection('admins').doc(context.auth.uid).get()).exists) {
-    throw new functions.https.HttpsError('permission-denied', 'Admin only.');
-  }
+  await assertActiveAdmin(context.auth.uid);
   const admins = await db.collection('admins').get();
   return {
-    admins: admins.docs.map(adminDoc => ({
+    admins: admins.docs.filter(isAdminDocActive).map(adminDoc => ({
       uid: adminDoc.id,
       role: adminDoc.get('role') || 'Platform Admin',
       grantedAt: adminDoc.get('grantedAt') || '',
@@ -452,9 +466,7 @@ export const adminListPlatformRoles = functions.https.onCall(async (_data, conte
 
 export const adminSaveServicePackage = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  if (!(await db.collection('admins').doc(context.auth.uid).get()).exists) {
-    throw new functions.https.HttpsError('permission-denied', 'Admin only.');
-  }
+  await assertActiveAdmin(context.auth.uid);
   const serviceId = requireText(data?.id, 'Service ID', 128);
   if (!/^[a-zA-Z0-9_-]+$/.test(serviceId)) {
     throw new functions.https.HttpsError('invalid-argument', 'Service ID is invalid.');
@@ -523,9 +535,7 @@ export const adminSaveServicePackage = functions.https.onCall(async (data, conte
 
 export const adminSetServicePackageActive = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  if (!(await db.collection('admins').doc(context.auth.uid).get()).exists) {
-    throw new functions.https.HttpsError('permission-denied', 'Admin only.');
-  }
+  await assertActiveAdmin(context.auth.uid);
   const serviceId = requireText(data?.id, 'Service ID', 128);
   if (typeof data?.isActive !== 'boolean') throw new functions.https.HttpsError('invalid-argument', 'Service status is invalid.');
   const serviceRef = db.collection('services').doc(serviceId);
@@ -548,9 +558,7 @@ export const adminSetServicePackageActive = functions.https.onCall(async (data, 
 
 export const adminDeleteServicePackage = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  if (!(await db.collection('admins').doc(context.auth.uid).get()).exists) {
-    throw new functions.https.HttpsError('permission-denied', 'Admin only.');
-  }
+  await assertActiveAdmin(context.auth.uid);
   const serviceId = requireText(data?.id, 'Service ID', 128);
   const serviceRef = db.collection('services').doc(serviceId);
   const existing = await serviceRef.get();
@@ -578,8 +586,9 @@ export const adminDeleteServicePackage = functions.https.onCall(async (data, con
 
 export const adminUpdatePlatformRole = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  await assertActiveAdmin(context.auth.uid);
   const actorRef = db.collection('admins').doc(context.auth.uid);
-  if (!(await actorRef.get()).exists) throw new functions.https.HttpsError('permission-denied', 'Admin only.');
+  const actorProfileRef = db.collection('clientProfiles').doc(context.auth.uid);
   const targetUid = requireText(data?.targetUid, 'Target user UID', 128);
   const action = data?.action;
   if (!['grant', 'revoke'].includes(action)) {
@@ -599,22 +608,34 @@ export const adminUpdatePlatformRole = functions.https.onCall(async (data, conte
   const targetRef = db.collection('admins').doc(targetUid);
   const now = new Date().toISOString();
   await db.runTransaction(async transaction => {
-    const [actor, target, adminRecords] = await Promise.all([
+    const [actor, actorProfile, target, adminRecords] = await Promise.all([
       transaction.get(actorRef),
+      transaction.get(actorProfileRef),
       transaction.get(targetRef),
       transaction.get(db.collection('admins')),
     ]);
-    if (!actor.exists) throw new functions.https.HttpsError('permission-denied', 'Admin access changed; sign in again.');
+    if (!isAdminDocActive(actor) || actorProfile.get('status') === 'Suspended') {
+      throw new functions.https.HttpsError('permission-denied', 'Admin access changed; sign in again.');
+    }
     if (action === 'revoke' && !target.exists) {
       throw new functions.https.HttpsError('not-found', 'The target user is not an administrator.');
     }
-    if (action === 'revoke' && adminRecords.size <= 1) {
-      throw new functions.https.HttpsError('failed-precondition', 'The last platform administrator cannot be removed.');
+    if (action === 'revoke' && isAdminDocActive(target)) {
+      const remainingActiveAdmins = adminRecords.docs.filter(
+        adminDoc => adminDoc.id !== targetUid && isAdminDocActive(adminDoc)
+      );
+      if (remainingActiveAdmins.length === 0) {
+        throw new functions.https.HttpsError('failed-precondition', 'The last platform administrator cannot be removed.');
+      }
     }
     if (action === 'grant') {
       transaction.set(targetRef, {
         uid: targetUid,
         role: 'Platform Admin',
+        status: 'Active',
+        revoked: false,
+        suspended: false,
+        active: true,
         grantedBy: context.auth!.uid,
         grantedAt: now,
       }, { merge: true });
@@ -792,8 +813,7 @@ export const submitProductionRequest = functions.https.onCall(async (data, conte
 
 export const reviewProductionRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-  const adminSnap = await db.collection('admins').doc(context.auth.uid).get();
-  if (!adminSnap.exists) throw new functions.https.HttpsError('permission-denied', 'Admin only.');
+  await assertActiveAdmin(context.auth.uid);
   const projectId = requireText(data?.projectId, 'Project ID', 150);
   const status = data?.status;
   if (!['Accepted', 'Rejected', 'Clarification Requested'].includes(status)) {
@@ -1261,7 +1281,7 @@ export const productionDeadlineReminders = functions.pubsub.schedule('every 24 h
     db.collection('clientProjects').where('expectedDeliveryDate', '<=', today).get(),
     db.collection('admins').get(),
   ]);
-  const adminUids = admins.docs.map(item => item.id);
+  const adminUids = admins.docs.filter(isAdminDocActive).map(item => item.id);
   const work: Promise<void>[] = [];
   for (const projectDoc of projects.docs) {
     const project = projectDoc.data();

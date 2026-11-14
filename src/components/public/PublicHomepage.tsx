@@ -26,7 +26,7 @@ interface Props {
 }
 
 export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
-  const { enterWorkspace, loginWithGoogle, isAuthenticated, authError } = useApp();
+  const { enterWorkspace, isAuthenticated, authError } = useApp();
 
   const [activeWorkFilter, setActiveWorkFilter] = useState<'all' | 'music' | 'brand' | 'motion'>('all');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -147,17 +147,17 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
             ) : (
               <>
                 <button
-                  onClick={() => loginWithGoogle()}
+                  onClick={() => navigate('login')}
                   className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white hover:bg-[#141414] rounded border border-[#242424] transition-colors whitespace-nowrap"
                 >
                   <LogIn size={13} />
                   <span>Client Sign In</span>
                 </button>
                 <button
-                  onClick={() => enterWorkspace()}
+                  onClick={() => navigate('register')}
                   className="flex items-center gap-1.5 bg-[#FF1E1E] hover:bg-[#E01818] text-white px-3.5 py-1.5 text-xs font-semibold rounded transition-all shadow-sm whitespace-nowrap active:scale-[0.98]"
                 >
-                  <span>Client Access</span>
+                  <span>Create Account</span>
                   <ArrowRight size={13} />
                 </button>
               </>
@@ -183,9 +183,20 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
                   {label}
                 </a>
               ))}
-              <button onClick={() => { enterWorkspace(); setMobileNavOpen(false); }} className="col-span-2 mt-2 bg-[#FF1E1E] px-3 py-3 text-sm font-semibold text-white">
-                Sign In / Create Account
-              </button>
+              {isAuthenticated ? (
+                <button onClick={() => { enterWorkspace(); setMobileNavOpen(false); }} className="col-span-2 mt-2 bg-white px-3 py-3 text-sm font-semibold text-black">
+                  Open Workspace
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => { navigate('login'); setMobileNavOpen(false); }} className="mt-2 border border-[#292929] px-3 py-3 text-sm font-semibold text-white">
+                    Client Sign In
+                  </button>
+                  <button onClick={() => { navigate('register'); setMobileNavOpen(false); }} className="mt-2 bg-[#FF1E1E] px-3 py-3 text-sm font-semibold text-white">
+                    Create Account
+                  </button>
+                </>
+              )}
             </div>
           </nav>
         )}
@@ -520,10 +531,17 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
                 <p className="text-xs leading-6 text-neutral-500">{description}</p>
               </div>
             ))}
-            <button onClick={() => isAuthenticated ? enterWorkspace() : loginWithGoogle()} className="mt-7 inline-flex min-h-12 items-center gap-3 bg-white px-5 py-3 text-sm font-bold text-black transition-colors hover:bg-[#ff3030] hover:text-white">
-              {isAuthenticated ? 'Open your workspace' : 'Sign in or create an account'} <ArrowRight size={16} />
-            </button>
-            <p className="mt-3 text-[10px] leading-5 text-neutral-600">Google sign-in creates or opens your account. First-time clients choose Artist, Brand or Company during setup.</p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <button onClick={() => isAuthenticated ? enterWorkspace() : navigate('register')} className="inline-flex min-h-12 items-center gap-3 bg-white px-5 py-3 text-sm font-bold text-black transition-colors hover:bg-[#ff3030] hover:text-white">
+                {isAuthenticated ? 'Open your workspace' : 'Create client account'} <ArrowRight size={16} />
+              </button>
+              {!isAuthenticated && (
+                <button onClick={() => navigate('login')} className="inline-flex min-h-12 items-center gap-3 border border-[#333] px-5 py-3 text-sm font-semibold text-white transition-colors hover:border-white">
+                  Client sign in
+                </button>
+              )}
+            </div>
+            <p className="mt-3 text-[10px] leading-5 text-neutral-600">Sign in with email/password or Google to launch your Artist or Brand workspace experience.</p>
           </div>
         </div>
       </section>
@@ -536,11 +554,18 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[.25em] text-[#ff3030]">06 / Client workspace access</p>
             <h2 className="mt-4 max-w-3xl text-3xl font-semibold uppercase leading-[1.03] tracking-[-.05em] text-white sm:text-5xl">Your project. Your private production room.</h2>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-400">Sign in with Google or create an account to set up an Artist, Brand or Company profile and start a project request.</p>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-400">Create an account or sign in with email or Google to open your Artist or Brand workspace inside one unified client portal.</p>
           </div>
-          <button onClick={() => isAuthenticated ? enterWorkspace() : loginWithGoogle()} className="inline-flex min-h-14 items-center justify-center gap-3 bg-[#ff2929] px-6 py-4 text-sm font-bold text-white transition-colors hover:bg-white hover:text-black">
-            {isAuthenticated ? 'Open your workspace' : 'Sign in / create account'} <ArrowRight size={16} />
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button onClick={() => isAuthenticated ? enterWorkspace() : navigate('register')} className="inline-flex min-h-14 items-center justify-center gap-3 bg-[#ff2929] px-6 py-4 text-sm font-bold text-white transition-colors hover:bg-white hover:text-black">
+              {isAuthenticated ? 'Open your workspace' : 'Create account'} <ArrowRight size={16} />
+            </button>
+            {!isAuthenticated && (
+              <button onClick={() => navigate('login')} className="inline-flex min-h-14 items-center justify-center gap-3 border border-[#333] px-6 py-4 text-sm font-semibold text-white transition-colors hover:border-white">
+                Sign in
+              </button>
+            )}
+          </div>
           <p className="text-[10px] text-neutral-600 sm:col-span-2">Workspace access is private and tied to your authenticated account.</p>
         </div>
       </section>
@@ -625,10 +650,16 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
               </button>
             ))}
             <button
-              onClick={() => enterWorkspace()}
+              onClick={() => isAuthenticated ? enterWorkspace() : navigate('login')}
               className="hover:text-[#FF1E1E] transition-colors"
             >
               Client Access
+            </button>
+            <button
+              onClick={() => navigate('admin-login')}
+              className="hover:text-white transition-colors"
+            >
+              Admin Login
             </button>
           </div>
 

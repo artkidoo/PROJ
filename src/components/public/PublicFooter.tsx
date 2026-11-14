@@ -12,7 +12,7 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ navigate }) => {
   const go = (r: PublicRoute) => { navigate(r); window.scrollTo(0, 0); };
   return (
     <footer className="bg-[#080808] border-t border-[#191919] py-12 px-4 sm:px-6 lg:px-8 mt-auto">
-      <div className="max-w-[1440px] mx-auto grid grid-cols-1 md:grid-cols-4 gap-8 text-xs text-neutral-500 font-mono">
+      <div className="max-w-[1440px] mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-8 text-xs text-neutral-500 font-mono">
         <div className="space-y-3">
           <span className="text-base font-black text-white tracking-tighter uppercase">
             KEEDO<span className="text-[#FF1E1E]">HUB</span>
@@ -38,6 +38,14 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ navigate }) => {
           <button onClick={() => go('pricing')} className="block hover:text-white transition-colors">Pricing</button>
           <button onClick={() => go('faq')} className="block hover:text-white transition-colors">FAQ</button>
           <button onClick={() => go('contact')} className="block hover:text-white transition-colors">Contact</button>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-white font-semibold uppercase tracking-widest text-[10px]">Account</p>
+          <button onClick={() => go('login')} className="block hover:text-white transition-colors">Client Sign In</button>
+          <button onClick={() => go('register')} className="block hover:text-white transition-colors">Create Account</button>
+          <button onClick={() => go('forgot-password')} className="block hover:text-white transition-colors">Reset Password</button>
+          <button onClick={() => go('admin-login')} className="block hover:text-white transition-colors">Admin Login</button>
         </div>
 
         <div className="space-y-2">

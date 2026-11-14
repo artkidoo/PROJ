@@ -31,6 +31,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { NewWorkspaceModal } from '../modals/NewWorkspaceModal';
+import { Modal } from './Modal';
 
 interface SidebarProps {
   mobileMenuOpen: boolean;
@@ -64,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
 
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
   const [isNewWorkspaceOpen, setIsNewWorkspaceOpen] = React.useState(false);
+  const [confirmDatabaseAction, setConfirmDatabaseAction] = React.useState<'reset' | 'clear' | null>(null);
 
   const isArtist = activeWorkspace.clientCategory === 'artist' || activeWorkspace.type === 'Artist' || activeWorkspace.type === 'Personal';
   const isBrand = activeWorkspace.clientCategory === 'brand' || activeWorkspace.type === 'Brand' || activeWorkspace.type === 'Agency';
@@ -373,11 +375,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
 
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button
-              onClick={() => {
-                if (confirm('Reset workspace with official production records?')) {
-                  resetToSampleData();
-                }
-              }}
+              type="button"
+              onClick={() => setConfirmDatabaseAction('reset')}
               title="Restore standard label records"
               className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium bg-[#171717] hover:bg-[#222222] text-neutral-300 rounded border border-[#242424] transition-colors"
             >
@@ -386,11 +385,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
             </button>
 
             <button
-              onClick={() => {
-                if (confirm('Clear all workspace records to test clean empty states?')) {
-                  clearAllData();
-                }
-              }}
+              type="button"
+              onClick={() => setConfirmDatabaseAction('clear')}
               title="Test empty states"
               className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium bg-[#171717] hover:bg-[#222222] text-neutral-400 hover:text-red-400 rounded border border-[#242424] transition-colors"
             >
@@ -410,6 +406,51 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
         isOpen={isNewWorkspaceOpen}
         onClose={() => setIsNewWorkspaceOpen(false)}
       />
+
+      <Modal
+        isOpen={Boolean(confirmDatabaseAction)}
+        onClose={() => setConfirmDatabaseAction(null)}
+        maxWidth="sm"
+        title={confirmDatabaseAction === 'reset' ? 'Reset Workspace Data' : 'Clear Workspace State'}
+        subtitle={activeWorkspace.name}
+      >
+        {confirmDatabaseAction && (
+          <div className="space-y-4">
+            <p className="text-sm text-neutral-300 leading-relaxed">
+              {confirmDatabaseAction === 'reset'
+                ? 'Reset workspace with official production records? Unsaved local edits will be replaced.'
+                : 'Clear all workspace records to test clean empty states? This removes local workspace data from the current session.'}
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDatabaseAction(null)}
+                className="rounded border border-[#333] px-4 py-2 text-xs font-medium text-neutral-300 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirmDatabaseAction === 'reset') {
+                    resetToSampleData();
+                  } else {
+                    clearAllData();
+                  }
+                  setConfirmDatabaseAction(null);
+                }}
+                className={`rounded px-4 py-2 text-xs font-semibold text-white ${
+                  confirmDatabaseAction === 'clear'
+                    ? 'bg-[#FF1E1E] hover:bg-red-600'
+                    : 'bg-neutral-800 hover:bg-neutral-700 border border-[#333]'
+                }`}
+              >
+                {confirmDatabaseAction === 'reset' ? 'Reset Data' : 'Clear State'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </>
   );
 };

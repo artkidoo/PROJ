@@ -8,7 +8,8 @@ import { useApp } from '../../context/AppContext';
 export type PublicRoute =
   | 'home' | 'about' | 'vision' | 'services' | 'portfolio' | 'artists'
   | 'journal' | 'article' | 'pricing' | 'contact' | 'faq'
-  | 'terms' | 'privacy' | 'refund';
+  | 'terms' | 'privacy' | 'refund'
+  | 'login' | 'register' | 'forgot-password' | 'admin-login';
 
 interface PublicHeaderProps {
   current: PublicRoute;
@@ -27,7 +28,7 @@ const NAV_ITEMS: { label: string; route: PublicRoute }[] = [
 ];
 
 export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate }) => {
-  const { isAuthenticated, authError, loginWithGoogle, enterWorkspace } = useApp();
+  const { isAuthenticated, authError, enterWorkspace } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const go = (route: PublicRoute) => {
@@ -83,17 +84,21 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
           ) : (
             <>
               <button
-                onClick={() => loginWithGoogle()}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white hover:bg-[#141414] rounded border border-[#242424] transition-colors whitespace-nowrap"
+                onClick={() => go('login')}
+                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border transition-colors whitespace-nowrap ${
+                  current === 'login'
+                    ? 'border-white bg-[#141414] text-white'
+                    : 'border-[#242424] text-neutral-300 hover:text-white hover:bg-[#141414]'
+                }`}
               >
                 <LogIn size={13} />
                 <span>Client Sign In</span>
               </button>
               <button
-                onClick={() => enterWorkspace()}
+                onClick={() => go('register')}
                 className="flex items-center gap-1.5 bg-[#FF1E1E] hover:bg-[#E01818] text-white px-3.5 py-1.5 text-xs font-semibold rounded transition-all shadow-sm whitespace-nowrap active:scale-[0.98]"
               >
-                <span>Sign In / Create Account</span>
+                <span>Create Account</span>
                 <ArrowRight size={13} />
               </button>
             </>
@@ -115,20 +120,35 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
             </button>
           ))}
           <div className="pt-3 border-t border-[#1A1A1A] mt-3 space-y-2">
-            {!isAuthenticated && (
+            {isAuthenticated ? (
               <button
-                onClick={() => { loginWithGoogle(); setMobileOpen(false); }}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-neutral-200 rounded border border-[#242424]"
+                onClick={() => { enterWorkspace(); setMobileOpen(false); }}
+                className="w-full flex items-center justify-center gap-2 bg-white text-black px-3 py-2 text-sm font-semibold rounded"
               >
-                <LogIn size={14} /> Client Sign In
+                <LayoutDashboard size={14} /> Open Workspace
               </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => go('login')}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-neutral-200 rounded border border-[#242424]"
+                >
+                  <LogIn size={14} /> Client Sign In
+                </button>
+                <button
+                  onClick={() => go('register')}
+                  className="w-full flex items-center justify-center gap-2 bg-[#FF1E1E] text-white px-3 py-2 text-sm font-semibold rounded"
+                >
+                  <LayoutDashboard size={14} /> Create Account
+                </button>
+                <button
+                  onClick={() => go('admin-login')}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-neutral-400 hover:text-white"
+                >
+                  Admin Login
+                </button>
+              </>
             )}
-            <button
-              onClick={() => { enterWorkspace(); setMobileOpen(false); }}
-              className="w-full flex items-center justify-center gap-2 bg-[#FF1E1E] text-white px-3 py-2 text-sm font-semibold rounded"
-            >
-              <LayoutDashboard size={14} /> Sign In / Create Account
-            </button>
           </div>
         </div>
       )}

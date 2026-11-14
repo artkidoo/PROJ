@@ -3,6 +3,7 @@ import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { useApp } from '../../context/AppContext';
 import { db, functions } from '../../lib/firebase';
+import { Modal } from '../common/Modal';
 import { 
   ServicePackage, 
   ServiceCategory, 
@@ -44,7 +45,21 @@ import {
   RefreshCw
 } from 'lucide-react';
 
-export const AdminControlCenter: React.FC = () => {
+export type AdminControlTab = 'clients' | 'services' | 'overview' | 'security' | 'audit' | 'pilot';
+
+export interface AdminControlCenterProps {
+  initialTab?: AdminControlTab;
+  embeddedMode?: boolean;
+  securityView?: 'all' | 'admins' | 'access';
+  onInspectWorkspaceProjects?: (workspaceId: string) => void;
+}
+
+export const AdminControlCenter: React.FC<AdminControlCenterProps> = ({
+  initialTab = 'clients',
+  embeddedMode = false,
+  securityView = 'all',
+  onInspectWorkspaceProjects,
+}) => {
   const { 
     activeWorkspace, 
     currentRole, 
@@ -66,8 +81,18 @@ export const AdminControlCenter: React.FC = () => {
   const [workspaceActionPending, setWorkspaceActionPending] = useState(false);
   const [roleTargetUid, setRoleTargetUid] = useState('');
   const [roleActionPending, setRoleActionPending] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<
+    | { type: 'deletePackage'; pkg: ServicePackage }
+    | { type: 'revokeAdmin'; uid: string }
+    | null
+  >(null);
+  const [confirmPending, setConfirmPending] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'clients' | 'services' | 'overview' | 'security' | 'audit' | 'pilot'>('clients');
+  const [activeTab, setActiveTab] = useState<AdminControlTab>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   // Client Management State
   const [clientSearch, setClientSearch] = useState('');
@@ -220,7 +245,7 @@ export const AdminControlCenter: React.FC = () => {
   }, [servicePackages, serviceCategoryFilter, serviceAudienceFilter]);
 
   const auditRecords = useMemo(() => {
-    if (auditEntries.length > 0) {
+    if (auditEntries.length > 0 || embeddedMode) {
       return auditEntries;
     }
     return activities.map((item, index) => ({
@@ -231,7 +256,7 @@ export const AdminControlCenter: React.FC = () => {
       details: item.details,
       timestamp: item.timestamp,
     }));
-  }, [activities, auditEntries]);
+  }, [activities, auditEntries, embeddedMode]);
 
   // Financial Calculations strictly from stored documents (Zero Fabrication)
   const financialLedger = useMemo(() => {
@@ -423,13 +448,9 @@ export const AdminControlCenter: React.FC = () => {
     }
   };
 
-  const removePackage = async (pkg: ServicePackage) => {
-    if (!window.confirm(`Delete service package "${pkg.name}"?`)) return;
-    try {
-      await httpsCallable(functions, 'adminDeleteServicePackage')({ id: pkg.id });
-    } catch (error) {
-      setAdminDataError(error instanceof Error ? error.message : String(error));
-    }
+  const removePackage = (pkg: ServicePackage) => {
+    setAdminDataError('');
+    setPendingConfirm({ type: 'deletePackage', pkg });
   };
 
   const updatePlatformRole = async (event: React.FormEvent) => {
@@ -451,17 +472,32 @@ export const AdminControlCenter: React.FC = () => {
     }
   };
 
-  const revokePlatformRole = async (uid: string) => {
-    if (!window.confirm(`Remove platform administrator access from ${uid}?`)) return;
-    setRoleActionPending(true);
+  const revokePlatformRole = (uid: string) => {
+    setAdminDataError('');
+    setPendingConfirm({ type: 'revokeAdmin', uid });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!pendingConfirm) return;
+    setConfirmPending(true);
     setAdminDataError('');
     try {
-      await httpsCallable(functions, 'adminUpdatePlatformRole')({ targetUid: uid, action: 'revoke' });
-      await loadAdminRecords();
+      if (pendingConfirm.type === 'deletePackage') {
+        await httpsCallable(functions, 'adminDeleteServicePackage')({ id: pendingConfirm.pkg.id });
+      } else {
+        setRoleActionPending(true);
+        try {
+          await httpsCallable(functions, 'adminUpdatePlatformRole')({ targetUid: pendingConfirm.uid, action: 'revoke' });
+          await loadAdminRecords();
+        } finally {
+          setRoleActionPending(false);
+        }
+      }
+      setPendingConfirm(null);
     } catch (error) {
       setAdminDataError(error instanceof Error ? error.message : String(error));
     } finally {
-      setRoleActionPending(false);
+      setConfirmPending(false);
     }
   };
 
@@ -469,122 +505,124 @@ export const AdminControlCenter: React.FC = () => {
     <div className="space-y-6">
       {adminDataError && <p role="alert" className="rounded border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">{adminDataError}</p>}
       {workspaceActionError && <p role="alert" className="rounded border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-200">{workspaceActionError}</p>}
-      {/* Top Banner / Operator Identity */}
-      <div className="bg-[#0D0D0D] border border-[#1E1E1E] rounded-xl p-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-[#FF1E1E]/5 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-red-950/50 text-[#FF1E1E] border border-red-800/40">
-                <ShieldCheck size={12} />
-                PHASE 4: OPERATOR GOVERNANCE
-              </span>
-              <span className="text-neutral-500 text-xs">·</span>
-              <span className="text-xs font-mono text-neutral-400">FIRESTORE RBAC ACTIVE</span>
+      {/* Top Banner / Operator Identity (standalone view only) */}
+      {!embeddedMode && (
+        <div className="bg-[#0D0D0D] border border-[#1E1E1E] rounded-xl p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-[#FF1E1E]/5 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+            <div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-red-950/50 text-[#FF1E1E] border border-red-800/40">
+                  <ShieldCheck size={12} />
+                  OPERATOR GOVERNANCE
+                </span>
+                <span className="text-neutral-500 text-xs">·</span>
+                <span className="text-xs font-mono text-neutral-400">FIRESTORE RBAC ACTIVE</span>
+              </div>
+              <h1 className="text-2xl font-black tracking-tight text-white">
+                ADMIN & OPERATOR CONTROL CENTER
+              </h1>
+              <p className="text-sm text-neutral-400 mt-1 max-w-2xl">
+                Multi-client workspace roster, modular service catalog packaging, verified financial ledger, and platform role governance.
+              </p>
             </div>
-            <h1 className="text-2xl font-black tracking-tight text-white">
-              ADMIN & OPERATOR CONTROL CENTER
-            </h1>
-            <p className="text-sm text-neutral-400 mt-1 max-w-2xl">
-              Multi-client workspace roster, modular service catalog packaging, verified financial ledger, and platform role governance.
-            </p>
+
+            {/* Quick Header Actions */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                onClick={() => setIsOnboardingModalOpen(true)}
+                className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-[#FF1E1E] hover:bg-red-600 text-white rounded-lg transition-colors shadow-lg shadow-red-950/40"
+              >
+                <Plus size={14} />
+                <span>Onboard Client</span>
+              </button>
+              <button
+                onClick={handleOpenNewPackage}
+                className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium bg-[#1A1A1A] hover:bg-[#252525] text-neutral-200 rounded-lg border border-[#2E2E2E] transition-colors"
+              >
+                <Package size={14} />
+                <span>New Package</span>
+              </button>
+            </div>
           </div>
 
-          {/* Quick Header Actions */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Navigation Tabs */}
+          <div className="flex border-b border-[#1E1E1E] mt-6 gap-2 overflow-x-auto no-scrollbar">
             <button
-              onClick={() => setIsOnboardingModalOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-[#FF1E1E] hover:bg-red-600 text-white rounded-lg transition-colors shadow-lg shadow-red-950/40"
+              onClick={() => setActiveTab('clients')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
+                activeTab === 'clients'
+                  ? 'border-[#FF1E1E] text-white font-semibold'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
             >
-              <Plus size={14} />
-              <span>Onboard Client</span>
+              <Building2 size={15} />
+              <span>Client Workspaces ({workspaces.length})</span>
             </button>
+
             <button
-              onClick={handleOpenNewPackage}
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium bg-[#1A1A1A] hover:bg-[#252525] text-neutral-200 rounded-lg border border-[#2E2E2E] transition-colors"
+              onClick={() => setActiveTab('services')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
+                activeTab === 'services'
+                  ? 'border-[#FF1E1E] text-white font-semibold'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
             >
-              <Package size={14} />
-              <span>New Package</span>
+              <Package size={15} />
+              <span>Services & Packages ({servicePackages.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
+                activeTab === 'overview'
+                  ? 'border-[#FF1E1E] text-white font-semibold'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <BarChart3 size={15} />
+              <span>Business Overview & Financials</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('security')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
+                activeTab === 'security'
+                  ? 'border-[#FF1E1E] text-white font-semibold'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <Lock size={15} />
+              <span>Roles & Access Governance</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('audit')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
+                activeTab === 'audit'
+                  ? 'border-[#FF1E1E] text-white font-semibold'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <FileText size={15} />
+              <span>Audit History</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('pilot')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
+                activeTab === 'pilot'
+                  ? 'border-[#FF1E1E] text-white font-semibold'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <Sparkles size={15} />
+              <span>Pilot Launch Validation</span>
             </button>
           </div>
         </div>
-
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-[#1E1E1E] mt-6 gap-2 overflow-x-auto no-scrollbar">
-          <button
-            onClick={() => setActiveTab('clients')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
-              activeTab === 'clients'
-                ? 'border-[#FF1E1E] text-white font-semibold'
-                : 'border-transparent text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <Building2 size={15} />
-            <span>Client Workspaces ({workspaces.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('services')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
-              activeTab === 'services'
-                ? 'border-[#FF1E1E] text-white font-semibold'
-                : 'border-transparent text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <Package size={15} />
-            <span>Services & Packages ({servicePackages.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
-              activeTab === 'overview'
-                ? 'border-[#FF1E1E] text-white font-semibold'
-                : 'border-transparent text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <BarChart3 size={15} />
-            <span>Business Overview & Financials</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('security')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
-              activeTab === 'security'
-                ? 'border-[#FF1E1E] text-white font-semibold'
-                : 'border-transparent text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <Lock size={15} />
-            <span>Roles & Access Governance</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
-              activeTab === 'audit'
-                ? 'border-[#FF1E1E] text-white font-semibold'
-                : 'border-transparent text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <FileText size={15} />
-            <span>Audit History</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('pilot')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
-              activeTab === 'pilot'
-                ? 'border-[#FF1E1E] text-white font-semibold'
-                : 'border-transparent text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <Sparkles size={15} />
-            <span>Pilot Launch Validation</span>
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* TAB 1: CLIENT MANAGEMENT */}
       {activeTab === 'clients' && (
@@ -676,6 +714,17 @@ export const AdminControlCenter: React.FC = () => {
                   Clear Filters
                 </button>
               )}
+
+              {embeddedMode && (
+                <button
+                  type="button"
+                  onClick={() => setIsOnboardingModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#FF1E1E] hover:bg-red-600 text-white rounded-lg transition-colors"
+                >
+                  <Plus size={14} />
+                  <span>Link Workspace</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -748,20 +797,33 @@ export const AdminControlCenter: React.FC = () => {
                     )}
 
                     {/* Production & Asset Footprint */}
-                    <div className="grid grid-cols-3 gap-2 py-2 border-y border-[#1A1A1A] text-center text-xs">
-                      <div>
-                        <div className="font-bold text-white">{clientProjects.length}</div>
-                        <div className="text-[10px] text-neutral-500 font-mono">PROJECTS</div>
+                    {embeddedMode ? (
+                      <div className="grid grid-cols-2 gap-2 py-2 border-y border-[#1A1A1A] text-center text-xs tabular-nums">
+                        <div>
+                          <div className="font-bold text-white">{clientProjects.length}</div>
+                          <div className="text-[10px] text-neutral-500 font-mono">PROJECTS</div>
+                        </div>
+                        <div>
+                          <div className="font-bold text-white">{contractedPackages.length}</div>
+                          <div className="text-[10px] text-neutral-500 font-mono">PACKAGES</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-bold text-white">{clientReleases.length}</div>
-                        <div className="text-[10px] text-neutral-500 font-mono">RELEASES</div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 py-2 border-y border-[#1A1A1A] text-center text-xs">
+                        <div>
+                          <div className="font-bold text-white">{clientProjects.length}</div>
+                          <div className="text-[10px] text-neutral-500 font-mono">PROJECTS</div>
+                        </div>
+                        <div>
+                          <div className="font-bold text-white">{clientReleases.length}</div>
+                          <div className="text-[10px] text-neutral-500 font-mono">RELEASES</div>
+                        </div>
+                        <div>
+                          <div className="font-bold text-white">{clientDocs.length}</div>
+                          <div className="text-[10px] text-neutral-500 font-mono">DOCS</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-bold text-white">{clientDocs.length}</div>
-                        <div className="text-[10px] text-neutral-500 font-mono">DOCS</div>
-                      </div>
-                    </div>
+                    )}
 
                     {/* Contracted Packages */}
                     <div>
@@ -795,13 +857,24 @@ export const AdminControlCenter: React.FC = () => {
                       Manage & Access
                     </button>
 
-                    <button
-                      onClick={() => switchWorkspace(ws.id)}
-                      className="text-xs font-semibold text-[#FF1E1E] hover:text-red-400 flex items-center gap-1 transition-colors"
-                    >
-                      <span>Open Workspace</span>
-                      <ArrowRight size={13} />
-                    </button>
+                    {onInspectWorkspaceProjects ? (
+                      <button
+                        type="button"
+                        onClick={() => onInspectWorkspaceProjects(ws.id)}
+                        className="text-xs font-semibold text-[#FF1E1E] hover:text-red-400 flex items-center gap-1 transition-colors"
+                      >
+                        <span>View Projects</span>
+                        <ArrowRight size={13} />
+                      </button>
+                    ) : !embeddedMode ? (
+                      <button
+                        onClick={() => switchWorkspace(ws.id)}
+                        className="text-xs font-semibold text-[#FF1E1E] hover:text-red-400 flex items-center gap-1 transition-colors"
+                      >
+                        <span>Open Workspace</span>
+                        <ArrowRight size={13} />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -1198,128 +1271,132 @@ export const AdminControlCenter: React.FC = () => {
 
       {activeTab === 'security' && (
         <div className="space-y-6">
-          {/* Security Constitution */}
-          <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <FolderLock size={18} className="text-[#FF1E1E]" />
-              <h3 className="font-bold text-white text-sm">
-                Role-Based Access Control (RBAC) & Tenancy Architecture
+          {(securityView === 'all' || securityView === 'access') && (
+            <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <FolderLock size={18} className="text-[#FF1E1E]" />
+                <h3 className="font-bold text-white text-sm">
+                  Role-Based Access Control (RBAC) & Tenancy Architecture
+                </h3>
+              </div>
+              <p className="text-xs text-neutral-400 leading-relaxed max-w-3xl">
+                KeedoHub employs strict multi-tenant isolation backed by Firestore database security rules and verified Firebase Auth UID session binding. Client workspaces have zero visibility or authorization to inspect sibling client assets, master production center backlogs, or privileged administrative endpoints.
+              </p>
+
+              {/* Role Matrix */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                <div className="bg-[#141414] border border-[#222222] p-4 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-xs">Master Operator / Executive</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-950/60 text-[#FF1E1E] border border-red-800/40">
+                      TIER 1 ADMIN
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Platform owner and executive leadership. Granted access to Admin HQ, all client workspaces, service packaging catalog, and administrative operations.
+                  </p>
+                  <div className="text-[10px] font-mono text-neutral-500 pt-1">
+                    Scope: Universal · Admins collection verified
+                  </div>
+                </div>
+
+                <div className="bg-[#141414] border border-[#222222] p-4 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-xs">Production Lead / Producer</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-400 border border-blue-800/40">
+                      TIER 2 PROD
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Creative directors and studio producers. Can manage production pipeline, upload deliverable versions, run internal QA checks, and publish assets to clients.
+                  </p>
+                  <div className="text-[10px] font-mono text-neutral-500 pt-1">
+                    Scope: Production Pipeline · Admin HQ Operations
+                  </div>
+                </div>
+
+                <div className="bg-[#141414] border border-[#222222] p-4 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-xs">Client Member / Artist</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-800/40">
+                      TIER 3 CLIENT
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Artists and brand representatives. Confined strictly to their assigned client workspace portal. Can review published deliverables, sign off on releases, and submit creative briefs.
+                  </p>
+                  <div className="text-[10px] font-mono text-neutral-500 pt-1">
+                    Scope: Own Workspace Only · Zero cross-client visibility
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(securityView === 'all' || securityView === 'admins') && (
+            <section className="rounded-xl border border-[#1E1E1E] bg-[#0F0F0F] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Platform administrator accounts</h3>
+                  <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-400">Administrator access is granted only through a callable that verifies the current admin, confirms the target Firebase account, records an audit event and protects the last administrator.</p>
+                </div>
+                <form onSubmit={updatePlatformRole} className="flex w-full max-w-xl gap-2">
+                  <input required value={roleTargetUid} onChange={event => setRoleTargetUid(event.target.value)} placeholder="Firebase Auth UID" className="min-w-0 flex-1 rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white" />
+                  <button disabled={roleActionPending} className="rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roleActionPending ? 'Saving…' : 'Grant admin'}</button>
+                </form>
+              </div>
+              <div className="mt-4 divide-y divide-[#222]">
+                {adminRecords.map(record => <div key={record.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                  <div><p className="font-mono text-xs text-white">{record.id}</p><p className="mt-1 text-[10px] text-neutral-500">{record.role || 'Platform Admin'}{record.grantedAt ? ` · granted ${new Date(record.grantedAt).toLocaleString()}` : ''}</p></div>
+                  {record.id !== firebaseUser?.uid && <button type="button" disabled={roleActionPending} onClick={() => void revokePlatformRole(record.id)} className="rounded border border-red-900/60 px-2.5 py-1.5 text-[10px] text-red-200 disabled:opacity-50">Revoke access</button>}
+                </div>)}
+                {adminRecords.length === 0 && <p className="py-3 text-xs text-neutral-500">No platform administrators were returned.</p>}
+              </div>
+            </section>
+          )}
+
+          {(securityView === 'all' || securityView === 'access') && (
+            <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl p-5 space-y-4">
+              <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <ShieldCheck size={16} className="text-emerald-400" />
+                Security Rules & Session Enforcement Summary
               </h3>
-            </div>
-            <p className="text-xs text-neutral-400 leading-relaxed max-w-3xl">
-              KeedoHub employs strict multi-tenant isolation backed by Firestore database security rules and verified Firebase Auth UID session binding. Client workspaces have zero visibility or authorization to inspect sibling client assets, master production center backlogs, or privileged administrative endpoints.
-            </p>
 
-            {/* Role Matrix */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-              <div className="bg-[#141414] border border-[#222222] p-4 rounded-lg space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-xs">Master Operator / Executive</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-950/60 text-[#FF1E1E] border border-red-800/40">
-                    TIER 1 ADMIN
-                  </span>
+              <div className="space-y-2.5 text-xs">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 size={15} className="text-emerald-400" />
+                    <span className="text-neutral-200">Anti-Privilege Escalation Rule</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-emerald-400">ENFORCED (firestore.rules)</span>
                 </div>
-                <p className="text-[11px] text-neutral-400 leading-relaxed">
-                  Platform owner and executive leadership. Granted access to Admin Control Center, all client workspaces, service packaging catalog, and financial accounting ledgers.
-                </p>
-                <div className="text-[10px] font-mono text-neutral-500 pt-1">
-                  Scope: Universal · Workspace: Master (ws-lyrical-ent)
-                </div>
-              </div>
 
-              <div className="bg-[#141414] border border-[#222222] p-4 rounded-lg space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-xs">Production Lead / Producer</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-400 border border-blue-800/40">
-                    TIER 2 PROD
-                  </span>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 size={15} className="text-emerald-400" />
+                    <span className="text-neutral-200">Strict Multi-Tenant Workspace Isolation</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-emerald-400">ENFORCED (/workspaces/{'{id}'}/*)</span>
                 </div>
-                <p className="text-[11px] text-neutral-400 leading-relaxed">
-                  Creative directors and studio producers. Can manage production pipeline, upload deliverable versions, run internal QA checks, and publish assets to clients.
-                </p>
-                <div className="text-[10px] font-mono text-neutral-500 pt-1">
-                  Scope: Production Pipeline · No access to Admin Center
-                </div>
-              </div>
 
-              <div className="bg-[#141414] border border-[#222222] p-4 rounded-lg space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-xs">Client Member / Artist</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-800/40">
-                    TIER 3 CLIENT
-                  </span>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 size={15} className="text-emerald-400" />
+                    <span className="text-neutral-200">Active Admin & Non-Suspended Account Verification</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-emerald-400">ENFORCED (isPlatformAdmin)</span>
                 </div>
-                <p className="text-[11px] text-neutral-400 leading-relaxed">
-                  Artists and brand representatives. Confined strictly to their assigned workspace portal. Can review published deliverables, sign off on releases, and submit creative briefs.
-                </p>
-                <div className="text-[10px] font-mono text-neutral-500 pt-1">
-                  Scope: Own Workspace Only · Zero cross-client visibility
+
+                <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 size={15} className="text-emerald-400" />
+                    <span className="text-neutral-200">Admin Record Case-Insensitive Revocation Guard</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-emerald-400">ENFORCED (isAdminRecordActive)</span>
                 </div>
               </div>
             </div>
-          </div>
-
-          <section className="rounded-xl border border-[#1E1E1E] bg-[#0F0F0F] p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h3 className="text-sm font-bold text-white">Platform administrator accounts</h3>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-400">Administrator access is granted only through a callable that verifies the current admin, confirms the target Firebase account, records an audit event and protects the last administrator.</p>
-              </div>
-              <form onSubmit={updatePlatformRole} className="flex w-full max-w-xl gap-2">
-                <input required value={roleTargetUid} onChange={event => setRoleTargetUid(event.target.value)} placeholder="Firebase Auth UID" className="min-w-0 flex-1 rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white" />
-                <button disabled={roleActionPending} className="rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{roleActionPending ? 'Saving…' : 'Grant admin'}</button>
-              </form>
-            </div>
-            <div className="mt-4 divide-y divide-[#222]">
-              {adminRecords.map(record => <div key={record.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                <div><p className="font-mono text-xs text-white">{record.id}</p><p className="mt-1 text-[10px] text-neutral-500">{record.role || 'Platform Admin'}{record.grantedAt ? ` · granted ${new Date(record.grantedAt).toLocaleString()}` : ''}</p></div>
-                {record.id !== firebaseUser?.uid && <button type="button" disabled={roleActionPending} onClick={() => void revokePlatformRole(record.id)} className="rounded border border-red-900/60 px-2.5 py-1.5 text-[10px] text-red-200 disabled:opacity-50">Revoke access</button>}
-              </div>)}
-              {adminRecords.length === 0 && <p className="py-3 text-xs text-neutral-500">No platform administrators were returned.</p>}
-            </div>
-          </section>
-
-          {/* Firestore Security Rules Status */}
-          <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl p-5 space-y-4">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <ShieldCheck size={16} className="text-emerald-400" />
-              Live Security Rules Enforcement Checklist
-            </h3>
-
-            <div className="space-y-2.5 text-xs">
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
-                <div className="flex items-center gap-2.5">
-                  <CheckCircle2 size={15} className="text-emerald-400" />
-                  <span className="text-neutral-200">Anti-Privilege Escalation Rule</span>
-                </div>
-                <span className="font-mono text-[10px] text-emerald-400">ENFORCED (firestore.rules:61-68)</span>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
-                <div className="flex items-center gap-2.5">
-                  <CheckCircle2 size={15} className="text-emerald-400" />
-                  <span className="text-neutral-200">Strict Multi-Tenant Workspace Isolation</span>
-                </div>
-                <span className="font-mono text-[10px] text-emerald-400">ENFORCED (/workspaces/{'{id}'}/*)</span>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
-                <div className="flex items-center gap-2.5">
-                  <CheckCircle2 size={15} className="text-emerald-400" />
-                  <span className="text-neutral-200">Active Membership Status Validation (Revocation Protection)</span>
-                </div>
-                <span className="font-mono text-[10px] text-emerald-400">ENFORCED (status == 'Active')</span>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#141414] border border-[#222222]">
-                <div className="flex items-center gap-2.5">
-                  <CheckCircle2 size={15} className="text-emerald-400" />
-                  <span className="text-neutral-200">Production Project Write Access</span>
-                </div>
-                <span className="font-mono text-[10px] text-emerald-400">ENFORCED (isWorkspaceOwner only)</span>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -1830,16 +1907,32 @@ export const AdminControlCenter: React.FC = () => {
 
             {/* Bottom Actions */}
             <div className="pt-3 border-t border-[#222222] flex items-center justify-between">
-              <button
-                onClick={() => {
-                  switchWorkspace(selectedClientForDetails.id);
-                  setSelectedClientForDetails(null);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FF1E1E] hover:bg-red-600 text-white rounded-lg text-xs font-semibold transition-colors"
-              >
-                <span>Enter Workspace</span>
-                <ArrowRight size={13} />
-              </button>
+              {onInspectWorkspaceProjects ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onInspectWorkspaceProjects(selectedClientForDetails.id);
+                    setSelectedClientForDetails(null);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FF1E1E] hover:bg-red-600 text-white rounded-lg text-xs font-semibold transition-colors"
+                >
+                  <span>View Projects</span>
+                  <ArrowRight size={13} />
+                </button>
+              ) : !embeddedMode ? (
+                <button
+                  onClick={() => {
+                    switchWorkspace(selectedClientForDetails.id);
+                    setSelectedClientForDetails(null);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FF1E1E] hover:bg-red-600 text-white rounded-lg text-xs font-semibold transition-colors"
+                >
+                  <span>Enter Workspace</span>
+                  <ArrowRight size={13} />
+                </button>
+              ) : (
+                <span />
+              )}
 
               <button
                 onClick={() => setSelectedClientForDetails(null)}
@@ -1851,6 +1944,46 @@ export const AdminControlCenter: React.FC = () => {
           </div>
         </div>
       )}
+
+      <Modal
+        isOpen={Boolean(pendingConfirm)}
+        onClose={() => { if (!confirmPending) setPendingConfirm(null); }}
+        maxWidth="md"
+        title={pendingConfirm?.type === 'deletePackage' ? 'Delete Service Package' : 'Revoke Administrator Access'}
+        subtitle={pendingConfirm?.type === 'deletePackage' ? pendingConfirm.pkg.name : pendingConfirm?.uid}
+      >
+        {pendingConfirm && (
+          <div className="space-y-4">
+            <p className="text-sm text-neutral-300 leading-relaxed">
+              {pendingConfirm.type === 'deletePackage'
+                ? `Are you sure you want to delete service package "${pendingConfirm.pkg.name}"? This removes the package from the catalog.`
+                : `Are you sure you want to remove platform administrator access from account ${pendingConfirm.uid}?`}
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={confirmPending}
+                onClick={() => setPendingConfirm(null)}
+                className="rounded border border-[#333] px-4 py-2 text-xs font-medium text-neutral-300 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={confirmPending}
+                onClick={() => void handleConfirmAction()}
+                className="rounded bg-[#FF1E1E] px-4 py-2 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                {confirmPending
+                  ? 'Processing…'
+                  : pendingConfirm.type === 'deletePackage'
+                    ? 'Delete Package'
+                    : 'Revoke Access'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

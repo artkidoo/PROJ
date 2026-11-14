@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LYRICAL ENT â€” Brand & Label Studio
  * Core Data Models & Type Definitions
  */
@@ -676,6 +676,15 @@ export interface DocumentItem {
   total?: number;
 }
 
+export interface PaymentRecord {
+  id: string;
+  amount: number;
+  date: string;
+  reference: string;
+  method: 'Wire Transfer' | 'ACH' | 'Credit Card' | 'Check' | 'Crypto' | 'Other';
+  recordedBy: string;
+}
+
 export interface CorporateDocument {
   id: string;
   workspaceId?: string;
@@ -683,18 +692,24 @@ export interface CorporateDocument {
   title: string;
   referenceNo: string;
   date: string;
+  validityDate?: string;
   recipientName: string;
   recipientOrg?: string;
   recipientAddress?: string;
   recipientEmail?: string;
   authorName: string;
   authorRole: string;
-  status: 'Draft' | 'Under Review' | 'Approved' | 'Issued';
+  status: 'Draft' | 'Under Review' | 'Approved' | 'Issued' | 'Partially Paid' | 'Paid' | 'Overdue' | 'Cancelled' | 'Accepted' | 'Declined';
+  clientAction?: 'Accepted' | 'Declined';
+  clientActionDate?: string;
   subject?: string;
   bodyContent: string;
   items?: DocumentItem[];
   paymentTerms?: string;
   notes?: string;
+  payments?: PaymentRecord[];
+  totalPaid?: number;
+  balanceDue?: number;
   metadata?: Record<string, any>;
   createdAt: string;
   updatedAt: string;

@@ -237,6 +237,7 @@ export const Header: React.FC<HeaderProps> = ({ mobileMenuOpen, setMobileMenuOpe
     <ClientRequestModal 
       isOpen={isRequestOpen} 
       onClose={() => setIsRequestOpen(false)} 
+      workspaceId={activeWorkspace?.id}
     />
     </>
   );

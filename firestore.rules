@@ -41,9 +41,21 @@ service cloud.firestore {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Platform Level Admin check (verified against database document)
+    function isAdminRecordActive(adminData) {
+      return (!adminData.keys().hasAny(['status']) ||
+          !(adminData.status is string) ||
+          !(adminData.status.trim().lower() in ['suspended', 'revoked', 'inactive', 'disabled'])) &&
+        (!adminData.keys().hasAny(['revoked']) || adminData.revoked != true) &&
+        (!adminData.keys().hasAny(['suspended']) || adminData.suspended != true) &&
+        (!adminData.keys().hasAny(['active']) || adminData.active != false);
+    }
+
+    // Platform Level Admin check (verified against active database document & non-suspended account)
     function isPlatformAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() &&
+        isWorkspaceAccountActive() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        isAdminRecordActive(get(/databases/$(database)/documents/admins/$(request.auth.uid)).data);
     }
 
     // Verified Workspace Ownership (Fail-safe existence check)
@@ -73,8 +85,7 @@ service cloud.firestore {
     }
 
     function isProjectAdmin() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isPlatformAdmin();
     }
 
     function ownsProject(projectId) {
@@ -493,9 +504,11 @@ service cloud.firestore {
     // Client Deliverables (Phase 2A + 2C + 2C.2)
     // Clients can only update feedback. Review status, approval, and version changes are handled by trusted backend (Cloud Functions) or admin.
     match /clientDeliverables/{deliverableId} {
-      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
+      allow read: if isPlatformAdmin() ||
+        (isWorkspaceAccountActive() && resource.data.clientUid is string && resource.data.clientUid == request.auth.uid);
       allow create: if isPlatformAdmin();
-      allow update: if isPlatformAdmin() || (isSignedIn() && resource.data.clientUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedback']));
+      allow update: if isPlatformAdmin() ||
+        (isWorkspaceAccountActive() && resource.data.clientUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedback']));
       allow delete: if isPlatformAdmin();
     }
 
@@ -504,7 +517,8 @@ service cloud.firestore {
     // All creation is handled by trusted Cloud Functions (requestRevision).
     // All updates are handled by authorized admins or trusted backend.
     match /revisionRequests/{requestId} {
-      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
+      allow read: if isPlatformAdmin() ||
+        (isWorkspaceAccountActive() && resource.data.clientUid is string && resource.data.clientUid == request.auth.uid);
       allow create: if false; // Only Cloud Functions (Admin SDK) can create
       allow update: if isPlatformAdmin();
       allow delete: if isPlatformAdmin();
@@ -512,16 +526,21 @@ service cloud.firestore {
 
     // Client Notifications (Phase 2A)
     match /clientNotifications/{notificationId} {
-      allow read: if isSignedIn() && (resource.data.clientUid is string && (resource.data.clientUid == request.auth.uid || isPlatformAdmin()));
+      allow read: if isPlatformAdmin() ||
+        (isWorkspaceAccountActive() && resource.data.clientUid is string && resource.data.clientUid == request.auth.uid);
       allow create: if isPlatformAdmin();
-      allow update: if isSignedIn() && resource.data.clientUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) && request.resource.data.read is bool;
+      allow update: if isWorkspaceAccountActive() &&
+        resource.data.clientUid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
+        request.resource.data.read is bool;
       allow delete: if isPlatformAdmin();
     }
 
     match /userNotifications/{uid}/items/{notificationId} {
-      allow get, list: if isOwner(uid);
+      allow get, list: if isOwner(uid) && isWorkspaceAccountActive();
       allow create, delete: if false;
       allow update: if isOwner(uid) &&
+        isWorkspaceAccountActive() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'updatedAt']) &&
         request.resource.data.read is bool &&
         request.resource.data.updatedAt is string;
