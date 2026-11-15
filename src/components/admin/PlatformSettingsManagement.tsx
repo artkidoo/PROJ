@@ -5,8 +5,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc, collection, addDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../lib/firebase';
 import { useApp } from '../../context/AppContext';
 import { Settings, Save, CheckCircle2, ShieldAlert, Globe, Mail, Building, Sliders } from 'lucide-react';
 
@@ -38,12 +39,36 @@ const DEFAULT_SETTINGS: PlatformSettings = {
 };
 
 export const PlatformSettingsManagement: React.FC = () => {
-  const { firebaseUser, clientProfile } = useApp();
+  const { firebaseUser, clientProfile, canAccessAdminCenter } = useApp();
   const [settings, setSettings] = useState<PlatformSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Fail-closed guard: deny access to suspension or non-admin accounts
+  if (!firebaseUser || !canAccessAdminCenter) {
+    return (
+      <main className="min-h-screen bg-[#080808] text-[#F3F3F3] flex items-center justify-center p-6">
+        <section className="max-w-md w-full border border-red-900/50 bg-[#0C0C0C] p-6 space-y-4">
+          <div className="flex items-center gap-2.5 text-[#FF1E1E]">
+            <ShieldAlert size={20} />
+            <h1 className="text-base font-bold text-white">Platform Settings Access Restricted</h1>
+          </div>
+          <p className="text-xs text-neutral-400 leading-relaxed">
+            Platform configuration is reserved for verified, active KeedoHub platform administrators.
+          </p>
+          <button
+            type="button"
+            onClick={() => (window.location.href = '/')}
+            className="border border-[#2E2E2E] bg-[#141414] px-4 py-2 text-xs font-semibold text-white hover:border-white"
+          >
+            Return to Public Site
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   useEffect(() => {
     let active = true;
@@ -61,29 +86,37 @@ export const PlatformSettingsManagement: React.FC = () => {
     return () => { active = false; };
   }, []);
 
+  const updatePlatformSettings = httpsCallable(functions, 'adminUpdatePlatformSettings');
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firebaseUser) return;
     setSaving(true);
     setError('');
     setSuccessMessage('');
-    const now = new Date().toISOString();
-    const updated: PlatformSettings = { ...settings, updatedAt: now };
-
     try {
-      await setDoc(doc(db, 'settings', 'platform'), updated, { merge: true });
-      // Record immutable audit log
-      await addDoc(collection(db, 'adminAuditLogs'), {
-        actorUid: firebaseUser.uid,
-        actorName: clientProfile?.displayName || firebaseUser.email || firebaseUser.uid,
-        action: 'update_platform_settings',
-        target: 'settings/platform',
-        details: JSON.stringify({ platformName: updated.platformName, supportEmail: updated.supportEmail }),
-        createdAt: now,
-      });
-      setSuccessMessage('Platform settings successfully updated and audit logged.');
+      const payload: Record<string, unknown> = {};
+      if (settings.platformName !== undefined) payload.platformName = settings.platformName;
+      if (settings.supportEmail !== undefined) payload.supportEmail = settings.supportEmail;
+      if (settings.contactPhone !== undefined) payload.contactPhone = settings.contactPhone;
+      if (settings.publicWebsite !== undefined) payload.publicWebsite = settings.publicWebsite;
+      if (settings.agencyAddress !== undefined) payload.agencyAddress = settings.agencyAddress;
+      if (settings.defaultCurrency !== undefined) payload.defaultCurrency = settings.defaultCurrency;
+      if (settings.standardTurnaroundDays !== undefined) payload.standardTurnaroundDays = settings.standardTurnaroundDays;
+      if (settings.clientRegistrationEnabled !== undefined) payload.clientRegistrationEnabled = settings.clientRegistrationEnabled;
+      if (settings.emailAlertsEnabled !== undefined) payload.emailAlertsEnabled = settings.emailAlertsEnabled;
+      if (settings.slackWebhookUrl !== undefined) payload.slackWebhookUrl = settings.slackWebhookUrl !== null ? settings.slackWebhookUrl : '';
+
+      const result = await updatePlatformSettings({ ...payload }) as unknown as { data: { message?: string } };
+      setSuccessMessage(result.data?.message || 'Platform settings successfully updated.');
     } catch (err: any) {
-      setError(err?.message || 'Failed to save platform settings.');
+      const code = err && err.code ? String(err.code) : '';
+      const message = err && err.message ? String(err.message) : '';
+      if (code === 'invalid-argument' || code === 'permission-denied' || code === 'unauthenticated') {
+        setError(message || 'Failed to save platform settings. Please check your input.');
+      } else {
+        setError('Failed to save platform settings. Please try again.');
+      }
     } finally {
       setSaving(false);
     }

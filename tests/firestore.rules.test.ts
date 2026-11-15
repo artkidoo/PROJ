@@ -210,8 +210,24 @@ async function runClientSecurityTests() {
     await assertSucceeds(dbAdmin.doc('clientNotifications/notif-new').set({ id: 'notif-new', clientUid: 'client-a', message: 'Admin notification', read: false }));
     console.log('  [PASS] Admin notification creation allowed.');
 
-    // TEST 24: Unauthenticated cannot access protected collections
-    console.log('[TEST 24] Unauthenticated cannot access protected collections...');
+    // TEST 24A: Admin can read platform settings
+    console.log('[TEST 24A] Admin can read platform settings...');
+    await assertSucceeds(dbAdmin.doc('settings/platform').get());
+    console.log('  [PASS] Admin can read platform settings.');
+
+    // TEST 24B: Admin CANNOT directly write platform settings
+    console.log('[TEST 24B] Admin cannot directly update platform settings...');
+    await assertFails(dbAdmin.doc('settings/platform').update({ agencyAddress: 'Updated Address' }));
+    console.log('  [PASS] Admin direct settings write correctly denied (must use Cloud Function).');
+
+    // TEST 24C: Non-admin user cannot access platform settings
+    console.log('[TEST 24C] Non-admin user cannot access platform settings...');
+    await assertFails(clientA.doc('settings/platform').get());
+    await assertFails(clientA.doc('settings/platform').update({ agencyAddress: 'Blocked' }));
+    console.log('  [PASS] Non-admin user access to settings correctly denied.');
+
+    // TEST 25: Unauthenticated cannot access protected collections
+    console.log('[TEST 25] Unauthenticated cannot access protected collections...');
     await assertFails(unauthDb.doc('clientProfiles/client-a').get());
     await assertFails(unauthDb.doc('clientProjects/proj-a').get());
     await assertFails(unauthDb.doc('clientDeliverables/deliv-a').get());

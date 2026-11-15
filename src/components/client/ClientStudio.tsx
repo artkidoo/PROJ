@@ -958,7 +958,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({ section, workspace, 
   const handleClientProposalAction = async (docId: string, action: 'Accepted' | 'Declined') => {
     setError('');
     try {
-      await updateDoc(doc(db, 'documents', docId), {
+      await updateDoc(doc(db, 'workspaces', workspace.id, 'documents', docId), {
         clientAction: action,
         clientActionDate: new Date().toISOString(),
         status: action === 'Accepted' ? 'Accepted' : 'Declined',

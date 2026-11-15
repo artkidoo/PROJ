@@ -254,6 +254,15 @@ service cloud.firestore {
       allow read: if isPlatformAdmin();
       allow write: if false;
     }
+
+    // Platform Settings (Admin-Only Access)
+    // All platform configuration writes MUST go through Cloud Functions
+    // (assertActiveAdmin) to prevent privilege escalation.
+    // Direct client-side writes — including writes by admins — are DENIED.
+    match /settings/{documentId} {
+      allow read: if isPlatformAdmin();
+      allow create, update, delete: if false;
+    }
     // Default Deny Everything
     match /{document=**} {
       allow read, write: if false;

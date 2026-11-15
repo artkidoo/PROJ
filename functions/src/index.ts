@@ -15,6 +15,20 @@ interface ClientProjectHistoryEntry {
   createdAt: string;
 }
 
+export interface PlatformSettings {
+  platformName: string;
+  supportEmail: string;
+  contactPhone: string;
+  publicWebsite: string;
+  agencyAddress: string;
+  defaultCurrency: string;
+  standardTurnaroundDays: number;
+  clientRegistrationEnabled: boolean;
+  emailAlertsEnabled: boolean;
+  slackWebhookUrl?: string;
+  updatedAt?: string;
+}
+
 function notificationId(eventKey: string): string {
   return `evt_${eventKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120)}`;
 }
@@ -718,6 +732,150 @@ async function getOwnedPublishedDeliverable(projectId: string, deliverableId: st
   }
   return { projectRef, projectSnap, deliverableRef, deliverableSnap };
 }
+
+const ALLOWED_PLATFORM_SETTINGS_FIELDS: Array<keyof PlatformSettings> = [
+  'platformName',
+  'supportEmail',
+  'contactPhone',
+  'publicWebsite',
+  'agencyAddress',
+  'defaultCurrency',
+  'standardTurnaroundDays',
+  'clientRegistrationEnabled',
+  'emailAlertsEnabled',
+  'slackWebhookUrl',
+];
+
+function requireStringField(
+  data: Record<string, unknown>,
+  field: string,
+  maxLength: number,
+  allowEmpty: boolean = false,
+): string {
+  const value = data[field];
+  if (typeof value !== 'string') {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      `${field} must be a string.`,
+    );
+  }
+  if (!allowEmpty && value.trim().length === 0) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      `${field} is required and must be non-empty and ${maxLength} characters or fewer.`,
+    );
+  }
+  if (value.length > maxLength) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      `${field} must be ${maxLength} characters or fewer.`,
+    );
+  }
+  return value.trim();
+}
+
+function requireBooleanField(data: Record<string, unknown>, field: string): boolean {
+  if (typeof data[field] !== 'boolean') {
+    throw new functions.https.HttpsError('invalid-argument', `${field} must be a boolean.`);
+  }
+  return data[field] as boolean;
+}
+
+function requireNumberField(data: Record<string, unknown>, field: string, min: number, max: number): number {
+  if (typeof data[field] !== 'number' || Number.isNaN(data[field])) {
+    throw new functions.https.HttpsError('invalid-argument', `${field} must be a number.`);
+  }
+  const value = data[field] as number;
+  if (value < min || value > max) {
+    throw new functions.https.HttpsError('invalid-argument', `${field} must be between ${min} and ${max}.`);
+  }
+  return value;
+}
+
+export const adminUpdatePlatformSettings = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  }
+  await assertActiveAdmin(context.auth.uid);
+
+  if (!data || typeof data !== 'object') {
+    throw new functions.https.HttpsError('invalid-argument', 'Settings object is required.');
+  }
+  const payload = data as Record<string, unknown>;
+
+  const now = new Date().toISOString();
+  const updates: Record<string, unknown> = { updatedAt: now };
+
+  if (payload.platformName !== undefined) {
+    updates.platformName = requireStringField(payload, 'platformName', 160);
+  }
+  if (payload.supportEmail !== undefined) {
+    const email = requireStringField(payload, 'supportEmail', 254);
+    const emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+    if (!emailPattern.test(email)) {
+      throw new functions.https.HttpsError('invalid-argument', 'Support email is not a valid email address.');
+    }
+    updates.supportEmail = email;
+  }
+  if (payload.contactPhone !== undefined) {
+    updates.contactPhone = requireStringField(payload, 'contactPhone', 40);
+  }
+  if (payload.publicWebsite !== undefined) {
+    const url = requireStringField(payload, 'publicWebsite', 500);
+    try {
+      new URL(url);
+    } catch {
+      throw new functions.https.HttpsError('invalid-argument', 'Public website must be a valid URL.');
+    }
+    updates.publicWebsite = url;
+  }
+  if (payload.agencyAddress !== undefined) {
+    updates.agencyAddress = requireStringField(payload, 'agencyAddress', 200);
+  }
+  if (payload.defaultCurrency !== undefined) {
+    const currency = requireStringField(payload, 'defaultCurrency', 3);
+    const allowedCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'KRW', 'INR'];
+    if (!allowedCurrencies.includes(currency.toUpperCase())) {
+      throw new functions.https.HttpsError('invalid-argument', 'Default currency is not supported.');
+    }
+    updates.defaultCurrency = currency.toUpperCase();
+  }
+  if (payload.standardTurnaroundDays !== undefined) {
+    updates.standardTurnaroundDays = requireNumberField(payload, 'standardTurnaroundDays', 1, 365);
+  }
+  if (payload.clientRegistrationEnabled !== undefined) {
+    updates.clientRegistrationEnabled = requireBooleanField(payload, 'clientRegistrationEnabled');
+  }
+  if (payload.emailAlertsEnabled !== undefined) {
+    updates.emailAlertsEnabled = requireBooleanField(payload, 'emailAlertsEnabled');
+  }
+  if (payload.slackWebhookUrl !== undefined) {
+    updates.slackWebhookUrl = requireStringField(payload, 'slackWebhookUrl', 500, true);
+  }
+
+  const unexpectedKeys = Object.keys(payload).filter(key => !ALLOWED_PLATFORM_SETTINGS_FIELDS.includes(key as keyof PlatformSettings));
+  if (unexpectedKeys.length > 0) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      `Unexpected fields: ${unexpectedKeys.join(', ')}. Allowed fields: ${ALLOWED_PLATFORM_SETTINGS_FIELDS.join(', ')}.`,
+    );
+  }
+
+  const settingsRef = db.collection('settings').doc('platform');
+  await settingsRef.get(); // Verify document exists
+  await settingsRef.update(updates);
+
+  await db.collection('adminAuditLogs').add({
+    actorUid: context.auth!.uid,
+    actorName: context.auth!.token.name || context.auth!.uid,
+    action: 'update_platform_settings',
+    target: 'settings/platform',
+    details: JSON.stringify({ updatedFields: Object.keys(updates).filter(k => k !== 'updatedAt') }),
+    createdAt: now,
+  });
+
+  return { success: true, message: 'Platform settings updated successfully.', updatedAt: now };
+});
 
 export const submitProductionRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
