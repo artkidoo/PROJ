@@ -1148,7 +1148,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const canAccessProductionCenter = isPlatformAdmin && clientProfile?.status !== 'Suspended';
 
   // Phase 4: Admin / Operator Access & Management (Decoupled from ws-lyrical-ent workspace membership)
-  const canAccessAdminCenter = isPlatformAdmin && clientProfile?.status !== 'Suspended';
+  // Explicit null check for clientProfile to ensure admin center access works correctly
+  // even when no client profile exists for the admin account
+  const canAccessAdminCenter = isPlatformAdmin && (clientProfile ? clientProfile.status !== 'Suspended' : true);
 
   const addServicePackage = (pkgData: Omit<ServicePackage, 'id' | 'createdAt' | 'updatedAt'>): ServicePackage => {
     const newPkg: ServicePackage = {

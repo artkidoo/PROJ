@@ -1,7 +1,13 @@
+```tsx
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, LockKeyhole, ShieldAlert } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Loader2,
+  LogIn,
+  ShieldAlert,
+} from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { validateEmailInput } from '../../lib/firebaseAuth';
 import { PublicFooter } from '../public/PublicFooter';
 import { PublicHeader, PublicRoute } from '../public/PublicHeader';
 
@@ -9,64 +15,62 @@ interface AdminLoginPageProps {
   navigate: (route: PublicRoute, param?: string) => void;
 }
 
-export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
+export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
+  navigate,
+}) => {
   const {
     isAuthenticated,
     canAccessAdminCenter,
     authError,
     clearAuthError,
-    loginAdminWithEmail,
+    loginWithGoogle,
     setAppMode,
     logout,
     firebaseUser,
   } = useApp();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const [displayedError, setDisplayedError] = useState<string | null>(null);
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setLocalError(null);
+  const handleGoogleSignIn = async () => {
+    setDisplayedError(null);
     clearAuthError();
+    setGoogleSubmitting(true);
 
-    const emailIssue = validateEmailInput(email);
-    if (emailIssue) {
-      setLocalError(emailIssue);
-      return;
-    }
-    if (!password) {
-      setLocalError('Enter your password.');
-      return;
-    }
-
-    setSubmitting(true);
     try {
-      await loginAdminWithEmail(email, password);
+      await loginWithGoogle({ intent: 'login' });
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Administrator sign-in failed.');
+      setDisplayedError(
+        error instanceof Error
+          ? error.message
+          : 'Google sign-in failed. Please try again.',
+      );
     } finally {
-      setSubmitting(false);
+      setGoogleSubmitting(false);
     }
   };
 
-  const displayedError = localError || authError;
+  const errorMessage = displayedError || authError;
 
   return (
     <div className="flex min-h-screen flex-col bg-[#080808] text-[#F3F3F3] antialiased">
       <PublicHeader current="admin-login" navigate={navigate} />
+
       <main className="mx-auto flex w-full max-w-[1440px] flex-1 items-center justify-center px-4 py-12 sm:px-8 sm:py-20">
         <section className="w-full max-w-md border border-[#2C2C2C] bg-[#0C0C0C] p-6 sm:p-8">
           <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.25em] text-[#FF1E1E]">
-            <LockKeyhole size={14} />
+            <ShieldAlert size={16} />
             <span>Private Platform Operations</span>
           </div>
+
           <h1 className="mt-3 text-2xl font-black uppercase tracking-tight text-white">
             KeedoHub Admin HQ
           </h1>
+
           <p className="mt-2 text-xs leading-6 text-neutral-400">
-            Authorized platform operators only. Access requires server-verified administrator credentials. Public registration is disabled.
+            Authorized platform operators only. Access requires an active,
+            server-verified administrator account. Public registration is
+            disabled.
           </p>
 
           {isAuthenticated ? (
@@ -74,8 +78,12 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
               {canAccessAdminCenter ? (
                 <>
                   <p className="text-xs leading-6 text-neutral-200">
-                    Verified administrator session active for <strong className="text-white">{firebaseUser?.email}</strong>.
+                    Verified administrator session active for{' '}
+                    <strong className="text-white">
+                      {firebaseUser?.email}
+                    </strong>.
                   </p>
+
                   <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
@@ -85,6 +93,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
                       <span>Enter Admin HQ</span>
                       <ArrowRight size={14} />
                     </button>
+
                     <button
                       type="button"
                       onClick={() => void logout()}
@@ -97,11 +106,20 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
               ) : (
                 <>
                   <div className="flex items-start gap-2.5 text-xs text-red-200">
-                    <ShieldAlert size={16} className="mt-0.5 shrink-0 text-[#FF1E1E]" />
+                    <ShieldAlert
+                      size={16}
+                      className="mt-0.5 shrink-0 text-[#FF1E1E]"
+                    />
                     <p>
-                      You are currently signed in as <strong className="text-white">{firebaseUser?.email || 'a client user'}</strong>, which does not have active Admin HQ privileges.
+                      You are signed in as{' '}
+                      <strong className="text-white">
+                        {firebaseUser?.email || 'a client user'}
+                      </strong>
+                      , but this account does not have active Admin HQ
+                      privileges.
                     </p>
                   </div>
+
                   <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
@@ -110,6 +128,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
                     >
                       Open Client Workspace
                     </button>
+
                     <button
                       type="button"
                       onClick={() => void logout()}
@@ -123,58 +142,40 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
             </div>
           ) : (
             <>
-              {displayedError && (
+              {errorMessage && (
                 <div
                   role="alert"
                   className="mt-5 border border-red-500/40 bg-red-950/30 px-4 py-3 text-xs text-red-200"
                 >
-                  {displayedError}
+                  {errorMessage}
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="mt-6 space-y-4" noValidate>
-                <div>
-                  <label htmlFor="admin-login-email" className="block text-[10px] font-mono uppercase tracking-widest text-neutral-400">
-                    Administrator Email
-                  </label>
-                  <input
-                    id="admin-login-email"
-                    type="email"
-                    autoComplete="email"
-                    maxLength={254}
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@keedohub.com"
-                    className="mt-1.5 w-full border border-[#292929] bg-[#141414] px-3.5 py-2.5 text-sm text-white placeholder-neutral-600 focus:border-[#FF1E1E] focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="admin-login-password" className="block text-[10px] font-mono uppercase tracking-widest text-neutral-400">
-                    Password
-                  </label>
-                  <input
-                    id="admin-login-password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter administrator password"
-                    className="mt-1.5 w-full border border-[#292929] bg-[#141414] px-3.5 py-2.5 text-sm text-white placeholder-neutral-600 focus:border-[#FF1E1E] focus:outline-none"
-                  />
-                </div>
-
+              <div className="mt-6 space-y-4">
                 <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex w-full items-center justify-center gap-2 bg-[#FF1E1E] px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[#E01818] disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  onClick={() => void handleGoogleSignIn()}
+                  disabled={googleSubmitting}
+                  className="flex w-full items-center justify-center gap-3 border border-[#393939] bg-[#171717] px-4 py-3 text-sm font-bold text-white transition-colors hover:border-[#FF1E1E] hover:bg-[#202020] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <LockKeyhole size={16} />
-                  <span>{submitting ? 'Verifying Admin Credentials…' : 'Sign In to Admin HQ'}</span>
+                  {googleSubmitting ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <LogIn size={18} />
+                  )}
+
+                  <span>
+                    {googleSubmitting
+                      ? 'Signing in with Google…'
+                      : 'Continue with Google'}
+                  </span>
                 </button>
-              </form>
+
+                <p className="text-center text-[11px] leading-5 text-neutral-500">
+                  Sign in using the Google account that has been granted
+                  KeedoHub administrator access.
+                </p>
+              </div>
             </>
           )}
 
@@ -187,6 +188,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
               <ArrowLeft size={13} />
               <span>Client Sign In</span>
             </button>
+
             <button
               type="button"
               onClick={() => navigate('home')}
@@ -197,9 +199,11 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ navigate }) => {
           </div>
         </section>
       </main>
+
       <PublicFooter navigate={navigate} />
     </div>
   );
 };
 
-export default AdminLoginPage;
+export { AdminLoginPage };
+```
