@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   collection,
   doc,
-  getDoc,
   onSnapshot,
   query,
   setDoc,
@@ -39,7 +38,14 @@ function messageFromError(error: unknown): string {
 }
 
 export const ClientWorkspace: React.FC = () => {
-  const { firebaseUser, clientProfile: contextClientProfile, isClientProfileLoading, logout } = useApp();
+  const {
+    firebaseUser,
+    clientProfile: contextClientProfile,
+    isClientProfileLoading,
+    clientProfileError,
+    refreshClientProfile,
+    logout,
+  } = useApp();
   const [activeTab, setActiveTab] = useState<ClientTab>('projects');
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -79,42 +85,24 @@ export const ClientWorkspace: React.FC = () => {
   useEffect(() => {
     let active = true;
     if (!firebaseUser) {
+      setClientProfile(null);
       setProfileState('error');
       setProfileError('Sign in to access your client workspace.');
       return () => { active = false; };
     }
 
-    setProfileState('loading');
-    setProfileError('');
-    void getDoc(doc(db, 'clientProfiles', firebaseUser.uid)).then(async snapshot => {
-      if (!active) return;
-      if (!snapshot.exists() || snapshot.data().onboardingComplete !== true) {
-        setProfileState('required');
-        return;
-      }
-      const profile = { uid: firebaseUser.uid, ...snapshot.data() } as ClientProfile;
-      setClientProfile(profile);
-      try {
-        const workspace = await ensureClientWorkspace(firebaseUser.uid);
-        if (!active) return;
-        setClientProfile({ ...profile, workspaceId: workspace.id });
-        setProfileState('complete');
-      } catch (workspaceError) {
-        if (!active) return;
-        setProfileError(messageFromError(workspaceError));
-        setProfileState('error');
-      }
-    }).catch(error => {
-      if (!active) return;
-      setProfileError(messageFromError(error));
+    if (isClientProfileLoading) {
+      setProfileState('loading');
+      setProfileError('');
+      return () => { active = false; };
+    }
+
+    if (clientProfileError) {
       setProfileState('error');
-    });
+      setProfileError(clientProfileError);
+      return () => { active = false; };
+    }
 
-    return () => { active = false; };
-  }, [firebaseUser, profileCheck]);
-
-  useEffect(() => {
-    if (!firebaseUser || isClientProfileLoading) return;
     if (!contextClientProfile || contextClientProfile.onboardingComplete !== true) {
       setClientProfile(null);
       setWorkspaces([]);
@@ -124,14 +112,35 @@ export const ClientWorkspace: React.FC = () => {
       setDeliverables([]);
       setRevisions([]);
       setActivity([]);
-      setProfileState((current) => (current === 'complete' ? 'required' : current));
-      return;
+      setProfileState('required');
+      setProfileError('');
+      return () => { active = false; };
     }
-    setClientProfile((previous) => ({
-      ...contextClientProfile,
-      workspaceId: contextClientProfile.workspaceId || previous?.workspaceId,
-    }));
-  }, [firebaseUser, contextClientProfile, isClientProfileLoading]);
+
+    if (contextClientProfile.workspaceId) {
+      setClientProfile(contextClientProfile);
+      setProfileError('');
+      setProfileState('complete');
+      return () => { active = false; };
+    }
+
+    setProfileState('loading');
+    setProfileError('');
+    setClientProfile(contextClientProfile);
+    void ensureClientWorkspace(firebaseUser.uid)
+      .then(workspace => {
+        if (!active) return;
+        setClientProfile({ ...contextClientProfile, workspaceId: workspace.id });
+        setProfileState('complete');
+      })
+      .catch(workspaceErr => {
+        if (!active) return;
+        setProfileError(messageFromError(workspaceErr));
+        setProfileState('error');
+      });
+
+    return () => { active = false; };
+  }, [firebaseUser, contextClientProfile, isClientProfileLoading, clientProfileError, profileCheck]);
 
   useEffect(() => {
     if (!firebaseUser || profileState !== 'complete') return;
@@ -556,7 +565,15 @@ export const ClientWorkspace: React.FC = () => {
         <div className="w-full max-w-lg space-y-4 border border-red-500/30 bg-red-950/20 p-6 text-sm text-red-200">
           <p role="alert">{profileError}</p>
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => setProfileCheck(value => value + 1)} className="border border-red-300/30 px-4 py-2 text-white">Retry</button>
+            <button
+              type="button"
+              onClick={() => {
+                void refreshClientProfile().finally(() => setProfileCheck(value => value + 1));
+              }}
+              className="border border-red-300/30 px-4 py-2 text-white"
+            >
+              Retry
+            </button>
             <button type="button" onClick={() => void logout()} className="border border-[#333] bg-[#141414] px-4 py-2 text-neutral-200 hover:text-white">Sign out</button>
           </div>
         </div>
@@ -564,7 +581,13 @@ export const ClientWorkspace: React.FC = () => {
     );
   }
   if (profileState === 'required') {
-    return <ClientOnboarding onComplete={() => { setProfileState('complete'); setProfileCheck(value => value + 1); }} />;
+    return (
+      <ClientOnboarding
+        onComplete={() => {
+          void refreshClientProfile().finally(() => setProfileCheck(value => value + 1));
+        }}
+      />
+    );
   }
   if (!activeWorkspace) {
     return (
@@ -575,7 +598,17 @@ export const ClientWorkspace: React.FC = () => {
             : workspaces.some(workspace => workspace.status && !['Active', 'Onboarding'].includes(workspace.status))
               ? <p>Your workspace is paused or archived. Contact KeedoHub support to restore access.</p>
               : <p>Loading your private workspace…</p>}
-          {workspaceError && <button type="button" onClick={() => setProfileCheck(value => value + 1)} className="border border-[#444] px-3 py-2 text-white">Retry</button>}
+          {workspaceError && (
+            <button
+              type="button"
+              onClick={() => {
+                void refreshClientProfile().finally(() => setProfileCheck(value => value + 1));
+              }}
+              className="border border-[#444] px-3 py-2 text-white"
+            >
+              Retry
+            </button>
+          )}
         </div>
       </main>
     );

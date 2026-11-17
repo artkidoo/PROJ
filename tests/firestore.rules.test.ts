@@ -543,6 +543,155 @@ async function runClientSecurityTests() {
       updatedAt: new Date().toISOString(),
     }));
 
+    // TEST 24I: clientProfiles access, admin updates, client isolation & Admin HQ collections
+    console.log('[TEST 24I] clientProfiles access, admin updates, client isolation & Admin HQ collections...');
+    const dbLegacyClient = testEnv.authenticatedContext('client-legacy', { email: 'legacy@example.com' }).firestore();
+    const dbSuspendedProfileClient = testEnv.authenticatedContext('client-suspended-profile', { email: 'suspended-profile@example.com' }).firestore();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
+      await seedDb.doc('clientProfiles/admin-user').set({
+        uid: 'admin-user',
+        displayName: 'Platform Admin',
+        email: 'admin@keedohub.com',
+        accountType: 'Brand',
+        organizationName: 'KeedoHub HQ',
+        onboardingComplete: true,
+        status: 'Active',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await seedDb.doc('clientProfiles/client-legacy').set({
+        // Intentionally omit `uid` to verify legacy client profile updates remain allowed
+        displayName: 'Legacy Client',
+        email: 'legacy@example.com',
+        accountType: 'Artist',
+        organizationName: 'Legacy Studio',
+        onboardingComplete: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await seedDb.doc('clientProfiles/client-suspended-profile').set({
+        uid: 'client-suspended-profile',
+        displayName: 'Suspended Client',
+        email: 'suspended-profile@example.com',
+        accountType: 'Brand',
+        organizationName: 'Suspended Brand',
+        onboardingComplete: true,
+        status: 'Suspended',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await seedDb.doc('serviceEnquiries/enq-hq-1').set({
+        id: 'enq-hq-1',
+        name: 'Prospect Brand',
+        email: 'prospect@example.com',
+        service: 'Brand Identity',
+        message: 'Enquiry payload',
+        createdAt: new Date().toISOString(),
+      });
+      await seedDb.doc('settings/platform').set({
+        maintenanceMode: false,
+        supportEmail: 'support@keedohub.com',
+      });
+      await seedDb.doc('productionTasks/pt-hq-1').set({
+        id: 'pt-hq-1',
+        projectId: 'proj-a',
+        clientUid: 'client-a',
+        title: 'Master Art Direction',
+        status: 'In Progress',
+        clientVisible: false,
+      });
+    });
+
+    // Admin profile reads & administrative updates
+    await assertSucceeds(dbAdmin.doc('clientProfiles/admin-user').get());
+    await assertSucceeds(dbAdmin.doc('clientProfiles/client-a').get());
+    await assertSucceeds(dbAdmin.collection('clientProfiles').get());
+    await assertSucceeds(dbAdmin.doc('clientProfiles/client-a').update({
+      displayName: 'Client A Verified',
+      organizationName: 'Artist A Studio',
+      accountType: 'Brand',
+      status: 'Suspended',
+      updatedAt: new Date().toISOString(),
+    }));
+    await assertSucceeds(dbAdmin.doc('clientProfiles/client-a').update({
+      status: 'Active',
+      updatedAt: new Date().toISOString(),
+    }));
+    // Admin cannot inject privilege-escalation flags or rewrite immutable identity fields
+    await assertFails(dbAdmin.doc('clientProfiles/client-a').update({ role: 'PlatformAdmin' }));
+    await assertFails(dbAdmin.doc('clientProfiles/client-a').update({ isAdmin: true }));
+    await assertFails(dbAdmin.doc('clientProfiles/client-a').update({ isPlatformAdmin: true }));
+    await assertFails(dbAdmin.doc('clientProfiles/client-a').update({ uid: 'client-b' }));
+    await assertFails(dbAdmin.doc('clientProfiles/client-a').update({ email: 'hijack@example.com' }));
+
+    // Client own-profile reads & permitted updates (including legacy profile missing `uid`)
+    await assertSucceeds(dbClientA.doc('clientProfiles/client-a').get());
+    await assertSucceeds(dbClientA.doc('clientProfiles/client-a').update({
+      displayName: 'Client A Self Updated',
+      organizationName: 'Artist A Collective',
+      accountType: 'Artist',
+      photoURL: 'https://example.com/avatar.png',
+      updatedAt: new Date().toISOString(),
+    }));
+    await assertSucceeds(dbLegacyClient.doc('clientProfiles/client-legacy').update({
+      displayName: 'Legacy Client Updated',
+      updatedAt: new Date().toISOString(),
+    }));
+
+    // Client isolation on clientProfiles
+    await assertFails(dbClientA.doc('clientProfiles/client-b').get());
+    await assertFails(dbClientA.collection('clientProfiles').get());
+    await assertFails(dbClientA.doc('clientProfiles/client-b').set({
+      uid: 'client-b',
+      displayName: 'Overwrite Attempt',
+      email: 'clientb@example.com',
+      accountType: 'Brand',
+      organizationName: 'Hijacked',
+      onboardingComplete: true,
+    }));
+    await assertFails(dbClientA.doc('clientProfiles/client-b').update({ displayName: 'Tampered' }));
+    await assertFails(dbClientA.doc('clientProfiles/client-b').delete());
+
+    // Client privilege escalation denials & suspended account lock
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ status: 'Suspended' }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ status: 'Active' }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ role: 'PlatformAdmin' }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ isAdmin: true }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ isPlatformAdmin: true }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ suspended: false }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ revoked: false }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ active: true }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ uid: 'admin-user' }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ email: 'other@example.com' }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ createdAt: '2020-01-01T00:00:00.000Z' }));
+    await assertFails(dbSuspendedProfileClient.doc('clientProfiles/client-suspended-profile').update({
+      displayName: 'Bypass Attempt',
+      updatedAt: new Date().toISOString(),
+    }));
+
+    // Admin HQ collection access & client isolation
+    await assertSucceeds(dbAdmin.collection('clientProjects').get());
+    await assertSucceeds(dbAdmin.collection('clientDeliverables').get());
+    await assertSucceeds(dbAdmin.collection('revisionRequests').get());
+    await assertSucceeds(dbAdmin.collection('serviceEnquiries').get());
+    await assertSucceeds(dbAdmin.collection('adminAuditLogs').get());
+    await assertSucceeds(dbAdmin.collection('workspaces').get());
+    await assertSucceeds(dbAdmin.collection('settings').get());
+    await assertSucceeds(dbAdmin.collection('admins').get());
+    await assertSucceeds(dbAdmin.collection('productionTasks').get());
+
+    await assertFails(dbClientA.collection('admins').get());
+    await assertFails(dbClientA.collection('serviceEnquiries').get());
+    await assertFails(dbClientA.collection('adminAuditLogs').get());
+    await assertFails(dbClientA.collection('settings').get());
+    await assertFails(dbClientA.collection('productionTasks').get());
+    await assertFails(dbClientA.doc('clientProjects/proj-b').get());
+    await assertFails(dbClientA.doc('clientDeliverables/deliv-b').get());
+    await assertFails(dbClientA.doc('revisionRequests/req-b').get());
+    await assertFails(dbClientA.doc('workspaces/ws-client-b').get());
+    console.log('  [PASS] clientProfiles, Admin HQ collections, isolation, and escalation controls verified.');
+
     // TEST 25: Unauthenticated cannot access protected collections
     console.log('[TEST 25] Unauthenticated cannot access protected collections...');
     await assertFails(unauthDb.doc('clientProfiles/client-a').get());

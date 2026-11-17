@@ -413,7 +413,7 @@ service cloud.firestore {
       }
     }
 
-    // Client Profiles (Phase 2A - Onboarding)
+    // Client Profiles (Phase 2A - Onboarding & Admin Account Management)
     match /clientProfiles/{profileId} {
       allow get: if isOwner(profileId) || isPlatformAdmin();
       allow list: if isPlatformAdmin();
@@ -429,7 +429,8 @@ service cloud.firestore {
         request.resource.data.displayName.size() <= 100 &&
         request.resource.data.email is string &&
         request.resource.data.email.size() <= 254 &&
-        (!request.resource.data.keys().hasAny(['photoURL']) || request.resource.data.photoURL is string) &&
+        (!request.resource.data.keys().hasAny(['photoURL']) ||
+          (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 2048)) &&
         request.resource.data.accountType in ['Artist', 'Brand', 'Company'] &&
         request.resource.data.organizationName is string &&
         request.resource.data.organizationName.size() > 0 &&
@@ -437,24 +438,76 @@ service cloud.firestore {
         request.resource.data.onboardingComplete == true &&
         (!request.resource.data.keys().hasAny(['workspaceId']) ||
           (request.resource.data.workspaceId is string && ownsWorkspaceAfter(request.resource.data.workspaceId))) &&
-        (!request.resource.data.keys().hasAny(['createdAt']) || request.resource.data.createdAt is string) &&
-        (!request.resource.data.keys().hasAny(['updatedAt']) || request.resource.data.updatedAt is string);
-      allow update: if isOwner(profileId) &&
-        request.resource.data.uid == resource.data.uid &&
+        (!request.resource.data.keys().hasAny(['createdAt']) ||
+          (request.resource.data.createdAt is string && request.resource.data.createdAt.size() <= 64)) &&
+        (!request.resource.data.keys().hasAny(['updatedAt']) ||
+          (request.resource.data.updatedAt is string && request.resource.data.updatedAt.size() <= 64));
+      allow update: if (
+        // Authenticated non-suspended client updating their own permitted onboarding/profile fields
+        isOwner(profileId) &&
+        isWorkspaceAccountActive() &&
+        (!resource.data.keys().hasAny(['uid']) || request.resource.data.uid == resource.data.uid) &&
+        (!request.resource.data.keys().hasAny(['uid']) || request.resource.data.uid == profileId) &&
         (!resource.data.keys().hasAny(['email']) || request.resource.data.email == resource.data.email) &&
         (!resource.data.keys().hasAny(['createdAt']) || request.resource.data.createdAt == resource.data.createdAt) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'accountType', 'organizationName', 'photoURL', 'onboardingComplete', 'workspaceId', 'updatedAt']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'isAdmin', 'isPlatformAdmin', 'status', 'suspended', 'revoked', 'active', 'uid', 'email', 'createdAt'
+        ])) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'accountType', 'organizationName', 'photoURL',
+          'onboardingComplete', 'workspaceId', 'updatedAt'
+        ]) &&
         request.resource.data.onboardingComplete == true &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['workspaceId']) ||
           (request.resource.data.workspaceId is string && ownsWorkspaceAfter(request.resource.data.workspaceId))) &&
-        request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() > 0 &&
-        request.resource.data.displayName.size() <= 100 &&
-        request.resource.data.accountType in ['Artist', 'Brand', 'Company'] &&
-        request.resource.data.organizationName is string &&
-        request.resource.data.organizationName.size() > 0 &&
-        request.resource.data.organizationName.size() <= 100 &&
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isPlatformAdmin']));
+        (!request.resource.data.keys().hasAny(['displayName']) ||
+          (request.resource.data.displayName is string &&
+            request.resource.data.displayName.size() > 0 &&
+            request.resource.data.displayName.size() <= 100)) &&
+        (!request.resource.data.keys().hasAny(['accountType']) ||
+          request.resource.data.accountType in ['Artist', 'Brand', 'Company']) &&
+        (!request.resource.data.keys().hasAny(['organizationName']) ||
+          (request.resource.data.organizationName is string &&
+            request.resource.data.organizationName.size() > 0 &&
+            request.resource.data.organizationName.size() <= 100)) &&
+        (!request.resource.data.keys().hasAny(['photoURL']) ||
+          (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 2048)) &&
+        (!request.resource.data.keys().hasAny(['updatedAt']) ||
+          (request.resource.data.updatedAt is string && request.resource.data.updatedAt.size() <= 64))
+      ) || (
+        // Authorized active PlatformAdmin performing legitimate administrative profile updates
+        isPlatformAdmin() &&
+        (!resource.data.keys().hasAny(['uid']) || request.resource.data.uid == resource.data.uid) &&
+        (!resource.data.keys().hasAny(['email']) || request.resource.data.email == resource.data.email) &&
+        (!resource.data.keys().hasAny(['createdAt']) || request.resource.data.createdAt == resource.data.createdAt) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'isAdmin', 'isPlatformAdmin', 'suspended', 'revoked', 'active', 'uid', 'email', 'createdAt'
+        ])) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'accountType', 'organizationName', 'photoURL',
+          'onboardingComplete', 'workspaceId', 'status', 'updatedAt'
+        ]) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['displayName']) ||
+          (request.resource.data.displayName is string &&
+            request.resource.data.displayName.size() > 0 &&
+            request.resource.data.displayName.size() <= 100)) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['accountType']) ||
+          request.resource.data.accountType in ['Artist', 'Brand', 'Company']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['organizationName']) ||
+          (request.resource.data.organizationName is string &&
+            request.resource.data.organizationName.size() > 0 &&
+            request.resource.data.organizationName.size() <= 100)) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['photoURL']) ||
+          (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 2048)) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['onboardingComplete']) ||
+          request.resource.data.onboardingComplete is bool) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['workspaceId']) ||
+          (request.resource.data.workspaceId is string && isValidId(request.resource.data.workspaceId))) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']) ||
+          request.resource.data.status in ['Active', 'Suspended']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt']) ||
+          (request.resource.data.updatedAt is string && request.resource.data.updatedAt.size() <= 64))
+      );
       allow delete: if isPlatformAdmin();
     }
 

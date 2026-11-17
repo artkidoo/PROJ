@@ -113,6 +113,8 @@ interface AppContextType {
   firebaseUser: FirebaseUser | null;
   clientProfile: ClientProfile | null;
   isClientProfileLoading: boolean;
+  clientProfileError: string | null;
+  refreshClientProfile: () => Promise<ClientProfile | null>;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
   authError: string | null;
@@ -438,6 +440,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [isClientProfileLoading, setIsClientProfileLoading] = useState(false);
+  const [clientProfileError, setClientProfileError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -447,54 +450,128 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const initialAuthResolvedRef = useRef(false);
   const adminDocActiveRef = useRef(false);
   const profileSuspendedRef = useRef(false);
+  const verificationInFlightRef = useRef<{
+    uid: string;
+    promise: Promise<{
+      adminSnapshot: DocumentSnapshot | null;
+      profileSnapshot: DocumentSnapshot | null;
+      loadedProfile: ClientProfile | null;
+      isAdmin: boolean;
+      isSuspended: boolean;
+      adminError: unknown;
+      profileError: unknown;
+    }>;
+  } | null>(null);
 
   const clearAuthError = () => setAuthError(null);
 
-  const verifyAdminAndProfile = async (user: FirebaseUser) => {
-    const readWithTokenRetry = async (ref: DocumentReference): Promise<PromiseSettledResult<DocumentSnapshot>> => {
-      try {
-        const snap = await getDocPreferServer(ref);
-        return { status: 'fulfilled', value: snap };
-      } catch (firstErr) {
-        if (isFirestorePermissionError(firstErr)) {
-          try {
-            await user.getIdToken(true);
-            const retrySnap = await getDocPreferServer(ref);
-            return { status: 'fulfilled', value: retrySnap };
-          } catch (retryErr) {
-            return { status: 'rejected', reason: retryErr };
-          }
+  const verifyAdminAndProfile = (user: FirebaseUser, options?: { forceRefresh?: boolean }) => {
+    const uid = user.uid;
+    if (!options?.forceRefresh && verificationInFlightRef.current?.uid === uid) {
+      return verificationInFlightRef.current.promise;
+    }
+
+    const runVerification = async () => {
+      let tokenRefreshPromise: Promise<string> | null = null;
+      const refreshTokenOnce = () => {
+        if (!tokenRefreshPromise) {
+          tokenRefreshPromise = user.getIdToken(true);
         }
-        return { status: 'rejected', reason: firstErr };
+        return tokenRefreshPromise;
+      };
+
+      const readWithTokenRetry = async (ref: DocumentReference): Promise<PromiseSettledResult<DocumentSnapshot>> => {
+        try {
+          const snap = await getDocPreferServer(ref);
+          return { status: 'fulfilled', value: snap };
+        } catch (firstErr) {
+          if (isFirestorePermissionError(firstErr)) {
+            try {
+              await refreshTokenOnce();
+              const retrySnap = await getDocPreferServer(ref);
+              return { status: 'fulfilled', value: retrySnap };
+            } catch (retryErr) {
+              return { status: 'rejected', reason: retryErr };
+            }
+          }
+          return { status: 'rejected', reason: firstErr };
+        }
+      };
+
+      const [adminResult, profileResult] = await Promise.all([
+        readWithTokenRetry(doc(db, 'admins', uid)),
+        readWithTokenRetry(doc(db, 'clientProfiles', uid)),
+      ]);
+
+      const adminError = adminResult.status === 'rejected' ? adminResult.reason : null;
+      const profileError = profileResult.status === 'rejected' ? profileResult.reason : null;
+      const adminSnapshot = adminResult.status === 'fulfilled' ? adminResult.value : null;
+      const profileSnapshot = profileResult.status === 'fulfilled' ? profileResult.value : null;
+
+      const loadedProfile =
+        profileSnapshot && profileSnapshot.exists()
+          ? ({ uid, status: 'Active', ...profileSnapshot.data() } as ClientProfile)
+          : null;
+      const isAdmin = adminSnapshot ? isAdminRecordActive(adminSnapshot) : false;
+      const isSuspended = isSuspendedAccountStatus(loadedProfile?.status);
+
+      return {
+        adminSnapshot,
+        profileSnapshot,
+        loadedProfile,
+        isAdmin,
+        isSuspended,
+        adminError,
+        profileError,
+      };
+    };
+
+    const promise = runVerification().finally(() => {
+      if (verificationInFlightRef.current?.promise === promise) {
+        verificationInFlightRef.current = null;
       }
-    };
+    });
 
-    const [adminResult, profileResult] = await Promise.all([
-      readWithTokenRetry(doc(db, 'admins', user.uid)),
-      readWithTokenRetry(doc(db, 'clientProfiles', user.uid)),
-    ]);
+    verificationInFlightRef.current = { uid, promise };
+    return promise;
+  };
 
-    const adminError = adminResult.status === 'rejected' ? adminResult.reason : null;
-    const profileError = profileResult.status === 'rejected' ? profileResult.reason : null;
-    const adminSnapshot = adminResult.status === 'fulfilled' ? adminResult.value : null;
-    const profileSnapshot = profileResult.status === 'fulfilled' ? profileResult.value : null;
+  const refreshClientProfile = async (): Promise<ClientProfile | null> => {
+    const activeUser = auth.currentUser;
+    if (!activeUser) {
+      setClientProfile(null);
+      setClientProfileError('Sign in to access your client profile.');
+      return null;
+    }
 
-    const loadedProfile =
-      profileSnapshot && profileSnapshot.exists()
-        ? ({ uid: user.uid, status: 'Active', ...profileSnapshot.data() } as ClientProfile)
-        : null;
-    const isAdmin = adminSnapshot ? isAdminRecordActive(adminSnapshot) : false;
-    const isSuspended = isSuspendedAccountStatus(loadedProfile?.status);
+    setIsClientProfileLoading(true);
+    setClientProfileError(null);
+    const { loadedProfile, isAdmin, isSuspended, profileError } = await verifyAdminAndProfile(activeUser, {
+      forceRefresh: true,
+    });
 
-    return {
-      adminSnapshot,
-      profileSnapshot,
-      loadedProfile,
-      isAdmin,
-      isSuspended,
-      adminError,
-      profileError,
-    };
+    if (auth.currentUser?.uid !== activeUser.uid) {
+      return null;
+    }
+
+    adminDocActiveRef.current = isAdmin;
+    profileSuspendedRef.current = isSuspended;
+    setIsPlatformAdmin(isAdmin && !isSuspended);
+    setClientProfile(loadedProfile);
+    setIsClientProfileLoading(false);
+
+    if (profileError) {
+      const msg = isFirestorePermissionError(profileError)
+        ? 'Unable to access your client profile (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
+        : profileError instanceof Error
+          ? profileError.message
+          : 'Unable to verify your client profile.';
+      setClientProfileError(msg);
+    } else {
+      setClientProfileError(null);
+    }
+
+    return loadedProfile;
   };
 
   useEffect(() => {
@@ -513,6 +590,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       const currentAuthChangeId = ++authChangeId;
       cleanupDocListeners();
+      verificationInFlightRef.current = null;
       setFirebaseUser(user);
       if (!initialAuthResolvedRef.current) {
         setIsAuthLoading(true);
@@ -523,6 +601,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         profileSuspendedRef.current = false;
         setIsPlatformAdmin(false);
         setClientProfile(null);
+        setClientProfileError(null);
         setIsClientProfileLoading(false);
         setCurrentUser(INITIAL_PLATFORM_USER);
         setActiveModule('dashboard');
@@ -537,6 +616,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       setIsClientProfileLoading(true);
+      setClientProfileError(null);
       const {
         loadedProfile,
         isAdmin,
@@ -554,28 +634,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (!active || currentAuthChangeId !== authChangeId) return;
 
-      const permissionRejected =
-        isFirestorePermissionError(adminError) || isFirestorePermissionError(profileError);
+      const adminPermDenied = isFirestorePermissionError(adminError);
+      const profilePermDenied = isFirestorePermissionError(profileError);
+      const inAdminArea = appModeRef.current === 'workspace' || appModeRef.current === 'admin';
 
       adminDocActiveRef.current = isAdmin;
       profileSuspendedRef.current = isSuspended;
       const effectiveAdmin = isAdmin && !isSuspended;
       setIsPlatformAdmin(effectiveAdmin);
       setClientProfile(loadedProfile);
+      setClientProfileError(
+        profilePermDenied
+          ? 'Unable to access your client profile (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
+          : profileError
+            ? profileError instanceof Error
+              ? profileError.message
+              : 'Unable to load your client profile.'
+            : null
+      );
       setIsClientProfileLoading(false);
 
       if (!manualAuthFlowInFlightRef.current) {
-        if (permissionRejected && (appModeRef.current === 'workspace' || appModeRef.current === 'admin' || isFirestorePermissionError(adminError))) {
-          if (appModeRef.current === 'workspace' || appModeRef.current === 'admin') {
-            persistAppMode('public');
-            setActiveModule('dashboard');
-          }
+        if (inAdminArea && (adminPermDenied || profilePermDenied)) {
+          persistAppMode('public');
+          setActiveModule('dashboard');
           setAuthError(
-            isFirestorePermissionError(adminError)
+            adminPermDenied
               ? 'Platform authorization verification failed on /admins/{uid} (Missing or insufficient permissions). Confirm updated firestore.rules are deployed and your /admins record has role "PlatformAdmin".'
               : 'Account verification failed on /clientProfiles/{uid} (Missing or insufficient permissions). Confirm updated firestore.rules are deployed.'
           );
-        } else if ((appModeRef.current === 'workspace' || appModeRef.current === 'admin') && !effectiveAdmin) {
+        } else if (profilePermDenied && appModeRef.current === 'client') {
+          setAuthError(
+            'Client profile access was denied by Firestore security rules (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
+          );
+        } else if (inAdminArea && !effectiveAdmin) {
           persistAppMode('public');
           setActiveModule('dashboard');
           setAuthError(
@@ -630,12 +722,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         doc(db, 'clientProfiles', user.uid),
         (snapshot) => {
           if (!active || currentAuthChangeId !== authChangeId) return;
+          if (auth.currentUser && auth.currentUser.uid !== user.uid) return;
           const nextProfile = snapshot.exists()
             ? ({ uid: user.uid, status: 'Active', ...snapshot.data() } as ClientProfile)
             : null;
           const nextSuspended = isSuspendedAccountStatus(nextProfile?.status);
           profileSuspendedRef.current = nextSuspended;
           setClientProfile(nextProfile);
+          setClientProfileError(null);
+          setIsClientProfileLoading(false);
           setCurrentUser((prev) => ({
             ...prev,
             id: user.uid,
@@ -656,8 +751,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         (error) => {
           if (!active || currentAuthChangeId !== authChangeId) return;
           console.warn('Client profile listener warning:', error);
-          if (isFirestorePermissionError(error) && (appModeRef.current === 'workspace' || appModeRef.current === 'admin')) {
-            setAuthError('Client profile permission check failed (Missing or insufficient permissions).');
+          if (isFirestorePermissionError(error)) {
+            const msg = 'Unable to access your client profile (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.';
+            setClientProfileError(msg);
+            if (!manualAuthFlowInFlightRef.current && (appModeRef.current === 'client' || appModeRef.current === 'workspace' || appModeRef.current === 'admin')) {
+              setAuthError(msg);
+            }
           }
         },
       );
@@ -815,27 +914,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('Enter your password.');
     }
 
+    manualAuthFlowInFlightRef.current = true;
     try {
       const credential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
-      const profileSnapshot = await getDocPreferServer(doc(db, 'clientProfiles', credential.user.uid));
-      const profile = profileSnapshot.exists()
-        ? ({ uid: credential.user.uid, status: 'Active', ...profileSnapshot.data() } as ClientProfile)
-        : null;
+      const { loadedProfile, isSuspended, profileError } = await verifyAdminAndProfile(credential.user);
 
-      if (isSuspendedAccountStatus(profile?.status)) {
+      if (isSuspended) {
         await firebaseSignOut(auth);
         adminDocActiveRef.current = false;
         profileSuspendedRef.current = true;
         setIsPlatformAdmin(false);
         setClientProfile(null);
+        setClientProfileError(null);
         persistAppMode('public');
         const suspendedMessage = 'This client account is suspended. Contact KeedoHub support for access.';
         setAuthError(suspendedMessage);
         throw new Error(suspendedMessage);
       }
 
+      if (profileError) {
+        const permMsg = isFirestorePermissionError(profileError)
+          ? 'Unable to access your client profile (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
+          : profileError instanceof Error
+            ? profileError.message
+            : 'Unable to load your client profile.';
+        setClientProfileError(permMsg);
+        setAuthError(permMsg);
+      } else {
+        setClientProfileError(null);
+      }
+
       profileSuspendedRef.current = false;
-      setClientProfile(profile);
+      setClientProfile(loadedProfile);
       clearPublicAuthHash();
       // Client sign-in always enters the unified client workspace, never Admin HQ
       persistAppMode('client');
@@ -843,6 +953,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const message = friendlyFirebaseAuthError(error, 'Sign in failed. Please check your credentials.');
       setAuthError(message);
       throw new Error(message);
+    } finally {
+      manualAuthFlowInFlightRef.current = false;
     }
   };
 
@@ -1121,10 +1233,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = async () => {
     try {
       await firebaseSignOut(auth);
+      verificationInFlightRef.current = null;
       adminDocActiveRef.current = false;
       profileSuspendedRef.current = false;
       setIsPlatformAdmin(false);
       setClientProfile(null);
+      setClientProfileError(null);
       setIsClientProfileLoading(false);
       setCurrentUser(INITIAL_PLATFORM_USER);
       setActiveModule('dashboard');
@@ -1811,6 +1925,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         firebaseUser,
         clientProfile,
         isClientProfileLoading,
+        clientProfileError,
+        refreshClientProfile,
         isAuthenticated: !!firebaseUser,
         isAuthLoading,
         authError,
