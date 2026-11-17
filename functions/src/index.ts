@@ -64,9 +64,20 @@ async function notifyUser(
   });
 }
 
+const VALID_ADMIN_ROLES = new Set([
+  'platformadmin',
+  'platform admin',
+  'superadmin',
+  'super admin',
+]);
+
 function isAdminDocActive(adminSnap: admin.firestore.DocumentSnapshot): boolean {
   if (!adminSnap.exists) return false;
   const data = adminSnap.data() || {};
+  const role = typeof data.role === 'string' ? data.role.trim().toLowerCase() : '';
+  if (!VALID_ADMIN_ROLES.has(role)) {
+    return false;
+  }
   const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
   if (['suspended', 'revoked', 'inactive', 'disabled'].includes(status)) {
     return false;
@@ -77,12 +88,16 @@ function isAdminDocActive(adminSnap: admin.firestore.DocumentSnapshot): boolean 
   return true;
 }
 
+function isSuspendedProfileStatus(status: unknown): boolean {
+  return typeof status === 'string' && ['suspended', 'revoked', 'disabled'].includes(status.trim().toLowerCase());
+}
+
 async function assertActiveAdmin(uid: string, deniedMessage = 'Admin only.'): Promise<void> {
   const [adminSnap, profileSnap] = await Promise.all([
     db.collection('admins').doc(uid).get(),
     db.collection('clientProfiles').doc(uid).get(),
   ]);
-  if (!isAdminDocActive(adminSnap) || profileSnap.get('status') === 'Suspended') {
+  if (!isAdminDocActive(adminSnap) || isSuspendedProfileStatus(profileSnap.get('status'))) {
     throw new functions.https.HttpsError('permission-denied', deniedMessage);
   }
 }
@@ -628,7 +643,7 @@ export const adminUpdatePlatformRole = functions.https.onCall(async (data, conte
       transaction.get(targetRef),
       transaction.get(db.collection('admins')),
     ]);
-    if (!isAdminDocActive(actor) || actorProfile.get('status') === 'Suspended') {
+    if (!isAdminDocActive(actor) || isSuspendedProfileStatus(actorProfile.get('status'))) {
       throw new functions.https.HttpsError('permission-denied', 'Admin access changed; sign in again.');
     }
     if (action === 'revoke' && !target.exists) {
@@ -645,7 +660,7 @@ export const adminUpdatePlatformRole = functions.https.onCall(async (data, conte
     if (action === 'grant') {
       transaction.set(targetRef, {
         uid: targetUid,
-        role: 'Platform Admin',
+        role: 'PlatformAdmin',
         status: 'Active',
         revoked: false,
         suspended: false,

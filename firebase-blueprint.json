@@ -112,7 +112,7 @@
     },
     "BrandAsset": {
       "title": "Brand Asset",
-      "description": "Logo, guideline, font or media asset in asset library",
+      "description": "Shared workspace logo, guideline, font or media asset in asset library",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -121,6 +121,26 @@
         "category": { "type": "string" },
         "fileUrl": { "type": "string" },
         "fileType": { "type": "string" },
+        "storagePath": { "type": "string" },
+        "isInternal": { "type": "boolean" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "name"]
+    },
+    "InternalAsset": {
+      "title": "Internal Production Asset",
+      "description": "Admin-only internal production source and staging asset metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "fileType": { "type": "string" },
+        "storagePath": { "type": "string" },
+        "isInternal": { "type": "boolean" },
+        "status": { "type": "string" },
         "uploadedAt": { "type": "string" }
       },
       "required": ["id", "workspaceId", "name"]
@@ -239,7 +259,11 @@
     },
     "/workspaces/{workspaceId}/brandAssets/{assetId}": {
       "schema": { "$ref": "#/entities/BrandAsset" },
-      "description": "Brand assets belonging to workspace"
+      "description": "Shared workspace brand assets belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/internalAssets/{assetId}": {
+      "schema": { "$ref": "#/entities/InternalAsset" },
+      "description": "Admin-only internal production assets belonging to workspace"
     },
     "/workspaces/{workspaceId}/tasks/{taskId}": {
       "schema": { "$ref": "#/entities/OperationTask" },
@@ -255,7 +279,7 @@
     },
     "/workspaces/{workspaceId}/campaignDesigns/{designId}": {
       "schema": { "$ref": "#/entities/CampaignDesign" },
-      "description": "Saved designs belonging to workspace"
+      "description": "Admin-only internal production design specifications belonging to workspace"
     }
   }
 }

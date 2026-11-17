@@ -5,14 +5,17 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  query,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
 import { ArrowDownToLine, FilePlus2, ImagePlus, Music2, Pencil, Plus, Save, Trash2, Upload, X } from 'lucide-react';
 import { BrandAsset, BrandWorkspaceProfile, ClientProject, CorporateDocument, DocumentItem, DocumentType, PaymentRecord, Workspace } from '../../types';
 import { db, storage } from '../../lib/firebase';
+import { isInternalStoragePath } from '../../lib/productionPromotion';
 import { generateCorporateDocumentPdf } from '../../utils/pdfGenerator';
 
 export type ClientStudioSection = 'profile' | 'releases' | 'content' | 'assets' | 'brand' | 'documents' | 'invoices' | 'proposals';
@@ -331,8 +334,12 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({ section, workspace, 
         setContentItems(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as StudioContentItem)));
         setLoading(false);
       }, err => { setError(messageFromError(err)); setLoading(false); }),
-      onSnapshot(collection(base, 'brandAssets'), snapshot => {
-        setAssets(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as StudioAsset)));
+      onSnapshot(query(collection(base, 'brandAssets'), where('isInternal', '==', false)), snapshot => {
+        setAssets(
+          snapshot.docs
+            .map(item => ({ id: item.id, ...item.data() } as StudioAsset))
+            .filter(asset => !isInternalStoragePath(asset.storagePath))
+        );
         setLoading(false);
       }, err => { setError(messageFromError(err)); setLoading(false); }),
       onSnapshot(collection(base, 'documents'), snapshot => {
@@ -624,6 +631,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({ section, workspace, 
           releaseId: assetReleaseId,
           projectId: assetProjectId,
           description: assetDescription.trim(),
+          isInternal: false,
           uploadedAt: new Date().toISOString(),
           uploadedBy: uid,
         },

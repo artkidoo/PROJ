@@ -264,6 +264,10 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
   }
 
   const errorEntries = Object.entries(errors);
+  const hasPermissionDeniedError = errorEntries.some(([, msg]) =>
+    msg.toLowerCase().includes('missing or insufficient permissions') ||
+    msg.toLowerCase().includes('permission-denied')
+  );
   const initialLoading =
     loadingStates.clients &&
     loadingStates.workspaces &&
@@ -275,12 +279,17 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
   return (
     <div className="space-y-6">
       {errorEntries.length > 0 && (
-        <div role="alert" className="border border-red-900/50 bg-red-950/20 p-4 text-xs text-red-200 space-y-1">
+        <div role="alert" className="border border-red-900/50 bg-red-950/20 p-4 text-xs text-red-200 space-y-1.5">
           {errorEntries.map(([source, message]) => (
             <p key={source}>
               <span className="font-mono uppercase text-red-400">{source}:</span> {message}
             </p>
           ))}
+          {hasPermissionDeniedError && (
+            <p className="pt-2 mt-2 border-t border-red-900/40 text-red-300/90 leading-relaxed">
+              Your local <code className="font-mono text-white">/admins/{firebaseUser.uid}</code> session passed verification, but Firestore rejected admin collection queries. Ensure the updated <code className="font-mono text-white">firestore.rules</code> file is deployed to this Firebase project and named database, and verify your <code className="font-mono text-white">/admins/{firebaseUser.uid}</code> record has <code className="font-mono text-white">role: &quot;PlatformAdmin&quot;</code> and active status.
+            </p>
+          )}
         </div>
       )}
 

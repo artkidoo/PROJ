@@ -30,12 +30,11 @@ export const CreativeAssetStudio: React.FC = () => {
     ctx.fillStyle = '#ffffff';
     ctx.font = '20px Arial';
     ctx.fillText('Creative Asset Studio', 50, 50);
-  });
+  }, []);
 
   return (
     <div className="p-6 bg-[#0c0c0c] rounded-lg">
       <h3 className="font-bold text-white mb-2">Creative Asset Studio</h3>
-<canvas ref={canvasRef} width={1080} height={1080} className="border-2 border-[#333] cursor-crosshair" />
       <canvas ref={canvasRef} width={1080} height={1080} className="border-2 border-[#333] cursor-crosshair" />
       {error && <p className="mt-2 text-red-300 text-sm">{error}</p>}
     </div>

@@ -35,12 +35,14 @@ export interface ReleaseProject {
 
 export interface CampaignDesign {
   id: string;
+  workspaceId?: string;
   projectId: string;
   name: string;
   templateId: string;
   canvasDesign: CanvasDesign;
   category: CampaignCategory;
   exportPreset: AspectRatioType;
+  internalNotes?: string;
   createdAt: string;
   updatedAt: string;
 }

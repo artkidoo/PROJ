@@ -1,4 +1,4 @@
-﻿import { initializeTestEnvironment, RulesTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
+import { initializeTestEnvironment, RulesTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import * as fs from 'fs';
 import * as path from 'path';
 import { LOCAL_PROJECT_ID, FIRESTORE_DATABASE_ID } from './firebase-test-helpers';
@@ -35,13 +35,31 @@ async function runClientSecurityTests() {
     const dbAdmin = adminContext.firestore();
     const unauthDb = guestCtx.firestore();
 
+    const dbAdminNoStatus = testEnv.authenticatedContext('admin-no-status', { email: 'nostatus@keedohub.com' }).firestore();
+
     // SECTION A: Admin permissions
     console.log('\n[SECTION A] Admin permissions');
 
     // TEST A1: Admin can read own profile
     console.log('[TEST A1] Admin can read own profile...');
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
+      await seedDb.doc('admins/admin-user').set({ uid: 'admin-user', role: 'PlatformAdmin', grantedAt: new Date().toISOString() });
+      await seedDb.doc('admins/admin-no-status').set({ uid: 'admin-no-status', role: 'PlatformAdmin', grantedAt: new Date().toISOString() });
+      await seedDb.doc('clientProfiles/admin-no-status').set({
+        uid: 'admin-no-status',
+        displayName: 'No Status Admin',
+        email: 'nostatus@keedohub.com',
+        accountType: 'Brand',
+        organizationName: 'KeedoHub',
+        onboardingComplete: true,
+        // Intentionally omit `status` field to match production admin profile state
+      });
+    });
     await assertSucceeds(dbAdmin.doc('admins/admin-user').get());
-    console.log('  [PASS] Admin profile read allowed.');
+    await assertSucceeds(dbAdminNoStatus.doc('admins/admin-no-status').get());
+    await assertSucceeds(dbAdminNoStatus.collection('admins').get());
+    console.log('  [PASS] Admin profile read & list allowed (including clientProfile without status field).');
 
     // TEST A2: Admin cannot create audit log via client SDK
     console.log('[TEST A2] Admin cannot create audit log via client SDK...');
@@ -220,11 +238,310 @@ async function runClientSecurityTests() {
     await assertFails(dbAdmin.doc('settings/platform').update({ agencyAddress: 'Updated Address' }));
     console.log('  [PASS] Admin direct settings write correctly denied (must use Cloud Function).');
 
-    // TEST 24C: Non-admin user cannot access platform settings
-    console.log('[TEST 24C] Non-admin user cannot access platform settings...');
-    await assertFails(clientA.doc('settings/platform').get());
-    await assertFails(clientA.doc('settings/platform').update({ agencyAddress: 'Blocked' }));
-    console.log('  [PASS] Non-admin user access to settings correctly denied.');
+    // TEST 24C: Non-admin user cannot access platform settings, other admin docs, or list admins
+    console.log('[TEST 24C] Non-admin user cannot access platform settings, other admin records, or list admins...');
+    await assertFails(dbClientA.doc('settings/platform').get());
+    await assertFails(dbClientA.doc('settings/platform').update({ agencyAddress: 'Blocked' }));
+    await assertFails(dbClientA.doc('admins/admin-user').get());
+    await assertFails(dbClientA.collection('admins').get());
+    await assertFails(dbClientA.collection('workspaces/ws-client-b/campaignDesigns').get());
+    await assertSucceeds(dbAdminNoStatus.doc('clientProfiles/admin-no-status').get());
+    await assertSucceeds(dbAdminNoStatus.collection('clientProfiles').get());
+    await assertSucceeds(dbAdminNoStatus.collection('workspaces').get());
+    await assertSucceeds(dbAdminNoStatus.doc('settings/platform').get());
+    await assertFails(dbClientA.collection('clientProfiles').get());
+    console.log('  [PASS] Non-admin access restricted & admin-no-status can read/list profiles, workspaces, and platform settings.');
+
+    // TEST 24D: Inactive/revoked/suspended or invalid-role admin records denied even if /admins/{uid} exists
+    console.log('[TEST 24D] Revoked, suspended, or invalid-role admin records denied...');
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
+      await seedDb.doc('admins/revoked-admin').set({ uid: 'revoked-admin', role: 'PlatformAdmin', status: 'Revoked' });
+      await seedDb.doc('admins/false-active-admin').set({ uid: 'false-active-admin', role: 'PlatformAdmin', active: false });
+      await seedDb.doc('admins/missing-role-admin').set({ uid: 'missing-role-admin', status: 'Active' });
+      await seedDb.doc('admins/client-role-admin').set({ uid: 'client-role-admin', role: 'Client', status: 'Active' });
+      await seedDb.doc('workspaces/ws-client-a/memberships/member-a').set({
+        id: 'member-a', userId: 'client-b', workspaceId: 'ws-client-a', role: 'Member', status: 'Active', joinedAt: new Date().toISOString()
+      });
+      // Replace client-b membership keyed by uid so isWorkspaceMember matches memberships/$(request.auth.uid)
+      await seedDb.doc('workspaces/ws-client-a/memberships/client-b').set({
+        id: 'client-b', userId: 'client-b', workspaceId: 'ws-client-a', role: 'Member', status: 'Active', joinedAt: new Date().toISOString()
+      });
+    });
+    const dbRevokedAdmin = testEnv.authenticatedContext('revoked-admin').firestore();
+    const dbFalseActiveAdmin = testEnv.authenticatedContext('false-active-admin').firestore();
+    const dbMissingRoleAdmin = testEnv.authenticatedContext('missing-role-admin').firestore();
+    const dbClientRoleAdmin = testEnv.authenticatedContext('client-role-admin').firestore();
+    await assertFails(dbRevokedAdmin.collection('workspaces').get());
+    await assertFails(dbFalseActiveAdmin.collection('workspaces').get());
+    await assertFails(dbMissingRoleAdmin.collection('workspaces').get());
+    await assertFails(dbMissingRoleAdmin.collection('clientProfiles').get());
+    await assertFails(dbMissingRoleAdmin.doc('settings/platform').get());
+    await assertFails(dbMissingRoleAdmin.collection('admins').get());
+    await assertFails(dbClientRoleAdmin.collection('workspaces').get());
+    await assertFails(dbClientRoleAdmin.collection('clientProfiles').get());
+    await assertFails(dbClientRoleAdmin.doc('settings/platform').get());
+    await assertFails(dbClientRoleAdmin.collection('admins').get());
+
+    // TEST 24H: Full AdminHQOverview collection queries with canonical PlatformAdmin doc shape
+    console.log('[TEST 24H] AdminHQOverview six collection queries (projects, deliverables, revisions, enquiries, clients, auditLogs)...');
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
+      await seedDb.doc('admins/live-shape-admin').set({
+        uid: 'live-shape-admin',
+        role: 'PlatformAdmin',
+        status: 'Active',
+        active: true,
+      });
+      await seedDb.doc('clientProfiles/live-shape-admin').set({
+        uid: 'live-shape-admin',
+        displayName: 'Live Shape Admin',
+        email: 'artkidmummyspet@gmail.com',
+        status: 'Active',
+      });
+      await seedDb.doc('clientProjects/proj-a').set({
+        id: 'proj-a',
+        clientUid: 'client-a',
+        title: 'Client A Project',
+        status: 'Active',
+        workspaceId: 'ws-client-a',
+        updatedAt: new Date().toISOString(),
+      });
+      await seedDb.doc('clientProjects/proj-a/deliverables/deliv-1').set({
+        id: 'deliv-1',
+        projectId: 'proj-a',
+        clientUid: 'client-a',
+        title: 'Cover Art',
+        isClientPublished: true,
+        reviewStatus: 'Awaiting Review',
+      });
+      await seedDb.doc('clientProjects/proj-a/revisionRequests/rev-1').set({
+        id: 'rev-1',
+        projectId: 'proj-a',
+        clientUid: 'client-a',
+        deliverableId: 'deliv-1',
+        feedback: 'Adjust margin',
+        status: 'Submitted',
+        createdAt: new Date().toISOString(),
+      });
+      await seedDb.doc('serviceEnquiries/enq-1').set({
+        id: 'enq-1',
+        name: 'Prospect',
+        email: 'prospect@example.com',
+        service: 'Brand Identity',
+        status: 'New',
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    const dbLiveShapeAdmin = testEnv.authenticatedContext('live-shape-admin', { email: 'artkidmummyspet@gmail.com' }).firestore();
+    for (const adminDbCtx of [dbLiveShapeAdmin, dbAdminNoStatus]) {
+      await assertSucceeds(adminDbCtx.collection('clientProfiles').get());
+      await assertSucceeds(adminDbCtx.collection('clientProjects').orderBy('updatedAt', 'desc').get());
+      await assertSucceeds(adminDbCtx.collectionGroup('deliverables').get());
+      await assertSucceeds(adminDbCtx.collectionGroup('revisionRequests').get());
+      await assertSucceeds(adminDbCtx.collection('serviceEnquiries').orderBy('createdAt', 'desc').limit(20).get());
+      await assertSucceeds(adminDbCtx.collection('adminAuditLogs').orderBy('createdAt', 'desc').limit(12).get());
+    }
+    await assertFails(dbClientA.collection('clientProfiles').get());
+    await assertFails(dbClientA.collection('clientProjects').orderBy('updatedAt', 'desc').get());
+    await assertFails(dbClientA.collectionGroup('deliverables').get());
+    await assertFails(dbClientA.collectionGroup('revisionRequests').get());
+    await assertFails(dbClientA.collection('serviceEnquiries').orderBy('createdAt', 'desc').limit(20).get());
+    await assertFails(dbClientA.collection('adminAuditLogs').orderBy('createdAt', 'desc').limit(12).get());
+    console.log('  [PASS] All 6 AdminHQOverview queries succeed for active PlatformAdmin and remain denied for non-admins.');
+
+    // TEST 24E: campaignDesigns & internalAssets restricted to active platform admins; brandAssets shared
+    console.log('[TEST 24E] campaignDesigns and internalAssets restricted to active platform admins...');
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/campaignDesigns/spec-1').set({
+      id: 'spec-1', workspaceId: 'ws-client-a', name: 'Internal Spec', internalNotes: 'Admin secret notes'
+    }));
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/campaignDesigns/spec-1').get());
+    await assertSucceeds(dbAdmin.collectionGroup('campaignDesigns').get());
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/campaignDesigns/spec-1').get());
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/campaignDesigns/spec-client').set({ id: 'spec-client', workspaceId: 'ws-client-a', name: 'Blocked' }));
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/campaignDesigns/spec-1').delete());
+    await assertFails(dbClientB.doc('workspaces/ws-client-a/campaignDesigns/spec-1').get());
+    await assertFails(dbClientB.collection('workspaces/ws-client-a/campaignDesigns').get());
+    await assertFails(dbClientA.collectionGroup('campaignDesigns').get());
+
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/internalAssets/int-1').set({
+      id: 'int-1', workspaceId: 'ws-client-a', name: 'Internal Working File', storagePath: 'workspaces/ws-client-a/internal/assets/int-1/file.png'
+    }));
+    await assertSucceeds(dbAdmin.collectionGroup('internalAssets').get());
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/internalAssets/int-1').get());
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/internalAssets/int-2').set({ id: 'int-2', workspaceId: 'ws-client-a', name: 'Blocked' }));
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/internalAssets/int-1').delete());
+    await assertFails(dbClientB.doc('workspaces/ws-client-a/internalAssets/int-1').get());
+    await assertFails(dbClientA.collectionGroup('internalAssets').get());
+
+    await assertSucceeds(dbClientA.doc('workspaces/ws-client-a/brandAssets/shared-1').set({
+      id: 'shared-1', workspaceId: 'ws-client-a', name: 'Public Brand Logo',
+      storagePath: 'workspaces/ws-client-a/assets/shared-1/logo.png', isInternal: false,
+    }));
+    await assertSucceeds(dbClientB.doc('workspaces/ws-client-a/brandAssets/shared-1').get());
+    await assertSucceeds(
+      dbClientA.collection('workspaces/ws-client-a/brandAssets').where('isInternal', '==', false).get()
+    );
+    await assertSucceeds(
+      dbClientB.collection('workspaces/ws-client-a/brandAssets').where('isInternal', '==', false).get()
+    );
+    await assertSucceeds(dbAdmin.collectionGroup('brandAssets').get());
+    await assertFails(dbClientA.collectionGroup('brandAssets').get());
+
+    // TEST 24G: Legacy internal brandAssets isolation (storagePath pointing to internal/**)
+    console.log('[TEST 24G] Legacy internal brandAssets blocked for owner/member while shared & admin access remain...');
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
+      await seedDb.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').set({
+        id: 'legacy-internal-1',
+        workspaceId: 'ws-client-a',
+        name: 'Legacy Internal PSD',
+        storagePath: 'workspaces/ws-client-a/internal/assets/legacy-internal-1/source.psd',
+        downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/demo/o/secret?token=legacy',
+      });
+      await seedDb.doc('workspaces/ws-client-a/brandAssets/legacy-internal-2').set({
+        id: 'legacy-internal-2',
+        workspaceId: 'ws-client-a',
+        name: 'Legacy Root Internal Path',
+        storagePath: 'internal/notes/spec.pdf',
+      });
+      await seedDb.doc('workspaces/ws-client-a/brandAssets/legacy-shared-1').set({
+        id: 'legacy-shared-1',
+        workspaceId: 'ws-client-a',
+        name: 'Legacy Legitimate Shared Asset',
+        storagePath: 'workspaces/ws-client-a/assets/legacy-shared-1/cover.png',
+      });
+    });
+
+    // Admin retains read & migration write access to legacy internal and shared brandAssets
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').get());
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/brandAssets/legacy-internal-2').get());
+    await assertSucceeds(dbAdmin.collection('workspaces/ws-client-a/brandAssets').get());
+
+    // Workspace owner cannot read, unfiltered-list, update, or delete legacy internal brandAssets
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').get());
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/brandAssets/legacy-internal-2').get());
+    await assertFails(dbClientA.collection('workspaces/ws-client-a/brandAssets').get());
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').update({ name: 'Tampered' }));
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').delete());
+
+    // Active workspace member cannot read, unfiltered-list, update, or delete legacy internal brandAssets
+    await assertFails(dbClientB.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').get());
+    await assertFails(dbClientB.doc('workspaces/ws-client-a/brandAssets/legacy-internal-2').get());
+    await assertFails(dbClientB.collection('workspaces/ws-client-a/brandAssets').get());
+    await assertFails(dbClientB.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').update({ name: 'Tampered' }));
+    await assertFails(dbClientB.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').delete());
+
+    // Members cannot forge isInternal: false when pointing storagePath at internal/**
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/brandAssets/spoofed-internal').set({
+      id: 'spoofed-internal',
+      workspaceId: 'ws-client-a',
+      name: 'Spoofed Internal',
+      storagePath: 'workspaces/ws-client-a/internal/assets/spoofed/raw.zip',
+      isInternal: false,
+    }));
+
+    // Workspace owner and active member retain direct read access to legitimate shared brandAssets (legacy & scoped)
+    await assertSucceeds(dbClientA.doc('workspaces/ws-client-a/brandAssets/legacy-shared-1').get());
+    await assertSucceeds(dbClientB.doc('workspaces/ws-client-a/brandAssets/legacy-shared-1').get());
+    await assertSucceeds(dbClientA.doc('workspaces/ws-client-a/brandAssets/shared-1').get());
+    await assertSucceeds(dbClientB.doc('workspaces/ws-client-a/brandAssets/shared-1').get());
+    const ownerSharedList = await assertSucceeds(
+      dbClientA.collection('workspaces/ws-client-a/brandAssets').where('isInternal', '==', false).get()
+    );
+    const ownerListedIds = ownerSharedList.docs.map(d => d.id);
+    if (ownerListedIds.includes('legacy-internal-1') || ownerListedIds.includes('legacy-internal-2')) {
+      throw new Error('Filtered shared brandAssets query returned legacy internal record(s).');
+    }
+
+    // Admin can safely migrate legacy internal records to internalAssets (stripping downloadUrl) & tag legacy shared records
+    const legacyInternalSnap = await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').get());
+    const legacyData = legacyInternalSnap.data() || {};
+    const { downloadUrl: _omittedUrl, ...sanitizedInternal } = legacyData as Record<string, unknown>;
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/internalAssets/legacy-internal-1').set({
+      ...sanitizedInternal,
+      isInternal: true,
+      migratedFromBrandAssetsAt: new Date().toISOString(),
+    }));
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/brandAssets/legacy-internal-1').delete());
+    await assertSucceeds(dbAdmin.doc('workspaces/ws-client-a/brandAssets/legacy-shared-1').update({ isInternal: false }));
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/internalAssets/legacy-internal-1').get());
+    await assertFails(dbClientB.doc('workspaces/ws-client-a/internalAssets/legacy-internal-1').get());
+    const migratedSharedList = await assertSucceeds(
+      dbClientB.collection('workspaces/ws-client-a/brandAssets').where('isInternal', '==', false).get()
+    );
+    if (!migratedSharedList.docs.some(d => d.id === 'legacy-shared-1')) {
+      throw new Error('Backfilled shared brandAssets record must be visible to active workspace member.');
+    }
+
+    // TEST 24F: Hardened create allowlists on clientProfiles & workspaces
+    console.log('[TEST 24F] Hardened clientProfiles and workspaces create allowlists...');
+    const dbNewClient = testEnv.authenticatedContext('new-client-1', { email: 'new@example.com' }).firestore();
+    await assertFails(dbNewClient.doc('clientProfiles/new-client-1').set({
+      uid: 'new-client-1',
+      displayName: 'Malicious User',
+      email: 'new@example.com',
+      accountType: 'Artist',
+      organizationName: 'Malicious Org',
+      onboardingComplete: true,
+      status: 'Active',
+      role: 'PlatformAdmin',
+      isAdmin: true,
+    }));
+    await assertFails(dbNewClient.doc('clientProfiles/new-client-1').set({
+      uid: 'new-client-1',
+      displayName: 'Extra Field User',
+      email: 'new@example.com',
+      accountType: 'Artist',
+      organizationName: 'Test Org',
+      onboardingComplete: true,
+      unexpectedFlag: true,
+    }));
+    await assertSucceeds(dbNewClient.doc('clientProfiles/new-client-1').set({
+      uid: 'new-client-1',
+      displayName: 'Valid New User',
+      email: 'new@example.com',
+      photoURL: '',
+      accountType: 'Artist',
+      organizationName: 'Valid Artist',
+      onboardingComplete: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+    await assertFails(dbNewClient.doc('workspaces/ws-new-bad-status').set({
+      id: 'ws-new-bad-status',
+      name: 'Paused Hack',
+      type: 'Artist',
+      clientCategory: 'artist',
+      ownerId: 'new-client-1',
+      status: 'Paused',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+    await assertFails(dbNewClient.doc('workspaces/ws-new-extra').set({
+      id: 'ws-new-extra',
+      name: 'Extra Key Hack',
+      type: 'Artist',
+      clientCategory: 'artist',
+      ownerId: 'new-client-1',
+      status: 'Active',
+      adminOverride: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+    await assertSucceeds(dbNewClient.doc('workspaces/ws-new-valid').set({
+      id: 'ws-new-valid',
+      name: 'Valid Artist Workspace',
+      type: 'Artist',
+      clientCategory: 'artist',
+      ownerId: 'new-client-1',
+      status: 'Active',
+      description: 'Valid workspace',
+      contactEmail: 'new@example.com',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
 
     // TEST 25: Unauthenticated cannot access protected collections
     console.log('[TEST 25] Unauthenticated cannot access protected collections...');

@@ -46,6 +46,26 @@ export const PlatformSettingsManagement: React.FC = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  useEffect(() => {
+    if (!firebaseUser || !canAccessAdminCenter) {
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    void getDoc(doc(db, 'settings', 'platform')).then(snapshot => {
+      if (!active) return;
+      if (snapshot.exists()) {
+        setSettings({ ...DEFAULT_SETTINGS, ...(snapshot.data() as PlatformSettings) });
+      }
+      setLoading(false);
+    }).catch(err => {
+      if (!active) return;
+      setError(err?.message || 'Failed to load platform settings.');
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, [firebaseUser, canAccessAdminCenter]);
+
   // Fail-closed guard: deny access to suspension or non-admin accounts
   if (!firebaseUser || !canAccessAdminCenter) {
     return (
@@ -69,22 +89,6 @@ export const PlatformSettingsManagement: React.FC = () => {
       </main>
     );
   }
-
-  useEffect(() => {
-    let active = true;
-    void getDoc(doc(db, 'settings', 'platform')).then(snapshot => {
-      if (!active) return;
-      if (snapshot.exists()) {
-        setSettings({ ...DEFAULT_SETTINGS, ...(snapshot.data() as PlatformSettings) });
-      }
-      setLoading(false);
-    }).catch(err => {
-      if (!active) return;
-      setError(err?.message || 'Failed to load platform settings.');
-      setLoading(false);
-    });
-    return () => { active = false; };
-  }, []);
 
   const updatePlatformSettings = httpsCallable(functions, 'adminUpdatePlatformSettings');
 

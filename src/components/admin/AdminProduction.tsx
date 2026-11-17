@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   addDoc,
   collection,
@@ -6,6 +6,7 @@ import {
   deleteField,
   doc,
   getDoc,
+  getDocFromServer,
   limit,
   onSnapshot,
   orderBy,
@@ -29,14 +30,18 @@ import {
   FileCheck2,
   FolderKanban,
   Inbox,
+  Layers,
   Plus,
   Search,
+  Send,
   UserCheck,
   X,
 } from 'lucide-react';
 import {
+  BrandAsset,
   ClientProfile,
   ClientProject,
+  MusicRelease,
   ProductionActivity,
   ProductionDeliverable,
   ProductionDeliverableReviewStatus,
@@ -46,8 +51,14 @@ import {
   ProductionTask,
   Workspace,
 } from '../../types';
+import { CampaignDesign } from '../../types/campaign';
 import { db, functions, storage } from '../../lib/firebase';
 import { isAdminRecordActive } from '../../lib/firebaseAuth';
+import {
+  isDeliverablePromotionRestrictedAsset,
+  isInternalStoragePath,
+  promoteBrandAssetToDeliverable,
+} from '../../lib/productionPromotion';
 import {
   defaultCategoryForAudience,
   getCategoryOptionsForProjects,
@@ -199,6 +210,11 @@ export interface AdminProductionProps {
   onNavigateSection?: (section: AdminProductionSection, options?: AdminProductionNavigateOptions) => void;
   onOpenClient?: (clientUid: string) => void;
   onOpenWorkspace?: (workspaceId: string) => void;
+  onOpenDesignLibrary?: (options?: {
+    workspaceId?: string;
+    projectId?: string;
+    tab?: 'designs' | 'assets' | 'templates';
+  }) => void;
 }
 
 export const AdminProduction: React.FC<AdminProductionProps> = ({
@@ -214,18 +230,21 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   onNavigateSection,
   onOpenClient,
   onOpenWorkspace,
+  onOpenDesignLibrary,
 }) => {
-  const { firebaseUser } = useApp();
+  const { firebaseUser, canAccessAdminCenter } = useApp();
   const user = firebaseUser;
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const sourceErrorsRef = useRef<Record<string, string>>({});
 
   const [projects, setProjects] = useState<ClientProject[]>([]);
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [adminAssignees, setAdminAssignees] = useState<AdminAssigneeOption[]>([]);
+  const [projectAdminDetailsMap, setProjectAdminDetailsMap] = useState<Record<string, ProjectAdminDetails>>({});
 
   const [projectTasks, setProjectTasks] = useState<ProductionTask[]>([]);
   const [taskAdminDetails, setTaskAdminDetails] = useState<Record<string, TaskAdminDetails>>({});
@@ -237,10 +256,16 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   const [notes, setNotes] = useState<Record<string, { id: string; content: string; authorName: string; createdAt: string }[]>>({});
   const [activity, setActivity] = useState<ProductionActivity[]>([]);
   const [serviceEnquiries, setServiceEnquiries] = useState<ServiceEnquiry[]>([]);
+  const [workspaceAssets, setWorkspaceAssets] = useState<BrandAsset[]>([]);
+  const [workspaceReleases, setWorkspaceReleases] = useState<MusicRelease[]>([]);
+  const [workspaceDesigns, setWorkspaceDesigns] = useState<CampaignDesign[]>([]);
+  const [promotingAssetId, setPromotingAssetId] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
 
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const [projectDetailLoading, setProjectDetailLoading] = useState(false);
   const [projectTab, setProjectTab] = useState<'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity'>('overview');
+  const [deliverableTabFilter, setDeliverableTabFilter] = useState<'all' | 'drafts' | 'review' | 'revisions' | 'approved'>('all');
   const [saving, setSaving] = useState(false);
 
   // Filters
@@ -252,6 +277,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   const [localWorkspaceFilter, setLocalWorkspaceFilter] = useState(filterWorkspaceId);
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [stageFilter, setStageFilter] = useState(initialStageFilter || 'All');
+  const [assigneeFilter, setAssigneeFilter] = useState('All');
   const [overdueOnlyFilter, setOverdueOnlyFilter] = useState(initialOverdueOnly);
 
   // Create project modal & form
@@ -380,6 +406,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     setIsAdmin(false);
     setLoading(true);
     setError('');
+    sourceErrorsRef.current = {};
     setProjects([]);
     setClients([]);
     setWorkspaces([]);
@@ -401,12 +428,53 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       return;
     }
 
+    if (!canAccessAdminCenter) {
+      setLoading(false);
+      setError('Active platform administrator access is required to manage production.');
+      return;
+    }
+
     let active = true;
     let unsubscribeData: (() => void) | undefined;
 
+    const formatSourceErrors = () =>
+      Object.entries(sourceErrorsRef.current)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(' | ');
+
+    const recordSourceError = (source: string, err: unknown) => {
+      if (!active) return;
+      sourceErrorsRef.current = {
+        ...sourceErrorsRef.current,
+        [source]: friendlyError(err),
+      };
+      setError(formatSourceErrors());
+    };
+
+    const clearSourceError = (source: string) => {
+      if (!active) return;
+      if (!(source in sourceErrorsRef.current)) return;
+      const next = { ...sourceErrorsRef.current };
+      delete next[source];
+      sourceErrorsRef.current = next;
+      setError(formatSourceErrors());
+    };
+
     const verifyAdmin = async () => {
       try {
-        const adminSnapshot = await getDoc(doc(db, 'admins', user.uid));
+        const adminRef = doc(db, 'admins', user.uid);
+        let adminSnapshot;
+        try {
+          adminSnapshot = await getDocFromServer(adminRef);
+        } catch (firstErr) {
+          const code = firstErr && typeof firstErr === 'object' && 'code' in firstErr ? String((firstErr as { code?: unknown }).code || '') : '';
+          if (code.includes('permission-denied')) {
+            await user.getIdToken(true);
+            adminSnapshot = await getDocFromServer(adminRef);
+          } else {
+            adminSnapshot = await getDoc(adminRef);
+          }
+        }
         if (!active) return;
         if (!isAdminRecordActive(adminSnapshot)) {
           setLoading(false);
@@ -459,10 +527,10 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
             snapshot => {
               setProjects(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ClientProject)));
               setLoading(false);
-              setError('');
+              clearSourceError('projects');
             },
             err => {
-              setError(friendlyError(err));
+              recordSourceError('projects', err);
               setLoading(false);
             }
           ),
@@ -470,22 +538,25 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
             collection(db, 'clientProfiles'),
             snapshot => {
               setClients(snapshot.docs.map(item => ({ uid: item.id, ...item.data() } as ClientProfile)));
+              clearSourceError('clients');
             },
-            err => setError(friendlyError(err))
+            err => recordSourceError('clients', err)
           ),
           onSnapshot(
             collection(db, 'workspaces'),
             snapshot => {
               setWorkspaces(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Workspace)));
+              clearSourceError('workspaces');
             },
-            err => setError(friendlyError(err))
+            err => recordSourceError('workspaces', err)
           ),
           onSnapshot(
             collection(db, 'productionTasks'),
             snapshot => {
               setUnassignedTasks(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionTask)));
+              clearSourceError('productionTasks');
             },
-            err => setError(friendlyError(err))
+            err => recordSourceError('productionTasks', err)
           ),
           onSnapshot(
             collectionGroup(db, 'deliverables'),
@@ -493,8 +564,9 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
               setAllDeliverables(
                 snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionDeliverable))
               );
+              clearSourceError('deliverables');
             },
-            err => setError(friendlyError(err))
+            err => recordSourceError('deliverables', err)
           ),
           onSnapshot(
             collectionGroup(db, 'revisionRequests'),
@@ -502,8 +574,9 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
               setAllRevisions(
                 snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionRevisionRequest))
               );
+              clearSourceError('revisions');
             },
-            err => setError(friendlyError(err))
+            err => recordSourceError('revisions', err)
           ),
           onSnapshot(
             query(collection(db, 'serviceEnquiries'), orderBy('createdAt', 'desc'), limit(50)),
@@ -511,8 +584,9 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
               setServiceEnquiries(
                 snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ServiceEnquiry))
               );
+              clearSourceError('enquiries');
             },
-            err => setError(friendlyError(err))
+            err => recordSourceError('enquiries', err)
           ),
         ];
 
@@ -531,7 +605,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       active = false;
       unsubscribeData?.();
     };
-  }, [user]);
+  }, [user, canAccessAdminCenter]);
 
   // Per-project Firestore subscriptions with strict reset on switch
   useEffect(() => {
@@ -652,6 +726,104 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     setProjectProgress(selectedProject?.progress || 0);
   }, [selectedProject?.id, selectedProject?.progress]);
 
+  // Load admin/details personnel assignment summaries across loaded projects
+  const projectIdsKey = useMemo(() => projects.map(p => p.id).join(','), [projects]);
+  useEffect(() => {
+    if (!isAdmin || projects.length === 0) {
+      setProjectAdminDetailsMap({});
+      return;
+    }
+    let active = true;
+    void Promise.all(
+      projects.map(async project => {
+        try {
+          const snap = await getDoc(doc(db, 'clientProjects', project.id, 'admin', 'details'));
+          return [
+            project.id,
+            {
+              leadProducer: String(snap.get('leadProducer') || ''),
+              assignedTo: String(snap.get('assignedTo') || ''),
+              assignedToUid: String(snap.get('assignedToUid') || ''),
+            },
+          ] as const;
+        } catch {
+          return [
+            project.id,
+            { leadProducer: '', assignedTo: '', assignedToUid: '' },
+          ] as const;
+        }
+      })
+    ).then(entries => {
+      if (active) setProjectAdminDetailsMap(Object.fromEntries(entries));
+    });
+    return () => {
+      active = false;
+    };
+  }, [isAdmin, projectIdsKey]);
+
+  // Subscribe to selected project's workspace source assets (shared + internal), releases, and internal design specs
+  const selectedWorkspaceId = selectedProject?.workspaceId || '';
+  useEffect(() => {
+    setWorkspaceAssets([]);
+    setWorkspaceReleases([]);
+    setWorkspaceDesigns([]);
+    if (!isAdmin || !selectedWorkspaceId) return;
+
+    let sharedRows: BrandAsset[] = [];
+    let internalRows: BrandAsset[] = [];
+    const syncMergedAssets = () => {
+      const merged = new Map<string, BrandAsset>();
+      for (const item of sharedRows) merged.set(item.id, item);
+      for (const item of internalRows) merged.set(item.id, item);
+      setWorkspaceAssets(
+        Array.from(merged.values()).sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))
+      );
+    };
+
+    const unsubs = [
+      onSnapshot(
+        collection(db, 'workspaces', selectedWorkspaceId, 'brandAssets'),
+        snapshot => {
+          sharedRows = snapshot.docs.map(
+            item => ({ ...(item.data() as BrandAsset), id: item.id, workspaceId: selectedWorkspaceId })
+          );
+          syncMergedAssets();
+        },
+        err => setError(friendlyError(err))
+      ),
+      onSnapshot(
+        collection(db, 'workspaces', selectedWorkspaceId, 'internalAssets'),
+        snapshot => {
+          internalRows = snapshot.docs.map(
+            item => ({ ...(item.data() as BrandAsset), id: item.id, workspaceId: selectedWorkspaceId })
+          );
+          syncMergedAssets();
+        },
+        err => setError(friendlyError(err))
+      ),
+      onSnapshot(
+        collection(db, 'workspaces', selectedWorkspaceId, 'releases'),
+        snapshot => {
+          setWorkspaceReleases(
+            snapshot.docs.map(item => ({ ...(item.data() as MusicRelease), id: item.id, workspaceId: selectedWorkspaceId }))
+          );
+        },
+        err => setError(friendlyError(err))
+      ),
+      onSnapshot(
+        collection(db, 'workspaces', selectedWorkspaceId, 'campaignDesigns'),
+        snapshot => {
+          setWorkspaceDesigns(
+            snapshot.docs.map(item => ({ ...(item.data() as CampaignDesign), id: item.id, workspaceId: selectedWorkspaceId }))
+          );
+        },
+        err => setError(friendlyError(err))
+      ),
+    ];
+
+    return () => unsubs.forEach(u => u());
+  }, [isAdmin, selectedWorkspaceId]);
+
   useEffect(() => {
     if (selectedProjectId && projects.length > 0 && !projects.some(project => project.id === selectedProjectId)) {
       setSelectedProjectId('');
@@ -684,6 +856,21 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       if (categoryFilter !== 'All' && (project.category || '') !== categoryFilter) return false;
       if (overdueOnlyFilter && !isProjectOverdue(project)) return false;
 
+      const pDetails = projectAdminDetailsMap[project.id];
+      const hasAssignment = Boolean(
+        pDetails?.assignedToUid || pDetails?.assignedTo || pDetails?.leadProducer
+      );
+      if (assigneeFilter === 'Unassigned' && hasAssignment) return false;
+      if (assigneeFilter === 'Mine' && pDetails?.assignedToUid !== user?.uid) return false;
+      if (
+        assigneeFilter !== 'All' &&
+        assigneeFilter !== 'Unassigned' &&
+        assigneeFilter !== 'Mine' &&
+        pDetails?.assignedToUid !== assigneeFilter
+      ) {
+        return false;
+      }
+
       if (stageFilter === 'Active') {
         if ((project.stage || 'New Request') === 'Delivered') return false;
       } else if (stageFilter !== 'All') {
@@ -698,6 +885,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
         project.title.toLowerCase().includes(q) ||
         (project.category || '').toLowerCase().includes(q) ||
         (project.stage || '').toLowerCase().includes(q) ||
+        (pDetails?.leadProducer || '').toLowerCase().includes(q) ||
+        (pDetails?.assignedTo || '').toLowerCase().includes(q) ||
         (client?.displayName || '').toLowerCase().includes(q) ||
         (client?.organizationName || '').toLowerCase().includes(q) ||
         (client?.email || '').toLowerCase().includes(q) ||
@@ -709,17 +898,24 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     projects,
     clientsByUid,
     workspacesById,
+    projectAdminDetailsMap,
     effectiveClientFilter,
     effectiveWorkspaceFilter,
     categoryFilter,
     stageFilter,
+    assigneeFilter,
     overdueOnlyFilter,
     projectSearch,
     todayIso,
+    user?.uid,
   ]);
 
   const studioMetrics = useMemo(() => {
     const active = projects.filter(p => p.stage !== 'Delivered');
+    const unassignedActive = active.filter(p => {
+      const det = projectAdminDetailsMap[p.id];
+      return !det?.assignedToUid && !det?.assignedTo && !det?.leadProducer;
+    });
     const pendingRequests = projects.filter(
       p =>
         p.requestStatus === 'Pending' ||
@@ -739,6 +935,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     const deliverablesAwaitingReview = allDeliverables.filter(d =>
       ['Awaiting Review', 'Revised - Awaiting Review'].includes(d.reviewStatus)
     );
+    const approvedDeliverablesCount = allDeliverables.filter(d => d.reviewStatus === 'Approved').length;
+    const draftDeliverablesCount = allDeliverables.filter(d => !d.isClientPublished).length;
     const pendingRevisions = allRevisions.filter(r =>
       ['Submitted', 'In Progress'].includes(r.status)
     );
@@ -751,6 +949,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     return {
       total: projects.length,
       activeCount: active.length,
+      unassignedActiveCount: unassignedActive.length,
       pendingRequests,
       openEnquiries,
       inProductionCount: inProduction.length,
@@ -759,10 +958,12 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       deliveredCount: delivered.length,
       overdue,
       deliverablesAwaitingReview,
+      approvedDeliverablesCount,
+      draftDeliverablesCount,
       pendingRevisions,
       stageCounts,
     };
-  }, [projects, serviceEnquiries, allDeliverables, allRevisions, todayIso]);
+  }, [projects, serviceEnquiries, allDeliverables, allRevisions, projectAdminDetailsMap, todayIso]);
 
   const recentProductionEvents = useMemo(() => {
     type ProductionEventItem = {
@@ -887,6 +1088,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     setLocalWorkspaceFilter('');
     setCategoryFilter('All');
     setStageFilter('All');
+    setAssigneeFilter('All');
     setOverdueOnlyFilter(false);
     onClearFilter?.();
   };
@@ -897,6 +1099,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     effectiveWorkspaceFilter ||
     categoryFilter !== 'All' ||
     stageFilter !== 'All' ||
+    assigneeFilter !== 'All' ||
     overdueOnlyFilter
   );
 
@@ -1609,20 +1812,66 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   };
 
   const publishDeliverable = async (deliverable: ProductionDeliverable) => {
+    setError('');
+    setActionNotice('');
     try {
       const published = !deliverable.isClientPublished;
+      const now = new Date().toISOString();
       await updateDoc(doc(db, 'clientProjects', deliverable.projectId, 'deliverables', deliverable.id), {
         isClientPublished: published,
         reviewStatus: published ? 'Awaiting Review' : 'Draft',
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       });
+
+      const targetProject = projects.find(p => p.id === deliverable.projectId);
+      if (
+        published &&
+        targetProject &&
+        ['New Request', 'Brief Approved', 'In Production', 'Internal QA'].includes(
+          targetProject.stage || 'New Request'
+        )
+      ) {
+        await updateDoc(doc(db, 'clientProjects', deliverable.projectId), {
+          stage: 'Client Review',
+          status: 'Review',
+          updatedAt: now,
+        });
+      }
+
       await writeActivity(
         deliverable.projectId,
         published ? 'Deliverable published' : 'Deliverable unpublished',
-        `${deliverable.title} was ${published ? 'published to' : 'removed from'} the client workspace.`
+        `${deliverable.title} was ${published ? 'published to the client workspace for review' : 'moved back to internal draft'}.`,
+        published
+      );
+      setActionNotice(
+        published
+          ? `Published "${deliverable.title}" to client review.`
+          : `Moved "${deliverable.title}" back to internal draft.`
       );
     } catch (err) {
       setError(friendlyError(err));
+    }
+  };
+
+  const promoteAssetToCurrentProject = async (asset: BrandAsset) => {
+    if (!selectedProject || !user) return;
+    setPromotingAssetId(asset.id);
+    setError('');
+    setActionNotice('');
+    try {
+      await promoteBrandAssetToDeliverable({
+        asset,
+        project: selectedProject,
+        actorUid: user.uid,
+        actorName: user.displayName || user.email || 'Production Admin',
+      });
+      setActionNotice(`Staged "${asset.name}" as a Draft deliverable in this project.`);
+      setProjectTab('deliverables');
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setPromotingAssetId('');
     }
   };
 
@@ -1795,6 +2044,15 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
         </div>
       )}
 
+      {actionNotice && (
+        <div role="status" className="rounded border border-emerald-800/50 bg-emerald-950/25 p-3 text-xs text-emerald-200 flex items-center justify-between gap-3">
+          <span>{actionNotice}</span>
+          <button type="button" onClick={() => setActionNotice('')} className="text-emerald-300 hover:text-white">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* ============================================================
           SECTION: PRODUCTION STUDIO OVERVIEW
          ============================================================ */}
@@ -1802,10 +2060,14 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
         <div className="space-y-6">
           {/* Header Actions Strip */}
           <div className="flex flex-wrap items-center justify-between gap-3 border border-[#1E1E1E] bg-[#0C0C0C] px-4 py-3">
-            <div className="flex items-center gap-2 text-xs text-neutral-300">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-300">
               <Clapperboard size={15} className="text-[#FF1E1E]" />
               <span>
-                Live creative operations snapshot across <strong className="text-white">{projects.length}</strong> production project{projects.length === 1 ? '' : 's'}.
+                Live creative operations snapshot across <strong className="text-white">{projects.length}</strong> production project{projects.length === 1 ? '' : 's'}
+                {' · '}
+                <span className="font-mono tabular-nums text-neutral-400">
+                  {studioMetrics.unassignedActiveCount} unassigned active · {studioMetrics.draftDeliverablesCount} internal drafts · {studioMetrics.approvedDeliverablesCount} approved outputs
+                </span>
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1817,6 +2079,16 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                 <Plus size={13} />
                 <span>New Project</span>
               </button>
+              {onOpenDesignLibrary && (
+                <button
+                  type="button"
+                  onClick={() => onOpenDesignLibrary({ tab: 'templates' })}
+                  className="inline-flex items-center gap-1.5 border border-[#2C2C2C] bg-[#141414] px-3 py-1.5 text-xs text-neutral-200 hover:border-[#FF1E1E]"
+                >
+                  <Layers size={13} className="text-[#FF1E1E]" />
+                  <span>Design &amp; Templates</span>
+                </button>
+              )}
               {onNavigateSection && (
                 <button
                   type="button"
@@ -2663,6 +2935,22 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                       </option>
                     ))}
                   </select>
+
+                  <select
+                    aria-label="Filter projects by assignment"
+                    value={assigneeFilter}
+                    onChange={event => setAssigneeFilter(event.target.value)}
+                    className="sm:col-span-2 rounded border border-[#262626] bg-[#141414] px-2.5 py-1.5 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
+                  >
+                    <option value="All">All Producer Assignments</option>
+                    <option value="Mine">Assigned to Me</option>
+                    <option value="Unassigned">Unassigned Queue ({studioMetrics.unassignedActiveCount})</option>
+                    {resolvedAdminAssignees.map(admin => (
+                      <option key={admin.uid} value={admin.uid}>
+                        Producer: {admin.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Overdue Toggle & Active Filter Chips */}
@@ -2734,6 +3022,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                       ? workspacesById.get(project.workspaceId)
                       : undefined;
                     const overdue = isProjectOverdue(project);
+                    const pDetails = projectAdminDetailsMap[project.id];
+                    const assigneeName = pDetails?.assignedTo || pDetails?.leadProducer || 'Unassigned';
 
                     return (
                       <button
@@ -2763,7 +3053,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                         </div>
                         <p className="mt-1 text-xs text-neutral-400 truncate">
                           {client?.displayName || client?.organizationName || project.clientUid}
-                          {workspace ? ` · ${workspace.name}` : ''}
+                          {workspace ? ` · ${workspace.name}` : ''} · {assigneeName}
                         </p>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-neutral-500">
                           <span className="truncate">{project.category}</span>
@@ -2864,8 +3154,24 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     </div>
                   </div>
 
-                  {/* Quick Stage & Priority Selectors */}
+                  {/* Quick Stage, Design Library & Priority Selectors */}
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {onOpenDesignLibrary && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenDesignLibrary({
+                            workspaceId: selectedProject.workspaceId,
+                            projectId: selectedProject.id,
+                            tab: 'designs',
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] px-2.5 py-1.5 text-xs text-white hover:border-[#FF1E1E]"
+                      >
+                        <Layers size={12} className="text-[#FF1E1E]" />
+                        <span>Design &amp; Assets</span>
+                      </button>
+                    )}
                     <label className="text-xs text-neutral-400">
                       Stage
                       <select
@@ -3114,6 +3420,221 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                         ))}
                       </div>
                     )}
+
+                    {/* Supplied Workspace Assets, Brand/Artist Profile Context, Designs & Releases */}
+                    <div className="border border-[#1E1E1E] bg-[#101010] p-4 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
+                            Client Workspace Context &amp; Supplied Source Assets
+                          </p>
+                          <p className="text-xs text-neutral-500 mt-0.5">
+                            Direct access to client brand/artist identity, supplied media assets, releases, and staged production design specs.
+                          </p>
+                        </div>
+                        {onOpenDesignLibrary && selectedProjectWorkspace && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenDesignLibrary({
+                                workspaceId: selectedProjectWorkspace.id,
+                                projectId: selectedProject.id,
+                                tab: 'assets',
+                              })
+                            }
+                            className="inline-flex items-center gap-1 border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-white hover:border-[#FF1E1E]"
+                          >
+                            <Layers size={12} className="text-[#FF1E1E]" />
+                            <span>Open in Design Library</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {!selectedProjectWorkspace ? (
+                        <p className="text-xs text-neutral-500">
+                          Link an active client workspace above to access workspace brand/artist profiles, source assets, and releases directly here.
+                        </p>
+                      ) : (
+                        <div className="space-y-4">
+                          {/* Brand or Artist Identity Summary */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs border border-[#1D1D1D] bg-[#0C0C0C] p-3">
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-mono uppercase text-neutral-500">
+                                Brand Palette &amp; Typography
+                              </p>
+                              <div className="flex items-center gap-2">
+                                {[
+                                  { label: 'Primary', hex: selectedProjectWorkspace.brand?.primaryColor },
+                                  { label: 'Secondary', hex: selectedProjectWorkspace.brand?.secondaryColor },
+                                  { label: 'Accent', hex: selectedProjectWorkspace.brand?.accentColor },
+                                ]
+                                  .filter(c => Boolean(c.hex))
+                                  .map(c => (
+                                    <span key={c.label} className="inline-flex items-center gap-1.5 text-[11px] text-neutral-300 font-mono">
+                                      <span
+                                        className="w-3.5 h-3.5 border border-[#444]"
+                                        style={{ backgroundColor: c.hex }}
+                                      />
+                                      {c.hex}
+                                    </span>
+                                  ))}
+                              </div>
+                              {(selectedProjectWorkspace.brand?.typography?.displayFont ||
+                                selectedProjectWorkspace.brand?.typography?.bodyFont) && (
+                                <p className="text-[11px] text-neutral-400">
+                                  Fonts: {selectedProjectWorkspace.brand?.typography?.displayFont || 'Default'} /{' '}
+                                  {selectedProjectWorkspace.brand?.typography?.bodyFont || 'Default'}
+                                </p>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              {selectedProjectWorkspace.artistProfile ? (
+                                <>
+                                  <p className="text-[10px] font-mono uppercase text-neutral-500">
+                                    Artist Direction ({selectedProjectWorkspace.artistProfile.genre || 'Music'})
+                                  </p>
+                                  <p className="text-neutral-300 line-clamp-2">
+                                    {selectedProjectWorkspace.artistProfile.biography || 'No artist biography provided.'}
+                                  </p>
+                                  <p className="text-[11px] font-mono text-neutral-500 truncate">
+                                    {[
+                                      selectedProjectWorkspace.artistProfile.spotify && 'Spotify',
+                                      selectedProjectWorkspace.artistProfile.instagram && 'Instagram',
+                                      selectedProjectWorkspace.artistProfile.youtube && 'YouTube',
+                                      selectedProjectWorkspace.artistProfile.website,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' · ') || 'No social links saved'}
+                                  </p>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-[10px] font-mono uppercase text-neutral-500">
+                                    Brand Direction ({selectedProjectWorkspace.brandProfile?.industry || selectedProjectWorkspace.type})
+                                  </p>
+                                  <p className="text-neutral-300 line-clamp-2">
+                                    {selectedProjectWorkspace.brandProfile?.brandVoice ||
+                                      selectedProjectWorkspace.brandProfile?.usageGuidelines ||
+                                      selectedProjectWorkspace.description ||
+                                      'No brand direction notes provided.'}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Workspace Assets */}
+                          <div>
+                            <p className="text-[11px] font-mono uppercase text-neutral-400 mb-2">
+                              Workspace &amp; Studio Assets ({workspaceAssets.length})
+                            </p>
+                            {workspaceAssets.length === 0 ? (
+                              <p className="text-xs text-neutral-500">
+                                No assets uploaded in {selectedProjectWorkspace.name} yet.
+                              </p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {workspaceAssets.slice(0, 8).map(asset => (
+                                  <div
+                                    key={asset.id}
+                                    className="border border-[#1E1E1E] bg-[#0C0C0C] p-2.5 flex items-center justify-between gap-2 text-xs"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="font-medium text-white truncate">{asset.name}</p>
+                                      <p className="text-[10px] font-mono text-neutral-500 truncate">
+                                        {asset.category} · {asset.fileType} · {asset.status}
+                                        {isInternalStoragePath(asset.storagePath) ? ' · Admin Only' : ''}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {asset.downloadUrl && !isInternalStoragePath(asset.storagePath) && (
+                                        <a
+                                          href={asset.downloadUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-[11px] text-neutral-300 hover:text-white underline"
+                                        >
+                                          View
+                                        </a>
+                                      )}
+                                      {!isDeliverablePromotionRestrictedAsset(asset) && (
+                                        <button
+                                          type="button"
+                                          disabled={promotingAssetId === asset.id}
+                                          onClick={() => void promoteAssetToCurrentProject(asset)}
+                                          className="border border-[#2C2C2C] bg-[#161616] hover:border-[#FF1E1E] px-2 py-1 text-[10px] text-white disabled:opacity-50"
+                                          title="Copy asset into project deliverables as Draft"
+                                        >
+                                          {promotingAssetId === asset.id ? 'Staging…' : 'Stage Draft'}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Linked Internal Production Design Specs & Releases */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <p className="text-[11px] font-mono uppercase text-neutral-400">
+                                Internal Design Specs ({workspaceDesigns.length})
+                              </p>
+                              {workspaceDesigns.length === 0 ? (
+                                <p className="text-xs text-neutral-500">No internal design specs saved yet.</p>
+                              ) : (
+                                workspaceDesigns.slice(0, 4).map(design => (
+                                  <div
+                                    key={design.id}
+                                    className="border border-[#1E1E1E] bg-[#0C0C0C] px-2.5 py-2 flex items-center justify-between gap-2 text-xs"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="text-neutral-200 truncate">{design.name}</p>
+                                      <p className="text-[10px] font-mono text-neutral-500 truncate">
+                                        {design.category} · {design.exportPreset}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setProjectTab('deliverables')}
+                                      className="shrink-0 border border-[#2C2C2C] bg-[#161616] hover:border-[#FF1E1E] px-2 py-1 text-[10px] text-white"
+                                      title="Design specs stay internal; upload finished client outputs in Deliverables"
+                                    >
+                                      Deliverables
+                                    </button>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <p className="text-[11px] font-mono uppercase text-neutral-400">
+                                Workspace Releases ({workspaceReleases.length})
+                              </p>
+                              {workspaceReleases.length === 0 ? (
+                                <p className="text-xs text-neutral-500">No music releases in this workspace.</p>
+                              ) : (
+                                workspaceReleases.slice(0, 4).map(rel => (
+                                  <div
+                                    key={rel.id}
+                                    className="border border-[#1E1E1E] bg-[#0C0C0C] px-2.5 py-2 text-xs"
+                                  >
+                                    <p className="text-neutral-200 font-medium truncate">
+                                      {rel.title} · {rel.type}
+                                    </p>
+                                    <p className="text-[10px] font-mono text-neutral-500 truncate">
+                                      {rel.distributionStatus} · Release {rel.plannedReleaseDate || 'TBD'}
+                                      {rel.isrc ? ` · ISRC ${rel.isrc}` : ''}
+                                    </p>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                     {selectedProject.requestHistory && selectedProject.requestHistory.length > 0 && (
                       <details className="rounded border border-[#292929] bg-[#101010] p-3">
@@ -3530,6 +4051,75 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                 {/* TAB: DELIVERABLES */}
                 {projectTab === 'deliverables' && (
                   <div className="space-y-4">
+                    {/* Quick Workflow Completion & Stage Sync Bar */}
+                    {deliverables.length > 0 &&
+                      deliverables.some(d => d.isClientPublished) &&
+                      deliverables.filter(d => d.isClientPublished).every(d => d.reviewStatus === 'Approved') &&
+                      selectedProject.stage !== 'Delivered' && (
+                        <div className="border border-emerald-800/60 bg-emerald-950/25 p-3.5 flex flex-wrap items-center justify-between gap-3">
+                          <div className="text-xs text-emerald-200">
+                            <p className="font-semibold text-white">
+                              All published deliverables have been approved.
+                            </p>
+                            <p className="mt-0.5 text-emerald-300/90">
+                              Ready to close production and mark this project as Delivered (100%).
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void updateStage('Delivered')}
+                            className="bg-emerald-600 hover:bg-emerald-500 px-3.5 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            Mark Project Delivered
+                          </button>
+                        </div>
+                      )}
+
+                    {/* Drafts vs Client Review vs Revisions vs Final Outputs Breakdown */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border border-[#1E1E1E] bg-[#101010] p-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {(
+                          [
+                            ['all', `All (${deliverables.length})`],
+                            ['drafts', `Internal Drafts (${deliverables.filter(d => !d.isClientPublished).length})`],
+                            ['review', `Client Review (${deliverables.filter(d => d.isClientPublished && ['Awaiting Review', 'Revised - Awaiting Review'].includes(d.reviewStatus)).length})`],
+                            ['revisions', `Revisions / Rejected (${deliverables.filter(d => ['Revision Requested', 'Revision In Progress', 'Rejected'].includes(d.reviewStatus)).length})`],
+                            ['approved', `Final Approved (${deliverables.filter(d => d.reviewStatus === 'Approved').length})`],
+                          ] as const
+                        ).map(([filterKey, label]) => (
+                          <button
+                            key={filterKey}
+                            type="button"
+                            onClick={() => setDeliverableTabFilter(filterKey)}
+                            className={`px-2.5 py-1 text-[11px] font-mono tabular-nums transition-colors ${
+                              deliverableTabFilter === filterKey
+                                ? 'bg-white text-black font-semibold'
+                                : 'border border-[#2C2C2C] bg-[#141414] text-neutral-300 hover:text-white'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      {onOpenDesignLibrary && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenDesignLibrary({
+                              workspaceId: selectedProject.workspaceId,
+                              projectId: selectedProject.id,
+                              tab: 'designs',
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-neutral-200 hover:border-[#FF1E1E]"
+                        >
+                          <Send size={11} className="text-[#FF1E1E]" />
+                          <span>Stage from Design Library</span>
+                        </button>
+                      )}
+                    </div>
+
                     <form onSubmit={uploadDeliverable} className="space-y-2.5 rounded border border-[#222] bg-[#101010] p-3.5">
                       <input
                         value={deliverableTitle}
@@ -3559,16 +4149,49 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                       </button>
                     </form>
 
-                    {deliverables.length === 0 ? (
-                      <p className="py-4 text-sm text-neutral-500">No deliverables uploaded to this project yet.</p>
-                    ) : (
-                      deliverables.map(deliverable => (
+                    {(() => {
+                      const visibleDeliverables = deliverables.filter(d => {
+                        if (deliverableTabFilter === 'drafts') return !d.isClientPublished;
+                        if (deliverableTabFilter === 'review') {
+                          return d.isClientPublished && ['Awaiting Review', 'Revised - Awaiting Review'].includes(d.reviewStatus);
+                        }
+                        if (deliverableTabFilter === 'revisions') {
+                          return ['Revision Requested', 'Revision In Progress', 'Rejected'].includes(d.reviewStatus);
+                        }
+                        if (deliverableTabFilter === 'approved') return d.reviewStatus === 'Approved';
+                        return true;
+                      });
+
+                      if (visibleDeliverables.length === 0) {
+                        return (
+                          <p className="py-4 text-sm text-neutral-500">
+                            {deliverables.length === 0
+                              ? 'No deliverables uploaded to this project yet.'
+                              : 'No deliverables match this status tab.'}
+                          </p>
+                        );
+                      }
+
+                      return visibleDeliverables.map(deliverable => (
                         <article key={deliverable.id} className="space-y-3 rounded border border-[#222] bg-[#101010] p-3.5">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                              <p className="text-sm font-semibold text-white">{deliverable.title}</p>
-                              <p className="text-xs text-neutral-500">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-white">{deliverable.title}</p>
+                                {deliverable.reviewStatus === 'Approved' && (
+                                  <span className="border border-emerald-800/60 bg-emerald-950/30 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
+                                    FINAL APPROVED OUTPUT
+                                  </span>
+                                )}
+                                {!deliverable.isClientPublished && (
+                                  <span className="border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] font-mono text-neutral-300">
+                                    INTERNAL DRAFT
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-neutral-500 mt-0.5 font-mono tabular-nums">
                                 {deliverable.reviewStatus} · v{deliverable.currentVersion || 1} · {deliverable.fileName}
+                                {deliverable.approvedAt ? ` · Approved ${formatShortDate(deliverable.approvedAt)}` : ''}
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -3617,6 +4240,9 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                               </button>
                             </div>
                           </div>
+                          {deliverable.description && (
+                            <p className="text-xs text-neutral-400">{deliverable.description}</p>
+                          )}
                           {deliverable.feedback && (
                             <p className="rounded bg-[#161616] p-2.5 text-xs text-amber-200">
                               Client feedback: {deliverable.feedback}
@@ -3629,7 +4255,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                               rel="noreferrer"
                               className="text-xs text-red-300 underline"
                             >
-                              Preview current file
+                              Preview / Download current file
                             </a>
                           )}
                           {(deliverable.versions || []).length > 0 && (
@@ -3655,8 +4281,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                             </details>
                           )}
                         </article>
-                      ))
-                    )}
+                      ));
+                    })()}
                   </div>
                 )}
 

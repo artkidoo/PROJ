@@ -8,6 +8,7 @@ import {
   Globe,
   History,
   Inbox,
+  Layers,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -22,13 +23,13 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
-import { AdminControlCenter } from '../modules/AdminControlCenter';
 import { AdminHQOverview, AdminHQOverviewTarget } from './AdminHQOverview';
 import {
   AdminProduction,
   AdminProductionNavigateOptions,
   AdminProductionSection,
 } from './AdminProduction';
+import { AdminDesignLibrary, DesignLibraryTab } from './AdminDesignLibrary';
 import { ClientsDirectory } from './ClientsDirectory';
 import { ServicesPackagesManagement } from './ServicesPackagesManagement';
 import { WorkspacesManagement } from './WorkspacesManagement';
@@ -49,6 +50,7 @@ export type AdminHQSection =
   | 'projects'
   | 'deliverables-reviews'
   | 'creative-requests'
+  | 'design-library'
   | 'invoices-payments'
   | 'proposals'
   | 'business-documents'
@@ -91,6 +93,7 @@ const ADMIN_HQ_NAV: NavGroup[] = [
       { id: 'projects', label: 'Projects', icon: FolderKanban, implemented: true },
       { id: 'deliverables-reviews', label: 'Deliverables & Reviews', icon: FileCheck2, implemented: true },
       { id: 'creative-requests', label: 'Creative Requests', icon: Inbox, implemented: true },
+      { id: 'design-library', label: 'Design & Templates', icon: Layers, implemented: true },
     ],
   },
   {
@@ -153,20 +156,25 @@ const SECTION_DESCRIPTIONS: Record<AdminHQSection, { title: string; group: strin
     group: 'Creative Operations',
     subtitle: 'Incoming client creative briefs and public service enquiries awaiting review.',
   },
+  'design-library': {
+    title: 'Design & Templates',
+    group: 'Creative Operations',
+    subtitle: 'Internal template catalog, structured design specifications, and workspace assets ready to stage into project deliverables.',
+  },
   'invoices-payments': {
     title: 'Invoices & Payments',
     group: 'Business',
-    subtitle: 'Scheduled for a later Admin HQ phase.',
+    subtitle: 'Client billing records, payment statuses, and workspace invoice management.',
   },
   proposals: {
     title: 'Proposals',
     group: 'Business',
-    subtitle: 'Scheduled for a later Admin HQ phase.',
+    subtitle: 'Commercial proposals, scope quotations, and client acceptance tracking.',
   },
   'business-documents': {
     title: 'Business Documents',
     group: 'Business',
-    subtitle: 'Scheduled for a later Admin HQ phase.',
+    subtitle: 'Internal corporate agreements, contracts, and executive document vault.',
   },
   'admin-management': {
     title: 'Administrator Management',
@@ -186,7 +194,7 @@ const SECTION_DESCRIPTIONS: Record<AdminHQSection, { title: string; group: strin
   'platform-settings': {
     title: 'Platform Settings',
     group: 'Administration',
-    subtitle: 'Scheduled for a later Admin HQ phase.',
+    subtitle: 'Protected platform defaults, operational toggles, and internal webhook configuration.',
   },
 };
 
@@ -233,6 +241,9 @@ export const AdminHQ: React.FC = () => {
   const [selectedClientUid, setSelectedClientUid] = useState('');
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
   const [selectedServicePackageId, setSelectedServicePackageId] = useState('');
+  const [designLibraryWorkspaceId, setDesignLibraryWorkspaceId] = useState('');
+  const [designLibraryProjectId, setDesignLibraryProjectId] = useState('');
+  const [designLibraryTab, setDesignLibraryTab] = useState<DesignLibraryTab>('designs');
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -282,8 +293,25 @@ export const AdminHQ: React.FC = () => {
       setProjectStageFilter('All');
       setProjectOverdueOnly(false);
     }
+    if (section !== 'design-library') {
+      setDesignLibraryWorkspaceId('');
+      setDesignLibraryProjectId('');
+      setDesignLibraryTab('designs');
+    }
     setSelectedProjectId('');
     setSelectedProjectTab('overview');
+    setMobileMenuOpen(false);
+  };
+
+  const handleOpenDesignLibrary = (options?: {
+    workspaceId?: string;
+    projectId?: string;
+    tab?: DesignLibraryTab;
+  }) => {
+    setDesignLibraryWorkspaceId(options?.workspaceId || '');
+    setDesignLibraryProjectId(options?.projectId || '');
+    setDesignLibraryTab(options?.tab || 'designs');
+    setActiveSection('design-library');
     setMobileMenuOpen(false);
   };
 
@@ -388,6 +416,9 @@ export const AdminHQ: React.FC = () => {
               setSelectedServicePackageId(packageId);
               setActiveSection('services-packages');
             }}
+            onOpenDesignLibrary={workspaceId =>
+              handleOpenDesignLibrary({ workspaceId, tab: 'assets' })
+            }
           />
         );
 
@@ -418,6 +449,7 @@ export const AdminHQ: React.FC = () => {
               setSelectedWorkspaceId(workspaceId);
               setActiveSection('workspaces');
             }}
+            onOpenDesignLibrary={handleOpenDesignLibrary}
           />
         );
 
@@ -447,6 +479,7 @@ export const AdminHQ: React.FC = () => {
               setSelectedWorkspaceId(workspaceId);
               setActiveSection('workspaces');
             }}
+            onOpenDesignLibrary={handleOpenDesignLibrary}
           />
         );
 
@@ -466,6 +499,7 @@ export const AdminHQ: React.FC = () => {
               setSelectedWorkspaceId(workspaceId);
               setActiveSection('workspaces');
             }}
+            onOpenDesignLibrary={handleOpenDesignLibrary}
           />
         );
 
@@ -480,6 +514,25 @@ export const AdminHQ: React.FC = () => {
             onOpenClient={clientUid => {
               setSelectedClientUid(clientUid);
               setActiveSection('clients-accounts');
+            }}
+            onOpenWorkspace={workspaceId => {
+              setSelectedWorkspaceId(workspaceId);
+              setActiveSection('workspaces');
+            }}
+            onOpenDesignLibrary={handleOpenDesignLibrary}
+          />
+        );
+
+      case 'design-library':
+        return (
+          <AdminDesignLibrary
+            initialWorkspaceId={designLibraryWorkspaceId}
+            initialProjectId={designLibraryProjectId}
+            initialTab={designLibraryTab}
+            onOpenProject={(projectId, tab) => {
+              setSelectedProjectId(projectId);
+              setSelectedProjectTab(tab || 'deliverables');
+              setActiveSection('projects');
             }}
             onOpenWorkspace={workspaceId => {
               setSelectedWorkspaceId(workspaceId);

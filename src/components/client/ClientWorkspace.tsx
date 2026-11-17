@@ -14,7 +14,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { ClientProfile, ClientProject, ProductionActivity, ProductionDeliverable, ProductionNotification, ProductionRevisionRequest, ProductionTask, RequestAttachment, Workspace } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { db, functions, storage } from '../../lib/firebase';
-import { createClientWorkspaceData, ensureClientWorkspace } from '../../lib/clientWorkspace';
+import { createClientWorkspaceData, ensureClientWorkspace, resolveClientProjectWorkspaceId } from '../../lib/clientWorkspace';
 import { UNIFIED_PRODUCTION_CATEGORIES } from '../../lib/productionCategories';
 import { ClientStudio, ClientStudioSection } from './ClientStudio';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
@@ -70,6 +70,7 @@ export const ClientWorkspace: React.FC = () => {
   const [requestReplyByProject, setRequestReplyByProject] = useState<Record<string, string>>({});
   const [replySubmittingId, setReplySubmittingId] = useState('');
   const [projectStageFilter, setProjectStageFilter] = useState<'all' | 'production' | 'review' | 'delivered'>('all');
+  const [deliverableStatusFilter, setDeliverableStatusFilter] = useState<'all' | 'awaiting' | 'approved' | 'revisions'>('all');
   const [requestSuccessSummary, setRequestSuccessSummary] = useState<{ title: string; category: string; filesCount: number; dueDate: string } | null>(null);
   const [profileState, setProfileState] = useState<'loading' | 'required' | 'complete' | 'error'>('loading');
   const [profileError, setProfileError] = useState('');
@@ -173,81 +174,116 @@ export const ClientWorkspace: React.FC = () => {
 
     setLoading(true);
     setError('');
+    let cancelled = false;
+    let activeProjectsUnsub: (() => void) | undefined;
     let childUnsubscribers: (() => void)[] = [];
-    const unsubscribeProjects = onSnapshot(
-      query(
-        collection(db, 'clientProjects'),
-        where('clientUid', '==', firebaseUser.uid),
-        where('workspaceId', '==', activeWorkspaceId),
-      ),
-      snapshot => {
-        setLoading(true);
-        const clientProjects = snapshot.docs.map(item => ({
+
+    const handleProjectsSnapshot = (docs: Array<{ id: string; data: () => Record<string, any> }>) => {
+      if (cancelled) return;
+      setLoading(true);
+      const clientProjects = docs.map(item => {
+        const data = item.data();
+        return {
           id: item.id,
-          ...item.data(),
-          workspaceId: item.data().workspaceId || clientProfile?.workspaceId,
-        } as ClientProject));
-        setProjects(clientProjects);
-        childUnsubscribers.forEach(unsubscribe => unsubscribe());
-        childUnsubscribers = [];
-        setTasks([]);
-        setDeliverables([]);
-        setRevisions([]);
-        setActivity([]);
+          ...data,
+          workspaceId: resolveClientProjectWorkspaceId(data.workspaceId, clientProfile?.workspaceId),
+        } as ClientProject;
+      });
+      setProjects(clientProjects);
+      childUnsubscribers.forEach(unsubscribe => unsubscribe());
+      childUnsubscribers = [];
+      setTasks([]);
+      setDeliverables([]);
+      setRevisions([]);
+      setActivity([]);
 
-        if (clientProjects.length === 0) {
+      const scopedProjects = clientProjects.filter(project => project.workspaceId === activeWorkspaceId);
+      if (scopedProjects.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      const receivedListeners = new Set<string>();
+      const totalListeners = scopedProjects.length * 4;
+      const finishInitialLoad = (listenerId: string) => {
+        receivedListeners.add(listenerId);
+        if (receivedListeners.size >= totalListeners) setLoading(false);
+      };
+
+      for (const project of scopedProjects) {
+        const projectRef = doc(db, 'clientProjects', project.id);
+        childUnsubscribers.push(
+          onSnapshot(query(collection(projectRef, 'tasks'),
+            where('clientVisible', '==', true),
+            where('clientUid', '==', firebaseUser.uid),
+            where('projectId', '==', project.id)), snapshot => {
+            const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionTask));
+            setTasks(previous => [...previous.filter(task => task.projectId !== project.id), ...rows]);
+            finishInitialLoad(`${project.id}:tasks`);
+          }, err => { setError(messageFromError(err)); setLoading(false); }),
+          onSnapshot(query(collection(projectRef, 'deliverables'),
+            where('isClientPublished', '==', true),
+            where('clientUid', '==', firebaseUser.uid),
+            where('projectId', '==', project.id)), snapshot => {
+            const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionDeliverable));
+            setDeliverables(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
+            finishInitialLoad(`${project.id}:deliverables`);
+          }, err => { setError(messageFromError(err)); setLoading(false); }),
+          onSnapshot(query(collection(projectRef, 'revisionRequests'),
+            where('clientUid', '==', firebaseUser.uid),
+            where('projectId', '==', project.id)), snapshot => {
+            const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionRevisionRequest));
+            setRevisions(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
+            finishInitialLoad(`${project.id}:revisions`);
+          }, err => { setError(messageFromError(err)); setLoading(false); }),
+          onSnapshot(query(collection(projectRef, 'activity'),
+            where('clientVisible', '==', true),
+            where('projectId', '==', project.id)), snapshot => {
+            const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionActivity));
+            setActivity(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
+            finishInitialLoad(`${project.id}:activity`);
+          }, err => { setError(messageFromError(err)); setLoading(false); }),
+        );
+      }
+    };
+
+    const subscribeScopedProjects = () => {
+      return onSnapshot(
+        query(
+          collection(db, 'clientProjects'),
+          where('clientUid', '==', firebaseUser.uid),
+          where('workspaceId', '==', activeWorkspaceId),
+        ),
+        snapshot => handleProjectsSnapshot(snapshot.docs),
+        err => { setError(messageFromError(err)); setLoading(false); },
+      );
+    };
+
+    // For the primary workspace, query by clientUid so legacy projects without `workspaceId` remain visible
+    // per firestore.rules ownsProject(). If another owned workspace is paused/archived, fall back to scoped query.
+    const isPrimaryWorkspace = Boolean(clientProfile?.workspaceId && activeWorkspaceId === clientProfile.workspaceId);
+    if (isPrimaryWorkspace) {
+      activeProjectsUnsub = onSnapshot(
+        query(collection(db, 'clientProjects'), where('clientUid', '==', firebaseUser.uid)),
+        snapshot => handleProjectsSnapshot(snapshot.docs),
+        err => {
+          const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : '';
+          if (code === 'permission-denied' && !cancelled) {
+            activeProjectsUnsub?.();
+            activeProjectsUnsub = subscribeScopedProjects();
+            return;
+          }
+          setError(messageFromError(err));
           setLoading(false);
-          return;
-        }
-
-        const receivedListeners = new Set<string>();
-        const totalListeners = clientProjects.length * 4;
-        const finishInitialLoad = (listenerId: string) => {
-          receivedListeners.add(listenerId);
-          if (receivedListeners.size >= totalListeners) setLoading(false);
-        };
-
-        for (const project of clientProjects) {
-          const projectRef = doc(db, 'clientProjects', project.id);
-          childUnsubscribers.push(
-            onSnapshot(query(collection(projectRef, 'tasks'),
-              where('clientVisible', '==', true),
-              where('clientUid', '==', firebaseUser.uid),
-              where('projectId', '==', project.id)), snapshot => {
-              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionTask));
-              setTasks(previous => [...previous.filter(task => task.projectId !== project.id), ...rows]);
-              finishInitialLoad(`${project.id}:tasks`);
-            }, err => { setError(messageFromError(err)); setLoading(false); }),
-            onSnapshot(query(collection(projectRef, 'deliverables'),
-              where('isClientPublished', '==', true),
-              where('clientUid', '==', firebaseUser.uid),
-              where('projectId', '==', project.id)), snapshot => {
-              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionDeliverable));
-              setDeliverables(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
-              finishInitialLoad(`${project.id}:deliverables`);
-            }, err => { setError(messageFromError(err)); setLoading(false); }),
-            onSnapshot(query(collection(projectRef, 'revisionRequests'),
-              where('clientUid', '==', firebaseUser.uid),
-              where('projectId', '==', project.id)), snapshot => {
-              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionRevisionRequest));
-              setRevisions(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
-              finishInitialLoad(`${project.id}:revisions`);
-            }, err => { setError(messageFromError(err)); setLoading(false); }),
-            onSnapshot(query(collection(projectRef, 'activity'),
-              where('clientVisible', '==', true),
-              where('projectId', '==', project.id)), snapshot => {
-              const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionActivity));
-              setActivity(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
-              finishInitialLoad(`${project.id}:activity`);
-            }, err => { setError(messageFromError(err)); setLoading(false); }),
-          );
-        }
-      },
-      err => { setError(messageFromError(err)); setLoading(false); },
-    );
+        },
+      );
+    } else {
+      activeProjectsUnsub = subscribeScopedProjects();
+    }
 
     return () => {
-      unsubscribeProjects();
+      cancelled = true;
+      activeProjectsUnsub?.();
       childUnsubscribers.forEach(unsubscribe => unsubscribe());
     };
   }, [firebaseUser, clientProfile?.workspaceId, activeWorkspaceId]);
@@ -288,6 +324,29 @@ export const ClientWorkspace: React.FC = () => {
   const workspaceDeliverables = useMemo(
     () => deliverables.filter(deliverable => workspaceProjectIds.has(deliverable.projectId)),
     [deliverables, workspaceProjectIds],
+  );
+  const filteredDeliverables = useMemo(
+    () =>
+      workspaceDeliverables.filter(deliverable => {
+        if (deliverableStatusFilter === 'awaiting') {
+          return (
+            deliverable.reviewStatus === 'Awaiting Review' ||
+            deliverable.reviewStatus === 'Revised - Awaiting Review'
+          );
+        }
+        if (deliverableStatusFilter === 'approved') {
+          return deliverable.reviewStatus === 'Approved';
+        }
+        if (deliverableStatusFilter === 'revisions') {
+          return (
+            deliverable.reviewStatus === 'Revision Requested' ||
+            deliverable.reviewStatus === 'Revision In Progress' ||
+            deliverable.reviewStatus === 'Rejected'
+          );
+        }
+        return true;
+      }),
+    [workspaceDeliverables, deliverableStatusFilter],
   );
   const workspaceRevisions = useMemo(
     () => revisions.filter(revision => workspaceProjectIds.has(revision.projectId)),
@@ -612,6 +671,13 @@ export const ClientWorkspace: React.FC = () => {
                   .map(project => {
                     const projectTasks = tasks.filter(task => task.projectId === project.id);
                     const projectRevisions = requestsByProject.get(project.id) || [];
+                    const projectDeliverables = workspaceDeliverables.filter(d => d.projectId === project.id);
+                    const awaitingProjectDeliverables = projectDeliverables.filter(
+                      d => d.reviewStatus === 'Awaiting Review' || d.reviewStatus === 'Revised - Awaiting Review'
+                    ).length;
+                    const approvedProjectDeliverables = projectDeliverables.filter(
+                      d => d.reviewStatus === 'Approved'
+                    ).length;
                     return (
                       <article key={project.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-5">
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -682,7 +748,7 @@ export const ClientWorkspace: React.FC = () => {
                         {/* Progress */}
                         <div className="mt-4 flex items-center gap-3">
                           <div className="h-2 flex-1 overflow-hidden rounded bg-[#252525]"><div className="h-full bg-[#FF1E1E]" style={{ width: `${Math.min(100, Math.max(0, project.progress || 0))}%` }} /></div>
-                          <span className="text-xs text-neutral-300">{project.progress || 0}%</span>
+                          <span className="text-xs text-neutral-300 font-mono tabular-nums">{project.progress || 0}%</span>
                         </div>
                         <p className={`mt-2 text-xs ${project.expectedDeliveryDate && project.expectedDeliveryDate < new Date().toISOString().slice(0, 10) && project.stage !== 'Delivered' ? 'text-amber-300' : 'text-neutral-500'}`}>
                           Expected delivery: {project.expectedDeliveryDate || 'To be confirmed'}
@@ -693,6 +759,39 @@ export const ClientWorkspace: React.FC = () => {
                           const reached = index <= currentIndex;
                           return <span key={stage} className={`rounded px-2 py-1 text-[10px] ${reached ? 'bg-red-950/50 text-red-200' : 'bg-[#161616] text-neutral-600'}`}>{stage}</span>;
                         })}</div>
+                        {(awaitingProjectDeliverables > 0 || approvedProjectDeliverables > 0) && (
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#1D1D1D] pt-3 text-xs">
+                            <span className="font-mono text-neutral-400 tabular-nums">
+                              Deliverables: {awaitingProjectDeliverables} awaiting review · {approvedProjectDeliverables} approved final
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              {awaitingProjectDeliverables > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDeliverableStatusFilter('awaiting');
+                                    setActiveTab('deliverables');
+                                  }}
+                                  className="rounded bg-[#FF1E1E] px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-600"
+                                >
+                                  Review {awaitingProjectDeliverables} deliverable(s)
+                                </button>
+                              )}
+                              {approvedProjectDeliverables > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDeliverableStatusFilter('approved');
+                                    setActiveTab('deliverables');
+                                  }}
+                                  className="rounded border border-emerald-800/60 bg-emerald-950/30 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:text-white"
+                                >
+                                  View {approvedProjectDeliverables} final approved file(s)
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         {projectTasks.length > 0 && <div className="mt-4 border-t border-[#222] pt-3"><h3 className="text-xs font-semibold text-neutral-300">Shared tasks</h3>{projectTasks.map(task => {
                           const overdue = Boolean(task.dueDate && task.dueDate < new Date().toISOString().slice(0, 10) && task.status !== 'Done');
                           return <div key={task.id} className="mt-2 flex justify-between gap-2 text-xs"><span className="text-neutral-300">{task.title}</span><span className={overdue ? 'text-amber-300' : 'text-neutral-500'}>{task.status}{task.dueDate ? ` · Due ${task.dueDate}` : ''}{overdue ? ' · Overdue' : ''}</span></div>;
@@ -705,50 +804,124 @@ export const ClientWorkspace: React.FC = () => {
             )}
 
             {activeTab === 'deliverables' && (
-              <div className="grid gap-4 md:grid-cols-2">
-                {workspaceDeliverables.length === 0 && <p className="text-sm text-neutral-500">No deliverables have been published for review.</p>}
-                {workspaceDeliverables.map(deliverable => {
-                  const project = projectById.get(deliverable.projectId);
-                  const feedback = feedbackByDeliverable[deliverable.id] || '';
-                  const waiting = deliverable.reviewStatus === 'Awaiting Review' || deliverable.reviewStatus === 'Revised - Awaiting Review';
-                  const deliverableRevisions = workspaceRevisions.filter(r => r.deliverableId === deliverable.id);
-                  return (
-                    <article key={deliverable.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[10px] uppercase tracking-widest text-neutral-500">{project?.title || 'Project'}</p>
-                        <span className="rounded bg-[#1C1C1C] border border-[#333] px-2 py-0.5 text-[11px] font-mono text-neutral-300">
-                          v{deliverable.currentVersion || 1} (Latest)
-                        </span>
-                      </div>
-                      <h2 className="mt-1 font-bold text-white">{deliverable.title}</h2>
-                      {deliverable.description && <p className="mt-2 text-sm text-neutral-400">{deliverable.description}</p>}
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className={`rounded border px-2 py-0.5 text-xs font-medium ${
-                          deliverable.reviewStatus === 'Approved'
-                            ? 'border-emerald-800/60 bg-emerald-950/30 text-emerald-300'
-                            : deliverable.reviewStatus === 'Rejected'
-                            ? 'border-red-800/60 bg-red-950/30 text-red-300'
-                            : deliverable.reviewStatus === 'Revision Requested' || deliverable.reviewStatus === 'Revision In Progress'
-                            ? 'border-amber-800/60 bg-amber-950/30 text-amber-300'
-                            : 'border-neutral-700 bg-neutral-900 text-neutral-300'
-                        }`}>
-                          {deliverable.reviewStatus}
-                        </span>
-                        {deliverable.approvedAt && (
-                          <span className="text-[11px] text-emerald-400">
-                            Approved {new Date(deliverable.approvedAt).toLocaleDateString()}
-                          </span>
-                        )}
-                      </div>
-                      {deliverable.fileUrl && (
-                        <div className="mt-3 space-y-2">
-                          {deliverable.fileType.startsWith('image/') && <img src={deliverable.fileUrl} alt={deliverable.title} className="max-h-80 max-w-full rounded border border-[#292929] object-contain" />}
-                          {deliverable.fileType.startsWith('video/') && <video controls preload="metadata" src={deliverable.fileUrl} className="max-h-80 w-full rounded" />}
-                          {deliverable.fileType.startsWith('audio/') && <audio controls preload="metadata" src={deliverable.fileUrl} className="w-full" />}
-                          {deliverable.fileType === 'application/pdf' && <iframe title={`${deliverable.title} preview`} src={deliverable.fileUrl} className="h-80 w-full rounded border border-[#292929]" />}
-                          <a href={deliverable.fileUrl} download={deliverable.fileName} target="_blank" rel="noreferrer" className="inline-block text-sm text-red-300 underline">Download · {deliverable.fileName}</a>
-                        </div>
-                      )}
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1A1A1A] pb-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-neutral-500">View:</span>
+                    {[
+                      { id: 'all' as const, label: 'All published', count: workspaceDeliverables.length },
+                      {
+                        id: 'awaiting' as const,
+                        label: 'Awaiting your review',
+                        count: workspaceDeliverables.filter(
+                          d => d.reviewStatus === 'Awaiting Review' || d.reviewStatus === 'Revised - Awaiting Review'
+                        ).length,
+                      },
+                      {
+                        id: 'approved' as const,
+                        label: 'Approved final outputs',
+                        count: workspaceDeliverables.filter(d => d.reviewStatus === 'Approved').length,
+                      },
+                      {
+                        id: 'revisions' as const,
+                        label: 'In revision / Rejected',
+                        count: workspaceDeliverables.filter(
+                          d =>
+                            d.reviewStatus === 'Revision Requested' ||
+                            d.reviewStatus === 'Revision In Progress' ||
+                            d.reviewStatus === 'Rejected'
+                        ).length,
+                      },
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setDeliverableStatusFilter(f.id)}
+                        className={`rounded px-2.5 py-1 text-xs font-mono tabular-nums transition-colors ${
+                          deliverableStatusFilter === f.id
+                            ? 'border border-red-500/50 bg-red-950/40 text-white font-medium'
+                            : 'border border-[#262626] bg-[#121212] text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        {f.label} ({f.count})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {workspaceDeliverables.length === 0 ? (
+                  <p className="text-sm text-neutral-500">No deliverables have been published for review.</p>
+                ) : filteredDeliverables.length === 0 ? (
+                  <div className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-6 text-center space-y-2">
+                    <p className="text-sm text-neutral-400">No deliverables match this filter.</p>
+                    <button
+                      type="button"
+                      onClick={() => setDeliverableStatusFilter('all')}
+                      className="rounded border border-[#333] bg-[#141414] px-3 py-1.5 text-xs text-white hover:border-[#555]"
+                    >
+                      Show all published deliverables
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {filteredDeliverables.map(deliverable => {
+                        const project = projectById.get(deliverable.projectId);
+                        const feedback = feedbackByDeliverable[deliverable.id] || '';
+                        const waiting = deliverable.reviewStatus === 'Awaiting Review' || deliverable.reviewStatus === 'Revised - Awaiting Review';
+                        const isApproved = deliverable.reviewStatus === 'Approved';
+                        const deliverableRevisions = workspaceRevisions.filter(r => r.deliverableId === deliverable.id);
+                        return (
+                          <article
+                            key={deliverable.id}
+                            className={`rounded border p-4 bg-[#0C0C0C] ${
+                              isApproved ? 'border-emerald-800/50' : 'border-[#1A1A1A]'
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[10px] uppercase tracking-widest text-neutral-500">{project?.title || 'Project'}</p>
+                              <span className="rounded bg-[#1C1C1C] border border-[#333] px-2 py-0.5 text-[11px] font-mono text-neutral-300 tabular-nums">
+                                v{deliverable.currentVersion || 1} (Latest)
+                              </span>
+                            </div>
+                            <h2 className="mt-1 font-bold text-white">{deliverable.title}</h2>
+                            {deliverable.description && <p className="mt-2 text-sm text-neutral-400">{deliverable.description}</p>}
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <span className={`rounded border px-2 py-0.5 text-xs font-medium ${
+                                isApproved
+                                  ? 'border-emerald-800/60 bg-emerald-950/30 text-emerald-300'
+                                  : deliverable.reviewStatus === 'Rejected'
+                                  ? 'border-red-800/60 bg-red-950/30 text-red-300'
+                                  : deliverable.reviewStatus === 'Revision Requested' || deliverable.reviewStatus === 'Revision In Progress'
+                                  ? 'border-amber-800/60 bg-amber-950/30 text-amber-300'
+                                  : 'border-neutral-700 bg-neutral-900 text-neutral-300'
+                              }`}>
+                                {isApproved ? 'Final Approved Output' : deliverable.reviewStatus}
+                              </span>
+                              {deliverable.approvedAt && (
+                                <span className="text-[11px] text-emerald-400">
+                                  Approved {new Date(deliverable.approvedAt).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                            {deliverable.fileUrl && (
+                              <div className="mt-3 space-y-2">
+                                {deliverable.fileType.startsWith('image/') && <img src={deliverable.fileUrl} alt={deliverable.title} className="max-h-80 max-w-full rounded border border-[#292929] object-contain" />}
+                                {deliverable.fileType.startsWith('video/') && <video controls preload="metadata" src={deliverable.fileUrl} className="max-h-80 w-full rounded" />}
+                                {deliverable.fileType.startsWith('audio/') && <audio controls preload="metadata" src={deliverable.fileUrl} className="w-full" />}
+                                {deliverable.fileType === 'application/pdf' && <iframe title={`${deliverable.title} preview`} src={deliverable.fileUrl} className="h-80 w-full rounded border border-[#292929]" />}
+                                <a
+                                  href={deliverable.fileUrl}
+                                  download={deliverable.fileName}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={`inline-block text-sm underline ${
+                                    isApproved ? 'text-emerald-300 font-medium' : 'text-red-300'
+                                  }`}
+                                >
+                                  {isApproved ? `Download Final File · ${deliverable.fileName}` : `Download · ${deliverable.fileName}`}
+                                </a>
+                              </div>
+                            )}
                       {deliverable.versions && deliverable.versions.length > 1 && (
                         <details className="mt-3 text-xs text-neutral-400">
                           <summary className="cursor-pointer">Previous version history ({deliverable.versions.length})</summary>
@@ -800,6 +973,8 @@ export const ClientWorkspace: React.FC = () => {
                     </article>
                   );
                 })}
+                  </div>
+                )}
               </div>
             )}
 

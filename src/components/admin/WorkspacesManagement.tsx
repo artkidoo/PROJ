@@ -10,6 +10,7 @@ import {
   FolderKanban,
   History,
   Info,
+  Layers,
   Package,
   Plus,
   Search,
@@ -36,6 +37,7 @@ interface Props {
   onOpenClient?: (clientUid: string, workspaceId: string) => void;
   onViewWorkspaceProjects?: (workspaceId: string) => void;
   onOpenServicePackage?: (packageId: string) => void;
+  onOpenDesignLibrary?: (workspaceId: string) => void;
 }
 
 interface WorkspaceAuditEntry {
@@ -125,6 +127,7 @@ export const WorkspacesManagement: React.FC<Props> = ({
   onOpenClient,
   onViewWorkspaceProjects,
   onOpenServicePackage,
+  onOpenDesignLibrary,
 }) => {
   const { firebaseUser, canAccessAdminCenter } = useApp();
 
@@ -1096,6 +1099,17 @@ export const WorkspacesManagement: React.FC<Props> = ({
                       <span className="tabular-nums">
                         View Workspace Projects ({relatedProjects.length})
                       </span>
+                      <ArrowUpRight size={12} />
+                    </button>
+                  )}
+                  {onOpenDesignLibrary && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenDesignLibrary(selectedWorkspace.id)}
+                      className="inline-flex items-center gap-1.5 border border-[#2E2E2E] bg-[#141414] px-3 py-1.5 text-xs font-medium text-white hover:border-[#FF1E1E]"
+                    >
+                      <Layers size={12} className="text-[#FF1E1E]" />
+                      <span>Design &amp; Assets</span>
                       <ArrowUpRight size={12} />
                     </button>
                   )}

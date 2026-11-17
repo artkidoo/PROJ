@@ -19,9 +19,24 @@ export function validatePasswordInput(password: string): string | null {
   return null;
 }
 
+const VALID_ADMIN_ROLES = new Set([
+  'platformadmin',
+  'platform admin',
+  'superadmin',
+  'super admin',
+]);
+
+export function hasPlatformAdminRole(data: Record<string, unknown> | undefined | null): boolean {
+  if (!data || typeof data.role !== 'string') return false;
+  return VALID_ADMIN_ROLES.has(data.role.trim().toLowerCase());
+}
+
 export function isAdminRecordActive(snapshot: DocumentSnapshot): boolean {
   if (!snapshot.exists()) return false;
   const data = snapshot.data() || {};
+  if (!hasPlatformAdminRole(data)) {
+    return false;
+  }
   const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
   if (status === 'suspended' || status === 'revoked' || status === 'inactive' || status === 'disabled') {
     return false;
@@ -59,8 +74,15 @@ export function friendlyFirebaseAuthError(error: unknown, fallback = 'Authentica
       return 'Email/password sign-in is not enabled on this authentication project.';
     case 'auth/popup-blocked':
       return 'Your browser blocked the sign-in popup. Allow pop-ups for this site and try again.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'The sign-in popup was closed before authentication could complete.';
     case 'auth/account-exists-with-different-credential':
       return 'An account already exists with this email using another sign-in method.';
+    case 'auth/unauthorized-domain': {
+      const currentHost = typeof window !== 'undefined' && window.location ? window.location.hostname : '';
+      return `This domain${currentHost ? ` (${currentHost})` : ''} is not authorized for Google Sign-In in Firebase Console. Please sign in with Email and Password, or add this domain to Firebase Console > Authentication > Settings > Authorized Domains.`;
+    }
     default: {
       if (error instanceof Error && error.message) {
         return error.message;

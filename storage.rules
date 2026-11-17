@@ -11,7 +11,8 @@ service firebase.storage {
       return isSignedIn() &&
         (!firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)) ||
           !firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.keys().hasAny(['status']) ||
-          firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.status != 'Suspended');
+          !(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.status is string) ||
+          !(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.status.trim().lower() in ['suspended', 'revoked', 'disabled']));
     }
 
     function isWorkspaceOpen(workspaceId) {
@@ -65,8 +66,15 @@ service firebase.storage {
       );
     }
 
+    function hasPlatformAdminRole(adminData) {
+      return adminData.keys().hasAny(['role']) &&
+        adminData.role is string &&
+        adminData.role.trim().lower() in ['platformadmin', 'platform admin', 'superadmin', 'super admin'];
+    }
+
     function isAdminRecordActive(adminData) {
-      return (!adminData.keys().hasAny(['status']) ||
+      return hasPlatformAdminRole(adminData) &&
+        (!adminData.keys().hasAny(['status']) ||
           !(adminData.status is string) ||
           !(adminData.status.trim().lower() in ['suspended', 'revoked', 'inactive', 'disabled'])) &&
         (!adminData.keys().hasAny(['revoked']) || adminData.revoked != true) &&
@@ -100,15 +108,17 @@ service firebase.storage {
       allow read, write: if isPlatformAdmin();
     }
 
-    // Workspace Private Files Path (Multi-Tenant Authorization, Volumetric & Content-Type Guards)
-    match /workspaces/{workspaceId}/{allPaths=**} {
-      allow read: if isWorkspaceMember(workspaceId);
+    // Workspace Shared Files Path (Multi-Tenant Authorization, Volumetric & Content-Type Guards)
+    // Explicitly excludes the 'internal' top-level folder so overlapping rules cannot grant members internal access.
+    match /workspaces/{workspaceId}/{topFolder}/{allPaths=**} {
+      allow read: if topFolder != 'internal' && isWorkspaceMember(workspaceId);
       
-      allow create, update: if isWorkspaceMember(workspaceId) && 
+      allow create, update: if topFolder != 'internal' &&
+        isWorkspaceMember(workspaceId) && 
         request.resource.size < 50 * 1024 * 1024 && // Enforce 50MB maximum asset size limit
         isValidCreativeAsset();                     // Strict MIME allowlist validation
         
-      allow delete: if isWorkspaceMember(workspaceId);
+      allow delete: if topFolder != 'internal' && isWorkspaceMember(workspaceId);
     }
 
     // Legacy client deliverables remain private to their owner and platform admins.

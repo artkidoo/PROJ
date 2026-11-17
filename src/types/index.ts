@@ -734,6 +734,7 @@ export interface BrandAsset {
   usageRules: string;
   downloadUrl?: string;
   isVector: boolean;
+  isInternal?: boolean;
   uploadedAt: string;
 }
 

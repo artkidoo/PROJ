@@ -20,7 +20,7 @@ async function runPhase3CSecurityTests() {
 
     await testEnv.withSecurityRulesDisabled(async context => {
       const db = context.firestore();
-      await db.doc('admins/admin-user').set({ uid: 'admin-user' });
+      await db.doc('admins/admin-user').set({ uid: 'admin-user', role: 'PlatformAdmin' });
       for (const uid of ['client-a', 'client-b']) {
         await db.doc(`clientProfiles/${uid}`).set({ uid, displayName: uid, workspaceId: `ws-${uid}` });
       }
@@ -288,7 +288,81 @@ async function runPhase3CSecurityTests() {
       clientVisible: true,
     }));
 
-    console.log('Phase 3C/3D/3E Firestore rules tests passed.');
+    await testEnv.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      await db.doc('admins/admin-no-status').set({ uid: 'admin-no-status', role: 'PlatformAdmin' });
+      await db.doc('clientProfiles/admin-no-status').set({
+        uid: 'admin-no-status',
+        displayName: 'Admin Without Status',
+        email: 'admin-nostatus@keedohub.test',
+      });
+      await db.doc('admins/suspended-admin').set({ uid: 'suspended-admin', role: 'PlatformAdmin', status: 'Active' });
+      await db.doc('clientProfiles/suspended-admin').set({
+        uid: 'suspended-admin',
+        displayName: 'Suspended Admin',
+        status: 'Suspended',
+      });
+      await db.doc('admins/admin-missing-role').set({ uid: 'admin-missing-role', status: 'Active' });
+      await db.doc('admins/admin-viewer-role').set({ uid: 'admin-viewer-role', role: 'Viewer', status: 'Active' });
+    });
+
+    const adminNoStatus = testEnv.authenticatedContext('admin-no-status').firestore();
+    const suspendedAdmin = testEnv.authenticatedContext('suspended-admin').firestore();
+    const missingRoleAdmin = testEnv.authenticatedContext('admin-missing-role').firestore();
+    const viewerRoleAdmin = testEnv.authenticatedContext('admin-viewer-role').firestore();
+
+    await assertSucceeds(adminNoStatus.doc('admins/admin-no-status').get());
+    await assertSucceeds(adminNoStatus.doc('clientProfiles/admin-no-status').get());
+    await assertSucceeds(adminNoStatus.collection('admins').get());
+    await assertSucceeds(adminNoStatus.collection('clientProjects').get());
+    await assertFails(suspendedAdmin.collection('clientProjects').get());
+    await assertFails(missingRoleAdmin.collection('clientProjects').get());
+    await assertFails(viewerRoleAdmin.collection('clientProjects').get());
+
+    // Phase 8.5: Admin updates on projects linked to Paused/Archived workspaces must succeed,
+    // while client reads/updates and creating/re-linking into closed workspaces stay blocked.
+    await testEnv.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      await db.doc('workspaces/ws-paused-a').set({
+        id: 'ws-paused-a', ownerId: 'client-a', name: 'Paused Workspace', status: 'Paused',
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      });
+      await db.doc('workspaces/ws-archived-a').set({
+        id: 'ws-archived-a', ownerId: 'client-a', name: 'Archived Workspace', status: 'Archived',
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      });
+      await db.doc('clientProjects/proj-paused').set({
+        id: 'proj-paused', clientUid: 'client-a', workspaceId: 'ws-paused-a',
+        title: 'Paused Project', description: 'Paused', category: 'Creative',
+        status: 'On Hold', progress: 40, startDate: '2026-01-01', expectedDeliveryDate: '',
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', stage: 'In Production',
+      });
+      await db.doc('clientProjects/proj-archived').set({
+        id: 'proj-archived', clientUid: 'client-a', workspaceId: 'ws-archived-a',
+        title: 'Archived Project', description: 'Archived', category: 'Creative',
+        status: 'Completed', progress: 100, startDate: '2026-01-01', expectedDeliveryDate: '',
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', stage: 'Delivered',
+      });
+    });
+
+    await assertSucceeds(admin.doc('clientProjects/proj-paused').update({
+      progress: 65, stage: 'Internal QA', updatedAt: '2026-02-01T00:00:00.000Z',
+    }));
+    await assertSucceeds(admin.doc('clientProjects/proj-archived').update({
+      adminMessage: 'Archived summary updated', updatedAt: '2026-02-01T00:00:00.000Z',
+    }));
+    await assertFails(admin.doc('clientProjects/proj-new-paused').set({
+      id: 'proj-new-paused', clientUid: 'client-a', workspaceId: 'ws-paused-a',
+      title: 'Blocked Create', description: '', category: 'Creative',
+      status: 'Pending', progress: 0, startDate: '2026-01-01', expectedDeliveryDate: '',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    }));
+    await assertFails(admin.doc('clientProjects/project-a').update({ workspaceId: 'ws-paused-a' }));
+    await assertFails(clientA.doc('clientProjects/proj-paused').get());
+    await assertFails(clientA.doc('clientProjects/proj-archived').get());
+    await assertFails(clientA.doc('clientProjects/proj-paused').update({ progress: 99 }));
+
+    console.log('Phase 3C/3D/3E + Phase 8.5 Firestore rules tests passed.');
   } finally {
     await testEnv?.cleanup();
   }

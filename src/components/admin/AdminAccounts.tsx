@@ -10,12 +10,11 @@ export const AdminAccounts: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Firestore rules only allow reading own admin doc; listing may be denied.
     const unsub = onSnapshot(collection(db, 'admins'), (snap) => {
       setAdmins(snap.docs.map(d => ({ uid: d.id, ...(d.data() as any) })));
       setLoading(false);
     }, (err) => {
-      setError(err?.message || 'Unable to load admin accounts (read access restricted by security rules).');
+      setError(err?.message || 'Unable to load admin accounts (active platform admin access required).');
       setLoading(false);
     });
     return () => unsub();
@@ -29,7 +28,7 @@ export const AdminAccounts: React.FC = () => {
         Admin grants are managed server-side via the <code>admins</code> collection. Client-side creation, suspension or removal is intentionally disabled for security.
       </p>
       {error && <div className="text-yellow-400 text-sm mb-4">{error}</div>}
-      {admins.length === 0 && !error && <p className="text-neutral-500 text-sm">No admin accounts visible (listing may be restricted by security rules).</p>}
+      {admins.length === 0 && !error && <p className="text-neutral-500 text-sm">No admin accounts recorded yet.</p>}
       <div className="overflow-x-auto border border-[#1A1A1A] rounded">
         <table className="w-full text-sm">
           <thead className="bg-[#0C0C0C] text-neutral-500 text-xs uppercase tracking-widest">

@@ -1,6 +1,9 @@
 import { doc, getDoc, writeBatch } from 'firebase/firestore';
 import { ClientProfile, Workspace, WorkspaceType } from '../types';
 import { db } from './firebase';
+import { resolveClientProjectWorkspaceId } from './workspaceResolution';
+
+export { resolveClientProjectWorkspaceId };
 
 function workspaceTypeForAccount(accountType: ClientProfile['accountType']): WorkspaceType {
   if (accountType === 'Artist') return 'Artist';
@@ -107,3 +110,4 @@ export async function ensureClientWorkspace(uid: string): Promise<Workspace> {
   await batch.commit();
   return workspace;
 }
+
