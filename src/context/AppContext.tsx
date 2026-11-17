@@ -81,16 +81,36 @@ function isFirestorePermissionError(err: unknown): boolean {
   return code === 'permission-denied' || msg.toLowerCase().includes('missing or insufficient permissions');
 }
 
-async function getDocPreferServer(ref: DocumentReference): Promise<DocumentSnapshot> {
-  try {
-    return await getDocFromServer(ref);
-  } catch (err) {
-    if (isFirestorePermissionError(err)) {
-      throw err;
+function isTransientOfflineError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const msg = 'message' in err ? String((err as { message?: unknown }).message || '').toLowerCase() : '';
+  const code = 'code' in err ? String((err as { code?: unknown }).code || '') : '';
+  return msg.includes('client is offline') || code === 'unavailable';
+}
+
+async function getDocPreferServer(ref: DocumentReference, retries = 2): Promise<DocumentSnapshot> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await getDocFromServer(ref);
+    } catch (err: any) {
+      if (isFirestorePermissionError(err)) {
+        throw err;
+      }
+      try {
+        return await getDoc(ref);
+      } catch (fallbackErr: any) {
+        if (isFirestorePermissionError(fallbackErr)) {
+          throw fallbackErr;
+        }
+        if (attempt < retries && (isTransientOfflineError(err) || isTransientOfflineError(fallbackErr))) {
+          await new Promise(res => setTimeout(res, 350 * (attempt + 1)));
+          continue;
+        }
+        throw fallbackErr;
+      }
     }
-    // Fallback to cache/default getDoc only for transient offline errors
-    return await getDoc(ref);
   }
+  return await getDoc(ref);
 }
 
 export interface RegisterWithEmailInput {
@@ -494,6 +514,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return { status: 'rejected', reason: retryErr };
             }
           }
+          if (isTransientOfflineError(firstErr)) {
+            try {
+              await new Promise(res => setTimeout(res, 400));
+              const retrySnap = await getDoc(ref);
+              return { status: 'fulfilled', value: retrySnap };
+            } catch (retryErr) {
+              return { status: 'rejected', reason: retryErr };
+            }
+          }
           return { status: 'rejected', reason: firstErr };
         }
       };
@@ -625,10 +654,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         profileError,
       } = await verifyAdminAndProfile(user);
 
-      if (adminError) {
+      if (adminError && !isTransientOfflineError(adminError)) {
         console.warn(`Admin role verification denied or failed for admins/${user.uid}:`, adminError);
       }
-      if (profileError) {
+      if (profileError && !isTransientOfflineError(profileError)) {
         console.warn(`Client profile verification denied or failed for clientProfiles/${user.uid}:`, profileError);
       }
 
@@ -655,26 +684,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsClientProfileLoading(false);
 
       if (!manualAuthFlowInFlightRef.current) {
-        if (inAdminArea && (adminPermDenied || profilePermDenied)) {
-          persistAppMode('public');
-          setActiveModule('dashboard');
-          setAuthError(
-            adminPermDenied
-              ? 'Platform authorization verification failed on /admins/{uid} (Missing or insufficient permissions). Confirm updated firestore.rules are deployed and your /admins record has role "PlatformAdmin".'
-              : 'Account verification failed on /clientProfiles/{uid} (Missing or insufficient permissions). Confirm updated firestore.rules are deployed.'
-          );
-        } else if (profilePermDenied && appModeRef.current === 'client') {
-          setAuthError(
-            'Client profile access was denied by Firestore security rules (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
-          );
-        } else if (inAdminArea && !effectiveAdmin) {
-          persistAppMode('public');
-          setActiveModule('dashboard');
-          setAuthError(
-            isSuspended
-              ? 'This account has been suspended. Contact KeedoHub support for access.'
-              : 'Administrator access is not active for this account (requires an active /admins record with PlatformAdmin role).',
-          );
+        if (effectiveAdmin) {
+          // Verified platform administrator must always enter Admin HQ ('workspace')
+          if (appModeRef.current !== 'workspace') {
+            persistAppMode('workspace');
+          }
+        } else {
+          // Ordinary client accounts: ensure they do not stay in admin area
+          if (inAdminArea) {
+            persistAppMode('client');
+            setActiveModule('dashboard');
+          }
+          if (profilePermDenied && appModeRef.current === 'client') {
+            setAuthError(
+              'Client profile access was denied by Firestore security rules (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
+            );
+          }
         }
       }
 
@@ -785,7 +810,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             });
           }
         } catch (err) {
-          console.warn('Firestore user profile sync warning:', err);
+          if (!isFirestorePermissionError(err) && !isTransientOfflineError(err)) {
+            console.warn('Firestore user profile sync warning:', err);
+          }
         }
       }
 
@@ -1199,8 +1226,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setClientProfile(resolvedProfile);
         setIsPlatformAdmin(effectiveAdmin);
         clearPublicAuthHash();
-        // Public registration always opens the unified client workspace; verified admins signing in route consistently
-        const nextMode = intent === 'register' ? 'client' : (effectiveAdmin ? 'workspace' : 'client');
+        // A verified platform administrator always enters Admin HQ ('workspace'); ordinary users enter client workspace
+        const nextMode = effectiveAdmin ? 'workspace' : 'client';
         persistAppMode(nextMode);
       }
     } catch (err: any) {
@@ -1226,7 +1253,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
     clearPublicAuthHash();
-    const nextMode = isPlatformAdmin && !isSuspendedAccountStatus(clientProfile?.status) ? 'workspace' : 'client';
+    const isAdminUser = (isPlatformAdmin || adminDocActiveRef.current) && (clientProfile ? !isSuspendedAccountStatus(clientProfile.status) : true);
+    const nextMode = isAdminUser ? 'workspace' : 'client';
     persistAppMode(nextMode);
   };
 

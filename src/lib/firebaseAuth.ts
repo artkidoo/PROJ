@@ -27,8 +27,10 @@ const VALID_ADMIN_ROLES = new Set([
 ]);
 
 export function hasPlatformAdminRole(data: Record<string, unknown> | undefined | null): boolean {
-  if (!data || typeof data.role !== 'string') return false;
-  return VALID_ADMIN_ROLES.has(data.role.trim().toLowerCase());
+  if (!data) return false;
+  const rawRole = (typeof data.role === 'string' ? data.role : typeof data.Role === 'string' ? data.Role : '') || '';
+  if (!rawRole) return false;
+  return VALID_ADMIN_ROLES.has(rawRole.trim().toLowerCase());
 }
 
 export function isAdminRecordActive(snapshot: DocumentSnapshot): boolean {
@@ -37,11 +39,12 @@ export function isAdminRecordActive(snapshot: DocumentSnapshot): boolean {
   if (!hasPlatformAdminRole(data)) {
     return false;
   }
-  const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
+  const rawStatus = (typeof data.status === 'string' ? data.status : typeof data.Status === 'string' ? data.Status : '') || '';
+  const status = rawStatus.trim().toLowerCase();
   if (status === 'suspended' || status === 'revoked' || status === 'inactive' || status === 'disabled') {
     return false;
   }
-  if (data.revoked === true || data.suspended === true || data.active === false) {
+  if (data.revoked === true || data.suspended === true || data.active === false || data.Active === false) {
     return false;
   }
   return true;

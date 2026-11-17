@@ -28,12 +28,18 @@ function run() {
   assert.equal(hasPlatformAdminRole({ role: 'SuperAdmin' }), true);
   assert.equal(hasPlatformAdminRole({ role: 'Client' }), false);
   assert.equal(hasPlatformAdminRole({ role: 'Viewer' }), false);
+  assert.equal(hasPlatformAdminRole({ Role: 'PlatformAdmin' }), true);
   assert.equal(hasPlatformAdminRole({}), false);
 
   assert.equal(
     isAdminRecordActive(fakeSnapshot(true, { uid: '6FcpXQYOxGMY2nltDFIvphnlcF03', role: 'PlatformAdmin' })),
     true,
     'Active PlatformAdmin doc missing status field must succeed'
+  );
+  assert.equal(
+    isAdminRecordActive(fakeSnapshot(true, { uid: '6FcpXQYOxGMY2nltDFIvphnlcF03', Role: 'PlatformAdmin', Status: 'Active', Active: true })),
+    true,
+    'Active PlatformAdmin doc with capitalized Role, Status, Active fields must succeed'
   );
   assert.equal(
     isAdminRecordActive(fakeSnapshot(true, { uid: 'a1', role: 'PlatformAdmin', status: 'Active' })),
@@ -67,9 +73,15 @@ function run() {
       `Admin doc with status=${status} must be rejected`
     );
   }
+  assert.equal(
+    isAdminRecordActive(fakeSnapshot(true, { uid: 'a2-cap', Role: 'PlatformAdmin', Status: 'Suspended' })),
+    false,
+    'Admin doc with capitalized Status=Suspended must be rejected'
+  );
   assert.equal(isAdminRecordActive(fakeSnapshot(true, { uid: 'a3', role: 'PlatformAdmin', revoked: true })), false);
   assert.equal(isAdminRecordActive(fakeSnapshot(true, { uid: 'a4', role: 'PlatformAdmin', suspended: true })), false);
   assert.equal(isAdminRecordActive(fakeSnapshot(true, { uid: 'a5', role: 'PlatformAdmin', active: false })), false);
+  assert.equal(isAdminRecordActive(fakeSnapshot(true, { uid: 'a6', Role: 'PlatformAdmin', Active: false })), false);
 
   // 2. Email & password validation
   assert.equal(validateEmailInput(''), 'Enter your email address.');

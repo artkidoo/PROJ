@@ -24,10 +24,14 @@ const AppContent: React.FC = () => {
   if (appMode === 'public' || !firebaseUser) {
     return <PublicSite />;
   }
+  // Verified PlatformAdmin enters Admin HQ directly
+  if (canAccessAdminCenter) {
+    return <AdminHQ key={firebaseUser.uid} />;
+  }
   if (appMode === 'client') {
     return <ClientWorkspace key={firebaseUser.uid} />;
   }
-  if ((appMode === 'workspace' || appMode === 'admin') && canAccessAdminCenter) {
+  if (appMode === 'workspace' || appMode === 'admin') {
     return <AdminHQ key={firebaseUser.uid} />;
   }
 

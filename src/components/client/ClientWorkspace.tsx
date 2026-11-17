@@ -44,6 +44,8 @@ export const ClientWorkspace: React.FC = () => {
     isClientProfileLoading,
     clientProfileError,
     refreshClientProfile,
+    canAccessAdminCenter,
+    setAppMode,
     logout,
   } = useApp();
   const [activeTab, setActiveTab] = useState<ClientTab>('projects');
@@ -81,6 +83,12 @@ export const ClientWorkspace: React.FC = () => {
   const [profileState, setProfileState] = useState<'loading' | 'required' | 'complete' | 'error'>('loading');
   const [profileError, setProfileError] = useState('');
   const [profileCheck, setProfileCheck] = useState(0);
+
+  useEffect(() => {
+    if (canAccessAdminCenter) {
+      setAppMode('workspace');
+    }
+  }, [canAccessAdminCenter, setAppMode]);
 
   useEffect(() => {
     let active = true;

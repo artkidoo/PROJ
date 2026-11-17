@@ -14,9 +14,13 @@ service cloud.firestore {
     function isWorkspaceAccountActive() {
       return isSignedIn() &&
         (!exists(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)) ||
-          !get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.keys().hasAny(['status']) ||
-          !(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.status is string) ||
-          !(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.status.trim().lower() in ['suspended', 'revoked', 'disabled']));
+          !get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.keys().hasAny(['status', 'Status']) ||
+          ((!get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.keys().hasAny(['status']) ||
+            !(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.status is string) ||
+            !(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.status.trim().lower() in ['suspended', 'revoked', 'disabled'])) &&
+           (!get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.keys().hasAny(['Status']) ||
+            !(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.Status is string) ||
+            !(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.Status.trim().lower() in ['suspended', 'revoked', 'disabled']))));
     }
 
     function isWorkspaceOpen(workspaceId) {
@@ -43,9 +47,12 @@ service cloud.firestore {
     }
 
     function hasPlatformAdminRole(adminData) {
-      return adminData.keys().hasAny(['role']) &&
+      return (adminData.keys().hasAny(['role']) &&
         adminData.role is string &&
-        adminData.role.trim().lower() in ['platformadmin', 'platform admin', 'superadmin', 'super admin'];
+        adminData.role.trim().lower() in ['platformadmin', 'platform admin', 'superadmin', 'super admin']) ||
+        (adminData.keys().hasAny(['Role']) &&
+        adminData.Role is string &&
+        adminData.Role.trim().lower() in ['platformadmin', 'platform admin', 'superadmin', 'super admin']);
     }
 
     function isAdminRecordActive(adminData) {
@@ -53,17 +60,21 @@ service cloud.firestore {
         (!adminData.keys().hasAny(['status']) ||
           !(adminData.status is string) ||
           !(adminData.status.trim().lower() in ['suspended', 'revoked', 'inactive', 'disabled'])) &&
+        (!adminData.keys().hasAny(['Status']) ||
+          !(adminData.Status is string) ||
+          !(adminData.Status.trim().lower() in ['suspended', 'revoked', 'inactive', 'disabled'])) &&
         (!adminData.keys().hasAny(['revoked']) || adminData.revoked != true) &&
         (!adminData.keys().hasAny(['suspended']) || adminData.suspended != true) &&
-        (!adminData.keys().hasAny(['active']) || adminData.active != false);
+        (!adminData.keys().hasAny(['active']) || adminData.active != false) &&
+        (!adminData.keys().hasAny(['Active']) || adminData.Active != false);
     }
 
     // Platform Level Admin check (verified against active database document & non-suspended account)
     function isPlatformAdmin() {
       return isSignedIn() &&
-        isWorkspaceAccountActive() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-        isAdminRecordActive(get(/databases/$(database)/documents/admins/$(request.auth.uid)).data);
+        isAdminRecordActive(get(/databases/$(database)/documents/admins/$(request.auth.uid)).data) &&
+        isWorkspaceAccountActive();
     }
 
     // Verified Workspace Ownership (Fail-safe existence check)
@@ -305,15 +316,19 @@ service cloud.firestore {
 
       // Prevent users from self-assigning privileged roles or admin status upon creation
       // Allowlist of permitted fields for client-created profiles
-      allow create: if isOwner(userId) &&
+      allow create: if isPlatformAdmin() || (
+        isOwner(userId) &&
         request.resource.data.uid == userId &&
         (!request.resource.data.keys().hasAny(['role', 'isAdmin', 'isPlatformAdmin'])) &&
-        request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'createdAt', 'updatedAt']);
+        request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'createdAt', 'updatedAt'])
+      );
 
       // Prevent users from modifying their own privileged roles, admin status, or immutable identity fields
-      allow update: if isOwner(userId) &&
+      allow update: if isPlatformAdmin() || (
+        isOwner(userId) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isPlatformAdmin', 'uid', 'email', 'createdAt'])) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'updatedAt']);
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'updatedAt'])
+      );
 
       allow delete: if isPlatformAdmin();
     }
