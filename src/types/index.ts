@@ -34,7 +34,11 @@ export type AppModule =
   | 'blogger'
   | 'assets'
   | 'operations'
-  | 'export';
+  | 'export'
+  | 'profile'
+  | 'projects'
+  | 'deliverables'
+  | 'updates';
 
 /**
  * KEEDOHUB â€” Platform Foundation Types

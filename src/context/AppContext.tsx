@@ -273,12 +273,9 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [appMode, setAppMode] = useState<AppMode>(() => {
-    try {
-      const saved = localStorage.getItem('keedohub_app_mode');
-      return (saved === 'workspace' || saved === 'client') ? (saved as AppMode) : 'public';
-    } catch {
-      return 'public';
-    }
+    // Mode is derived from the authenticated account and Firebase rules, never from
+    // localStorage, so returning users always land on the correct experience.
+    return 'public';
   });
   const appModeRef = useRef<AppMode>(appMode);
   useEffect(() => {
@@ -288,9 +285,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const persistAppMode = (mode: AppMode) => {
     appModeRef.current = mode;
     setAppMode(mode);
-    try {
-      localStorage.setItem('keedohub_app_mode', mode);
-    } catch {}
   };
 
   const clearPublicAuthHash = () => {
@@ -302,7 +296,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const exitToPublic = () => {
-    persistAppMode('public');
+    setAppMode('public');
   };
 
   const [activeModule, setActiveModule] = useState<AppModule>('dashboard');

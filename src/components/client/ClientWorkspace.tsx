@@ -5,21 +5,32 @@ import {
   onSnapshot,
   query,
   setDoc,
+  updateDoc,
   where,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { CheckCircle2 } from 'lucide-react';
-import { ClientProfile, ClientProject, ProductionActivity, ProductionDeliverable, ProductionNotification, ProductionRevisionRequest, ProductionTask, RequestAttachment, Workspace } from '../../types';
+import { deleteObject, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
+import { CheckCircle2, Image, Upload, X, User, ShieldCheck } from 'lucide-react';
+import {
+  ClientProfile,
+  ClientProject,
+  ProductionActivity,
+  ProductionDeliverable,
+  ProductionNotification,
+  ProductionRevisionRequest,
+  ProductionTask,
+  RequestAttachment,
+  Workspace,
+} from '../../types';
 import { useApp } from '../../context/AppContext';
 import { db, functions, storage } from '../../lib/firebase';
-import { createClientWorkspaceData, ensureClientWorkspace, resolveClientProjectWorkspaceId } from '../../lib/clientWorkspace';
+import { ensureClientWorkspace, resolveClientProjectWorkspaceId } from '../../lib/clientWorkspace';
 import { UNIFIED_PRODUCTION_CATEGORIES } from '../../lib/productionCategories';
 import { ClientStudio, ClientStudioSection } from './ClientStudio';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { ClientOnboarding } from './ClientOnboarding';
 
-type ClientTab = 'projects' | 'deliverables' | 'updates' | ClientStudioSection;
+type ClientTab = 'projects' | 'deliverables' | 'updates' | ClientStudioSection | 'profile';
 
 const STAGE_ORDER = [
   'New Request',
@@ -37,6 +48,9 @@ function messageFromError(error: unknown): string {
   return String(error);
 }
 
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
+
 export const ClientWorkspace: React.FC = () => {
   const {
     firebaseUser,
@@ -50,13 +64,8 @@ export const ClientWorkspace: React.FC = () => {
   } = useApp();
   const [activeTab, setActiveTab] = useState<ClientTab>('projects');
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState('');
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [workspaceError, setWorkspaceError] = useState('');
-  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
-  const [newWorkspaceName, setNewWorkspaceName] = useState('');
-  const [newWorkspaceType, setNewWorkspaceType] = useState<'Artist' | 'Brand'>('Artist');
-  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [projects, setProjects] = useState<ClientProject[]>([]);
   const [tasks, setTasks] = useState<ProductionTask[]>([]);
   const [deliverables, setDeliverables] = useState<ProductionDeliverable[]>([]);
@@ -83,6 +92,14 @@ export const ClientWorkspace: React.FC = () => {
   const [profileState, setProfileState] = useState<'loading' | 'required' | 'complete' | 'error'>('loading');
   const [profileError, setProfileError] = useState('');
   const [profileCheck, setProfileCheck] = useState(0);
+
+  // Personal profile (My Profile & Settings) state
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState('');
+  const [uploadingProfileImage, setUploadingProfileImage] = useState(false);
+  const [profileImageError, setProfileImageError] = useState('');
+  const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
+
 
   useEffect(() => {
     if (canAccessAdminCenter) {
@@ -113,8 +130,7 @@ export const ClientWorkspace: React.FC = () => {
 
     if (!contextClientProfile || contextClientProfile.onboardingComplete !== true) {
       setClientProfile(null);
-      setWorkspaces([]);
-      setActiveWorkspaceId('');
+      setActiveWorkspace(null);
       setProjects([]);
       setTasks([]);
       setDeliverables([]);
@@ -136,12 +152,12 @@ export const ClientWorkspace: React.FC = () => {
     setProfileError('');
     setClientProfile(contextClientProfile);
     void ensureClientWorkspace(firebaseUser.uid)
-      .then(workspace => {
+      .then((workspace: Workspace) => {
         if (!active) return;
         setClientProfile({ ...contextClientProfile, workspaceId: workspace.id });
         setProfileState('complete');
       })
-      .catch(workspaceErr => {
+      .catch((workspaceErr: Error) => {
         if (!active) return;
         setProfileError(messageFromError(workspaceErr));
         setProfileState('error');
@@ -150,50 +166,49 @@ export const ClientWorkspace: React.FC = () => {
     return () => { active = false; };
   }, [firebaseUser, contextClientProfile, isClientProfileLoading, clientProfileError, profileCheck]);
 
+  // Load the single primary workspace for this account.
   useEffect(() => {
-    if (!firebaseUser || profileState !== 'complete') return;
+    if (!firebaseUser || profileState !== 'complete' || !clientProfile?.workspaceId) {
+      setActiveWorkspace(null);
+      setWorkspaceError('');
+      return;
+    }
     setWorkspaceError('');
-    return onSnapshot(
-      query(
-        collection(db, 'workspaces'),
-        where('ownerId', '==', firebaseUser.uid),
-        where('status', 'in', ['Active', 'Onboarding']),
-      ),
+    const workspaceRef = doc(db, 'workspaces', clientProfile.workspaceId);
+    const unsub = onSnapshot(
+      workspaceRef,
       snapshot => {
-        const owned = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Workspace));
-        setWorkspaces(owned);
-        const available = owned.filter(workspace => !workspace.status || ['Active', 'Onboarding'].includes(workspace.status));
-        setActiveWorkspaceId(current => {
-          if (available.some(workspace => workspace.id === current)) return current;
-          if (clientProfile?.workspaceId && available.some(workspace => workspace.id === clientProfile.workspaceId)) return clientProfile.workspaceId;
-          return available[0]?.id || '';
-        });
+        if (!snapshot.exists()) {
+          setActiveWorkspace(null);
+          setWorkspaceError('Your workspace could not be found. Contact KeedoHub support.');
+          return;
+        }
+        const data = snapshot.data() as Workspace;
+        if (data.ownerId !== firebaseUser.uid) {
+          setActiveWorkspace(null);
+          setWorkspaceError('You do not own this workspace. Contact KeedoHub support.');
+          return;
+        }
+        setActiveWorkspace({ ...data, id: snapshot.id } as Workspace);
       },
       err => setWorkspaceError(messageFromError(err)),
     );
+    return () => unsub();
   }, [firebaseUser, profileState, clientProfile?.workspaceId]);
 
+  // Load projects, tasks, deliverables, revisions, activity for the single workspace.
   useEffect(() => {
-    setProjects([]);
-    setTasks([]);
-    setDeliverables([]);
-    setRevisions([]);
-    setActivity([]);
+    setError('');
+    let cancelled = false;
+    let activeProjectsUnsub: (() => void) | undefined;
+    let childUnsubscribers: (() => void)[] = [];
+
     if (!firebaseUser) {
       setLoading(false);
       setError('Sign in to view your client workspace.');
       return;
     }
-    if (!activeWorkspaceId) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    let cancelled = false;
-    let activeProjectsUnsub: (() => void) | undefined;
-    let childUnsubscribers: (() => void)[] = [];
+    const uid = firebaseUser.uid;
 
     const handleProjectsSnapshot = (docs: Array<{ id: string; data: () => Record<string, any> }>) => {
       if (cancelled) return;
@@ -214,7 +229,7 @@ export const ClientWorkspace: React.FC = () => {
       setRevisions([]);
       setActivity([]);
 
-      const scopedProjects = clientProjects.filter(project => project.workspaceId === activeWorkspaceId);
+      const scopedProjects = clientProjects.filter(project => project.workspaceId === activeWorkspace?.id);
       if (scopedProjects.length === 0) {
         setLoading(false);
         return;
@@ -232,7 +247,7 @@ export const ClientWorkspace: React.FC = () => {
         childUnsubscribers.push(
           onSnapshot(query(collection(projectRef, 'tasks'),
             where('clientVisible', '==', true),
-            where('clientUid', '==', firebaseUser.uid),
+            where('clientUid', '==', uid),
             where('projectId', '==', project.id)), snapshot => {
             const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionTask));
             setTasks(previous => [...previous.filter(task => task.projectId !== project.id), ...rows]);
@@ -240,14 +255,14 @@ export const ClientWorkspace: React.FC = () => {
           }, err => { setError(messageFromError(err)); setLoading(false); }),
           onSnapshot(query(collection(projectRef, 'deliverables'),
             where('isClientPublished', '==', true),
-            where('clientUid', '==', firebaseUser.uid),
+            where('clientUid', '==', uid),
             where('projectId', '==', project.id)), snapshot => {
             const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionDeliverable));
             setDeliverables(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
             finishInitialLoad(`${project.id}:deliverables`);
           }, err => { setError(messageFromError(err)); setLoading(false); }),
           onSnapshot(query(collection(projectRef, 'revisionRequests'),
-            where('clientUid', '==', firebaseUser.uid),
+            where('clientUid', '==', uid),
             where('projectId', '==', project.id)), snapshot => {
             const rows = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as ProductionRevisionRequest));
             setRevisions(previous => [...previous.filter(item => item.projectId !== project.id), ...rows]);
@@ -268,74 +283,29 @@ export const ClientWorkspace: React.FC = () => {
       return onSnapshot(
         query(
           collection(db, 'clientProjects'),
-          where('clientUid', '==', firebaseUser.uid),
-          where('workspaceId', '==', activeWorkspaceId),
+          where('clientUid', '==', uid),
+          where('workspaceId', '==', activeWorkspace?.id),
         ),
         snapshot => handleProjectsSnapshot(snapshot.docs),
         err => { setError(messageFromError(err)); setLoading(false); },
       );
     };
 
-    // For the primary workspace, query by clientUid so legacy projects without `workspaceId` remain visible
-    // per firestore.rules ownsProject(). If another owned workspace is paused/archived, fall back to scoped query.
-    const isPrimaryWorkspace = Boolean(clientProfile?.workspaceId && activeWorkspaceId === clientProfile.workspaceId);
-    if (isPrimaryWorkspace) {
-      activeProjectsUnsub = onSnapshot(
-        query(collection(db, 'clientProjects'), where('clientUid', '==', firebaseUser.uid)),
-        snapshot => handleProjectsSnapshot(snapshot.docs),
-        err => {
-          const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : '';
-          if (code === 'permission-denied' && !cancelled) {
-            activeProjectsUnsub?.();
-            activeProjectsUnsub = subscribeScopedProjects();
-            return;
-          }
-          setError(messageFromError(err));
-          setLoading(false);
-        },
-      );
-    } else {
-      activeProjectsUnsub = subscribeScopedProjects();
-    }
+    activeProjectsUnsub = subscribeScopedProjects();
 
     return () => {
       cancelled = true;
       activeProjectsUnsub?.();
       childUnsubscribers.forEach(unsubscribe => unsubscribe());
     };
-  }, [firebaseUser, clientProfile?.workspaceId, activeWorkspaceId]);
+  }, [firebaseUser, clientProfile?.workspaceId, activeWorkspace]);
 
-  const activeWorkspace = workspaces.find(workspace => workspace.id === activeWorkspaceId &&
-    (!workspace.status || ['Active', 'Onboarding'].includes(workspace.status)));
-
-  const createWorkspace = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!firebaseUser || !clientProfile || !newWorkspaceName.trim()) return;
-    setCreatingWorkspace(true);
-    setWorkspaceError('');
-    const workspaceRef = doc(collection(db, 'workspaces'));
-    const profileForWorkspace: ClientProfile = {
-      ...clientProfile,
-      accountType: newWorkspaceType,
-      organizationName: newWorkspaceName.trim(),
-    };
-    const workspace = createClientWorkspaceData(firebaseUser.uid, profileForWorkspace, workspaceRef.id);
-    try {
-      await setDoc(workspaceRef, workspace);
-      setActiveWorkspaceId(workspaceRef.id);
-      setActiveTab(newWorkspaceType === 'Artist' ? 'profile' : 'brand');
-      setNewWorkspaceName('');
-      setCreateWorkspaceOpen(false);
-    } catch (createError) {
-      setWorkspaceError(messageFromError(createError));
-    } finally {
-      setCreatingWorkspace(false);
-    }
-  };
+  const isArtistAccount = clientProfile?.accountType === 'Artist';
+  const isBrandAccount = clientProfile?.accountType === 'Brand';
 
   const workspaceProjects = useMemo(
-    () => projects.filter(project => project.workspaceId === activeWorkspaceId),
-    [projects, activeWorkspaceId],
+    () => projects.filter(project => project.workspaceId === activeWorkspace?.id),
+    [projects, activeWorkspace],
   );
   const workspaceProjectIds = useMemo(() => new Set(workspaceProjects.map(project => project.id)), [workspaceProjects]);
   const workspaceDeliverables = useMemo(
@@ -501,10 +471,9 @@ export const ClientWorkspace: React.FC = () => {
   const handleSelectNotification = (notification: ProductionNotification) => {
     if (notification.projectId) {
       const targetProject = projects.find(p => p.id === notification.projectId);
-      if (targetProject && targetProject.workspaceId && targetProject.workspaceId !== activeWorkspaceId) {
-        if (workspaces.some(w => w.id === targetProject.workspaceId)) {
-          setActiveWorkspaceId(targetProject.workspaceId);
-        }
+      if (targetProject && targetProject.workspaceId && activeWorkspace && targetProject.workspaceId !== activeWorkspace.id) {
+        // Single workspace: notify user the project belongs to their workspace
+        setActiveTab('projects');
       }
     }
     const type = (notification.type || '').toLowerCase();
@@ -532,21 +501,18 @@ export const ClientWorkspace: React.FC = () => {
     }
   };
 
-  const isArtistWorkspace = activeWorkspace?.clientCategory === 'artist' || activeWorkspace?.type === 'Artist' || activeWorkspace?.type === 'Personal';
-  const isBrandWorkspace = activeWorkspace?.clientCategory === 'brand' || activeWorkspace?.type === 'Brand' || activeWorkspace?.type === 'Agency' || activeWorkspace?.clientCategory === 'business' || activeWorkspace?.type === 'Business' || activeWorkspace?.type === 'Enterprise';
   const tabs: { id: ClientTab; title: string }[] = [
     { id: 'projects', title: 'My projects' },
     { id: 'deliverables', title: 'Deliverables' },
     { id: 'updates', title: 'Updates & revisions' },
-    { id: 'invoices', title: 'Invoices & Payments' },
-    { id: 'proposals', title: 'Proposals & Quotations' },
-    ...(isArtistWorkspace ? [
-      { id: 'profile' as const, title: 'Artist profile' },
+    { id: 'profile', title: 'My Profile & Settings' },
+    ...(isArtistAccount ? [
+      { id: 'profile' as ClientStudioSection, title: 'Artist profile' },
       { id: 'releases' as const, title: 'Music & releases' },
       { id: 'content' as const, title: 'Content engine' },
       { id: 'assets' as const, title: 'Asset library' },
     ] : []),
-    ...(isBrandWorkspace ? [
+    ...(isBrandAccount ? [
       { id: 'brand' as const, title: 'Brand identity' },
       { id: 'content' as const, title: 'Creative system' },
       { id: 'documents' as const, title: 'Business documents' },
@@ -603,9 +569,7 @@ export const ClientWorkspace: React.FC = () => {
         <div className="w-full max-w-lg space-y-3 rounded border border-[#292929] bg-[#0C0C0C] p-6 text-sm text-neutral-300">
           {workspaceError
             ? <p role="alert" className="text-red-300">{workspaceError}</p>
-            : workspaces.some(workspace => workspace.status && !['Active', 'Onboarding'].includes(workspace.status))
-              ? <p>Your workspace is paused or archived. Contact KeedoHub support to restore access.</p>
-              : <p>Loading your private workspace…</p>}
+            : <p>Loading your private workspace…</p>}
           {workspaceError && (
             <button
               type="button"
@@ -628,31 +592,24 @@ export const ClientWorkspace: React.FC = () => {
         <div className="flex min-w-0 items-center gap-3">
           <div className="shrink-0"><span className="font-black tracking-tight text-white">KEEDO<span className="text-[#FF1E1E]">HUB</span></span><span className="ml-3 hidden text-[10px] font-mono tracking-widest text-neutral-500 sm:inline">UNIFIED WORKSPACE</span></div>
           <label className="flex min-w-0 items-center gap-2">
-            <span className="hidden text-[10px] uppercase tracking-widest text-neutral-600 md:inline">Workspace</span>
-            <select aria-label="Switch workspace" value={activeWorkspaceId} onChange={event => {
-              const nextWorkspace = workspaces.find(workspace => workspace.id === event.target.value);
-              setActiveWorkspaceId(event.target.value);
-              if (nextWorkspace?.clientCategory === 'artist' || nextWorkspace?.type === 'Artist' || nextWorkspace?.type === 'Personal') setActiveTab('profile');
-              else if (nextWorkspace?.clientCategory === 'brand' || nextWorkspace?.clientCategory === 'business' || nextWorkspace?.type === 'Brand' || nextWorkspace?.type === 'Agency' || nextWorkspace?.type === 'Business' || nextWorkspace?.type === 'Enterprise') setActiveTab('brand');
-              else setActiveTab('projects');
-            }} className="max-w-[42vw] truncate rounded border border-[#292929] bg-[#121212] px-3 py-2 text-xs font-semibold text-white sm:max-w-56">
-              {workspaces.filter(workspace => !workspace.status || ['Active', 'Onboarding'].includes(workspace.status)).map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.clientCategory || workspace.type}</option>)}
-            </select>
-            <button type="button" onClick={() => { setNewWorkspaceType(isArtistWorkspace ? 'Brand' : 'Artist'); setCreateWorkspaceOpen(true); }} className="rounded border border-[#303030] px-2.5 py-2 text-xs text-neutral-300 hover:border-[#FF1E1E] hover:text-white">+ Workspace</button>
+            <span className="hidden text-[10px] uppercase tracking-widest text-neutral-600 md:inline">Account</span>
+            <span className="max-w-[42vw] truncate rounded border border-[#292929] bg-[#121212] px-3 py-2 text-xs font-semibold text-white sm:max-w-56">
+              {clientProfile?.displayName || clientProfile?.email || 'Account'}
+            </span>
           </label>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <span className="hidden max-w-36 truncate text-xs text-neutral-400 lg:inline">{firebaseUser?.displayName || firebaseUser?.email}</span>
-          {firebaseUser && <ProductionNotificationCenter uid={firebaseUser.uid} onSelectNotification={handleSelectNotification} />}
+          {firebaseUser && <ProductionNotificationCenter uid={firebaseUser?.uid} onSelectNotification={handleSelectNotification} />}
           <button onClick={() => { setRequestSuccessSummary(null); setRequestOpen(true); }} className="rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white hover:bg-red-600 transition-colors">New request</button>
           <button onClick={() => void logout()} className="rounded border border-[#292929] bg-[#141414] px-3 py-2 text-xs text-white">Sign out</button>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-8">
-        <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">{activeWorkspace.type} OS</p>
-        <h1 className="mt-2 text-2xl font-black text-white">{activeWorkspace.name}</h1>
-        <p className="mt-1 text-sm text-neutral-400">{isArtistWorkspace ? 'Your music, story and creative work in one artist workspace.' : isBrandWorkspace ? 'Your identity, creative system and production work in one brand workspace.' : 'Project progress, deliverables and your workspace tools.'}</p>
+        <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">{activeWorkspace?.type} OS</p>
+        <h1 className="mt-2 text-2xl font-black text-white">{activeWorkspace?.name}</h1>
+        <p className="mt-1 text-sm text-neutral-400">{isArtistAccount ? 'Your music, story and creative work in one artist workspace.' : isBrandAccount ? 'Your identity, creative system and production work in one brand workspace.' : 'Project progress, deliverables and your workspace tools.'}</p>
         {workspaceError && <div role="alert" className="mt-4 rounded border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-300">{workspaceError}</div>}
         <nav aria-label="Workspace navigation" className="my-6 flex gap-2 overflow-x-auto border-b border-[#1A1A1A] pb-3">
           {tabs.map(tab => <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`shrink-0 rounded px-3 py-2 text-sm ${activeTab === tab.id ? 'bg-white font-semibold text-black' : 'text-neutral-400 hover:bg-[#141414] hover:text-white'}`}>{tab.title}</button>)}
@@ -1136,20 +1093,6 @@ export const ClientWorkspace: React.FC = () => {
               <button disabled={requestSubmitting} className="w-full rounded bg-[#FF1E1E] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{requestSubmitting ? 'Submitting…' : 'Submit request'}</button>
             </form>
           )}
-        </div>
-      )}
-      {createWorkspaceOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <form onSubmit={createWorkspace} className="w-full max-w-md space-y-4 rounded-xl border border-[#292929] bg-[#0C0C0C] p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-3">
-              <div><p className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#FF1E1E]">One KeedoHub workspace</p><h2 className="mt-1 text-lg font-bold text-white">Add an Artist or Brand space</h2><p className="mt-1 text-xs text-neutral-400">Each space has its own private profile, creative library and working files.</p></div>
-              <button type="button" onClick={() => setCreateWorkspaceOpen(false)} aria-label="Close" className="text-neutral-500 hover:text-white">×</button>
-            </div>
-            <label className="block text-xs text-neutral-400">Workspace name<input autoFocus required maxLength={100} value={newWorkspaceName} onChange={event => setNewWorkspaceName(event.target.value)} placeholder="Artist or brand name" className="mt-1.5 w-full rounded border border-[#333] bg-[#141414] px-3 py-2.5 text-sm text-white" /></label>
-            <label className="block text-xs text-neutral-400">Experience<select value={newWorkspaceType} onChange={event => setNewWorkspaceType(event.target.value as 'Artist' | 'Brand')} className="mt-1.5 w-full rounded border border-[#333] bg-[#141414] px-3 py-2.5 text-sm text-white"><option value="Artist">Artist OS</option><option value="Brand">Brand OS</option></select></label>
-            {workspaceError && <p role="alert" className="text-xs text-red-300">{workspaceError}</p>}
-            <button disabled={creatingWorkspace} className="w-full rounded bg-[#FF1E1E] px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{creatingWorkspace ? 'Creating workspace…' : 'Create workspace'}</button>
-          </form>
         </div>
       )}
     </div>

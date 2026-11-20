@@ -71,15 +71,16 @@ interface NavGroup {
   items: NavItem[];
 }
 
+// Admin HQ is structured into 6 primary areas. Each area owns its section pages.
 const ADMIN_HQ_NAV: NavGroup[] = [
   {
-    group: 'Overview',
+    group: 'Dashboard',
     items: [
       { id: 'hq-overview', label: 'HQ Overview', icon: LayoutDashboard, implemented: true },
     ],
   },
   {
-    group: 'Platform',
+    group: 'Clients',
     items: [
       { id: 'clients-accounts', label: 'Clients & Accounts', icon: Users, implemented: true },
       { id: 'workspaces', label: 'Workspaces', icon: Building2, implemented: true },
@@ -87,12 +88,17 @@ const ADMIN_HQ_NAV: NavGroup[] = [
     ],
   },
   {
-    group: 'Creative Operations',
+    group: 'Production',
     items: [
       { id: 'production-studio', label: 'Production Studio', icon: Clapperboard, implemented: true },
       { id: 'projects', label: 'Projects', icon: FolderKanban, implemented: true },
       { id: 'deliverables-reviews', label: 'Deliverables & Reviews', icon: FileCheck2, implemented: true },
       { id: 'creative-requests', label: 'Creative Requests', icon: Inbox, implemented: true },
+    ],
+  },
+  {
+    group: 'Creative Library',
+    items: [
       { id: 'design-library', label: 'Design & Templates', icon: Layers, implemented: true },
     ],
   },
@@ -105,7 +111,7 @@ const ADMIN_HQ_NAV: NavGroup[] = [
     ],
   },
   {
-    group: 'Administration',
+    group: 'Settings',
     items: [
       { id: 'admin-management', label: 'Administrator Management', icon: ShieldCheck, implemented: true },
       { id: 'security-access', label: 'Security & Access', icon: Lock, implemented: true },
@@ -118,47 +124,47 @@ const ADMIN_HQ_NAV: NavGroup[] = [
 const SECTION_DESCRIPTIONS: Record<AdminHQSection, { title: string; group: string; subtitle: string }> = {
   'hq-overview': {
     title: 'HQ Overview',
-    group: 'Overview',
+    group: 'Dashboard',
     subtitle: 'Live platform metrics, production queues, and recent administrative activity.',
   },
   'clients-accounts': {
     title: 'Clients & Accounts',
-    group: 'Platform',
+    group: 'Clients',
     subtitle: 'Registered client profiles, onboarding status, profile updates, and account suspension controls.',
   },
   workspaces: {
     title: 'Workspaces',
-    group: 'Platform',
+    group: 'Clients',
     subtitle: 'Unified Artist and Brand workspaces, ownership and membership inspection, lifecycle statuses, and contracted services.',
   },
   'services-packages': {
     title: 'Services & Packages',
-    group: 'Platform',
+    group: 'Clients',
     subtitle: 'Service catalog packages, tiers, turnaround timelines, and active availability.',
   },
   'production-studio': {
     title: 'Production Studio',
-    group: 'Creative Operations',
+    group: 'Production',
     subtitle: 'Full creative production environment covering requests, deliverables, tasks, and notes.',
   },
   projects: {
     title: 'Projects',
-    group: 'Creative Operations',
+    group: 'Production',
     subtitle: 'Production project directory, assignments, tasks, internal notes, and stage progression.',
   },
   'deliverables-reviews': {
     title: 'Deliverables & Reviews',
-    group: 'Creative Operations',
+    group: 'Production',
     subtitle: 'Cross-project deliverable review queue and client revision requests.',
   },
   'creative-requests': {
     title: 'Creative Requests',
-    group: 'Creative Operations',
+    group: 'Production',
     subtitle: 'Incoming client creative briefs and public service enquiries awaiting review.',
   },
   'design-library': {
     title: 'Design & Templates',
-    group: 'Creative Operations',
+    group: 'Creative Library',
     subtitle: 'Internal template catalog, structured design specifications, and workspace assets ready to stage into project deliverables.',
   },
   'invoices-payments': {
@@ -178,22 +184,22 @@ const SECTION_DESCRIPTIONS: Record<AdminHQSection, { title: string; group: strin
   },
   'admin-management': {
     title: 'Administrator Management',
-    group: 'Administration',
+    group: 'Settings',
     subtitle: 'Manage platform administrator role grants and revocations via audited Cloud Functions.',
   },
   'security-access': {
     title: 'Security & Access',
-    group: 'Administration',
+    group: 'Settings',
     subtitle: 'Role-based access control architecture and active Firestore enforcement summary.',
   },
   'audit-history': {
     title: 'Audit History',
-    group: 'Administration',
+    group: 'Settings',
     subtitle: 'Server-recorded administrative audit trail across roles, clients, services, and requests.',
   },
   'platform-settings': {
     title: 'Platform Settings',
-    group: 'Administration',
+    group: 'Settings',
     subtitle: 'Protected platform defaults, operational toggles, and internal webhook configuration.',
   },
 };
