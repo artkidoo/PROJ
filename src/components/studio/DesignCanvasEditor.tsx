@@ -39,6 +39,7 @@ import {
   Upload, 
   Share2, 
   FolderDown, 
+  FolderKanban,
   Sparkles,
   X,
   FileCode,
@@ -78,13 +79,21 @@ import { LineArtRenderer, getLineArtSvgString } from '../common/LineArtRenderer'
 interface DesignCanvasEditorProps {
   initialDesign: CanvasDesign;
   onSaveDesign?: (design: CanvasDesign) => void;
+  onSaveAsDeliverable?: (blob: Blob, design: CanvasDesign, format: string) => Promise<void> | void;
+  onSaveAsWorkingAsset?: (blob: Blob, design: CanvasDesign) => Promise<void> | void;
+  saveAssetLabel?: string;
   onClose?: () => void;
+  targetProjectTitle?: string;
 }
 
 export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
   initialDesign,
   onSaveDesign,
-  onClose
+  onSaveAsDeliverable,
+  onSaveAsWorkingAsset,
+  saveAssetLabel,
+  onClose,
+  targetProjectTitle
 }) => {
   const { activeWorkspace } = useApp();
 
@@ -559,15 +568,32 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
       return;
     }
 
+    const blob = await renderDesignToBlob(format);
+    if (!blob) {
+      setIsExporting(false);
+      return;
+    }
+
+    const dataUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `keedohub_${design.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${width}x${height}.${format}`;
+    a.click();
+    URL.revokeObjectURL(dataUrl);
+    setIsExporting(false);
+    showToast(`High-Resolution ${format.toUpperCase()} (${width} × ${height}) exported`);
+  };
+
+  const renderDesignToBlob = async (format: 'png' | 'jpeg'): Promise<Blob | null> => {
+    const width = design.width;
+    const height = design.height;
+
     // High-Resolution HTML5 Canvas Rendering for PNG & JPEG
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      setIsExporting(false);
-      return;
-    }
+    if (!ctx) return null;
 
     // 1. Fill Background
     ctx.fillStyle = design.backgroundColor;
@@ -711,30 +737,57 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
     const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
     const quality = format === 'jpeg' ? 0.95 : 1.0;
     const dataUrl = canvas.toDataURL(mime, quality);
+    const resp = await fetch(dataUrl);
+    return await resp.blob();
+  };
 
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `lyrical_ent_${design.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${width}x${height}.${format}`;
-    a.click();
-    setIsExporting(false);
-    showToast(`High-Resolution ${format.toUpperCase()} (${width} × ${height}) exported`);
+  const handleStageDeliverable = async () => {
+    if (!onSaveAsDeliverable) return;
+    setIsExporting(true);
+    try {
+      const blob = await renderDesignToBlob('png');
+      if (blob) {
+        await onSaveAsDeliverable(blob, design, 'png');
+        showToast(`Staged "${design.name}" as project deliverable (Internal Draft)`);
+      }
+    } catch {
+      showToast('Error staging deliverable to project');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleStageWorkingAsset = async () => {
+    if (!onSaveAsWorkingAsset) return;
+    setIsExporting(true);
+    try {
+      const blob = await renderDesignToBlob('png');
+      if (blob) {
+        await onSaveAsWorkingAsset(blob, design);
+        showToast(saveAssetLabel ? `Saved "${design.name}" to workspace library` : `Saved "${design.name}" to working assets`);
+      }
+    } catch {
+      showToast('Error saving asset to library');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // Safe Persistence with Quota Exception Handling
   const handleSaveToLocalStorage = () => {
+    if (onSaveDesign) onSaveDesign(design);
     try {
       const savedRaw = localStorage.getItem('lyrical_ent_saved_designs');
       const savedList: CanvasDesign[] = savedRaw ? JSON.parse(savedRaw) : [];
       const filtered = savedList.filter(d => d.id !== design.id);
       filtered.unshift(design);
       localStorage.setItem('lyrical_ent_saved_designs', JSON.stringify(filtered));
-      if (onSaveDesign) onSaveDesign(design);
-      showToast(`Saved "${design.name}" to local workspace`);
+      showToast(onSaveDesign ? `Saved "${design.name}"` : `Saved "${design.name}" to local workspace`);
     } catch (err: any) {
       if (err?.name === 'QuotaExceededError' || err?.code === 22) {
-        showToast('Storage quota exceeded. Consider exporting the design or clearing old drafts.');
+        showToast(onSaveDesign ? `Saved "${design.name}" to cloud (local quota full)` : 'Storage quota exceeded. Consider exporting the design or clearing old drafts.');
       } else {
-        showToast('Error saving design to localStorage');
+        showToast(onSaveDesign ? `Saved "${design.name}"` : 'Error saving design to localStorage');
       }
     }
   };
@@ -829,11 +882,29 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
             <span className="text-[10px] font-mono bg-[#1E1E1E] text-neutral-400 px-1.5 py-0.5 rounded shrink-0 hidden sm:inline">
               {design.aspectRatio} · {design.width}×{design.height}
             </span>
+            {targetProjectTitle && (
+              <span className="text-[10px] font-mono bg-amber-950/40 text-amber-300 border border-amber-900/50 px-2 py-0.5 rounded shrink-0 hidden md:inline truncate max-w-xs">
+                Project: {targetProjectTitle}
+              </span>
+            )}
           </div>
         </div>
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Stage Deliverable Quick Action */}
+          {onSaveAsDeliverable && (
+            <button
+              onClick={handleStageDeliverable}
+              disabled={isExporting}
+              className="px-3 py-1.5 bg-[#FF1E1E] hover:bg-red-600 text-white font-mono font-bold text-xs rounded transition-colors flex items-center gap-1.5 shadow"
+              title="Stage directly into project deliverables for Internal QA"
+            >
+              <FolderKanban size={13} strokeWidth={2.5} />
+              <span>Stage Deliverable</span>
+            </button>
+          )}
+
           {/* Undo / Redo */}
           <button
             onClick={handleUndo}
@@ -851,6 +922,19 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
           >
             <Redo2 size={13} />
           </button>
+
+          {/* Quick Save to Library when not in Deliverable-staging mode */}
+          {onSaveAsWorkingAsset && !onSaveAsDeliverable && (
+            <button
+              onClick={handleStageWorkingAsset}
+              disabled={isExporting}
+              className="px-3 py-1.5 bg-[#FF1E1E] hover:bg-red-600 text-white font-mono font-bold text-xs rounded transition-colors flex items-center gap-1.5 shadow disabled:opacity-50"
+              title={saveAssetLabel || 'Save rendered artwork to library'}
+            >
+              <FolderDown size={13} strokeWidth={2.5} />
+              <span>{saveAssetLabel || 'Save Asset'}</span>
+            </button>
+          )}
 
           {/* Save Button */}
           <button
@@ -1733,6 +1817,28 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
               </p>
 
               <div className="space-y-2 pt-2">
+                {onSaveAsDeliverable && (
+                  <button
+                    onClick={handleStageDeliverable}
+                    disabled={isExporting}
+                    className="w-full py-2.5 px-3 bg-[#FF1E1E] hover:bg-red-600 text-white font-bold uppercase rounded transition-colors flex items-center justify-center gap-2 shadow"
+                  >
+                    <FolderKanban size={13} strokeWidth={2.5} />
+                    <span>Stage into Project Deliverable (QA Draft)</span>
+                  </button>
+                )}
+
+                {onSaveAsWorkingAsset && (
+                  <button
+                    onClick={handleStageWorkingAsset}
+                    disabled={isExporting}
+                    className="w-full py-2 px-3 bg-[#181818] border border-[#333] hover:border-neutral-500 text-neutral-200 hover:text-white rounded transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Layers size={13} />
+                    <span>{saveAssetLabel || 'Save to Working Assets (Internal Library)'}</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => handleExportArtwork('png')}
                   disabled={isExporting}

@@ -23,7 +23,11 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
-import { AdminHQOverview, AdminHQOverviewTarget } from './AdminHQOverview';
+import {
+  AdminHQOverview,
+  AdminHQOverviewNavigateOptions,
+  AdminHQOverviewTarget,
+} from './AdminHQOverview';
 import {
   AdminProduction,
   AdminProductionNavigateOptions,
@@ -321,13 +325,19 @@ export const AdminHQ: React.FC = () => {
     setMobileMenuOpen(false);
   };
 
-  const handleOverviewNavigate = (target: AdminHQOverviewTarget, projectId?: string) => {
+  const handleOverviewNavigate = (
+    target: AdminHQOverviewTarget,
+    projectId?: string,
+    options?: AdminHQOverviewNavigateOptions
+  ) => {
     setSelectedProjectId(projectId || '');
-    setSelectedProjectTab(target === 'deliverables-reviews' ? 'deliverables' : 'overview');
+    setSelectedProjectTab(
+      options?.tab || (target === 'deliverables-reviews' ? 'deliverables' : 'overview')
+    );
     setProjectClientFilter('');
     setProjectWorkspaceFilter('');
-    setProjectStageFilter('All');
-    setProjectOverdueOnly(false);
+    setProjectStageFilter(options?.stageFilter || 'All');
+    setProjectOverdueOnly(Boolean(options?.overdueOnly));
     setActiveSection(target);
   };
 

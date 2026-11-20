@@ -215,7 +215,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
                   One Unified Client Workspace
                 </h2>
                 <p className="mt-2 text-xs leading-6 text-neutral-400">
-                  Whether you run an Artist OS for music releases and press or a Brand OS for visual identity and campaign systems, all your workspaces live in one private client hub.
+                  Whether you run an Artist OS for music releases and visual identity or a Brand OS for design systems and executive collateral, your entire workflow lives in one private client hub.
                 </p>
               </div>
             </div>

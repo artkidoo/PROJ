@@ -106,7 +106,7 @@ export function inferBrandAssetFileType(file: File): BrandAsset['fileType'] {
   return 'TEXT';
 }
 
-async function createDeliverableFromBlob(params: {
+export async function createDeliverableFromBlob(params: {
   project: ClientProject;
   title: string;
   description: string;
@@ -195,6 +195,70 @@ async function createDeliverableFromBlob(params: {
   });
 
   return deliverableRef.id;
+}
+
+export async function saveCanvasWorkingAssetFromBlob(params: {
+  workspaceId: string;
+  projectId?: string;
+  name: string;
+  blob: Blob;
+  mimeType?: string;
+  category?: BrandAsset['category'];
+  description?: string;
+}): Promise<BrandAsset> {
+  const {
+    workspaceId,
+    projectId,
+    name,
+    blob,
+    mimeType = 'image/png',
+    category = 'Artwork',
+    description = 'Rendered working asset saved from Design Canvas Studio.',
+  } = params;
+
+  if (!workspaceId) {
+    throw new Error('Select a workspace before saving working assets.');
+  }
+  if (blob.size <= 0 || blob.size >= MAX_PRODUCTION_ASSET_BYTES) {
+    throw new Error('Rendered asset must be larger than 0 bytes and smaller than 50 MB.');
+  }
+
+  const assetRef = doc(collection(db, 'workspaces', workspaceId, 'internalAssets'));
+  const ext = mimeType === 'image/jpeg' ? 'jpg' : 'png';
+  const safeFileName = sanitizeStorageFileName(`${name}.${ext}`, `canvas-asset.${ext}`);
+  const storagePath = `workspaces/${workspaceId}/internal/assets/${assetRef.id}/${safeFileName}`;
+
+  await uploadBytes(ref(storage, storagePath), blob, { contentType: mimeType });
+  const now = new Date().toISOString();
+  const sizeLabel =
+    blob.size < 1024
+      ? `${blob.size} B`
+      : blob.size < 1024 * 1024
+        ? `${(blob.size / 1024).toFixed(1)} KB`
+        : `${(blob.size / (1024 * 1024)).toFixed(1)} MB`;
+
+  const record: BrandAsset = {
+    id: assetRef.id,
+    workspaceId,
+    ...(projectId ? { projectId } : {}),
+    name: name.trim().slice(0, 120) || 'Studio Canvas Artwork',
+    category,
+    fileType: ext === 'jpg' ? 'JPEG' : 'PNG',
+    mimeType,
+    storagePath,
+    fileSizeBytes: blob.size,
+    fileSize: sizeLabel,
+    version: 'v1.0',
+    status: 'Draft',
+    description,
+    usageRules: 'Internal production working asset (admin-only Firestore & Storage).',
+    isVector: false,
+    isInternal: true,
+    uploadedAt: now,
+  };
+
+  await setDoc(assetRef, record);
+  return record;
 }
 
 export async function promoteBrandAssetToDeliverable(params: {

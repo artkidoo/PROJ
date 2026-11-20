@@ -8,6 +8,10 @@
     --keedohub-black: #000000;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     font-family: var(--font-sans);
     background-color: #080808;

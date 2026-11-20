@@ -34,6 +34,7 @@ import {
   Plus,
   Search,
   Send,
+  Sparkles,
   UserCheck,
   X,
 } from 'lucide-react';
@@ -52,12 +53,16 @@ import {
   Workspace,
 } from '../../types';
 import { CampaignDesign } from '../../types/campaign';
+import { CanvasDesign } from '../../types/designStudio';
 import { db, functions, storage } from '../../lib/firebase';
 import { isAdminRecordActive } from '../../lib/firebaseAuth';
 import {
+  createDeliverableFromBlob,
   isDeliverablePromotionRestrictedAsset,
   isInternalStoragePath,
   promoteBrandAssetToDeliverable,
+  sanitizeStorageFileName,
+  saveCanvasWorkingAssetFromBlob,
 } from '../../lib/productionPromotion';
 import {
   defaultCategoryForAudience,
@@ -67,6 +72,7 @@ import {
 } from '../../lib/productionCategories';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { Modal } from '../common/Modal';
+import { DesignCanvasEditor } from '../studio/DesignCanvasEditor';
 import { useApp } from '../../context/AppContext';
 import {
   importLegacyProduction,
@@ -260,6 +266,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   const [workspaceReleases, setWorkspaceReleases] = useState<MusicRelease[]>([]);
   const [workspaceDesigns, setWorkspaceDesigns] = useState<CampaignDesign[]>([]);
   const [promotingAssetId, setPromotingAssetId] = useState('');
+  const [convertingEnquiryId, setConvertingEnquiryId] = useState('');
   const [actionNotice, setActionNotice] = useState('');
 
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
@@ -267,6 +274,17 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   const [projectTab, setProjectTab] = useState<'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity'>('overview');
   const [deliverableTabFilter, setDeliverableTabFilter] = useState<'all' | 'drafts' | 'review' | 'revisions' | 'approved'>('all');
   const [saving, setSaving] = useState(false);
+
+  // In-context DesignCanvasEditor session for active project production
+  const [canvasSession, setCanvasSession] = useState<{
+    design: CanvasDesign;
+    campaignDesignId?: string;
+    templateId?: string;
+    category?: CampaignDesign['category'];
+    internalNotes?: string;
+  } | null>(null);
+  const [canvasNotice, setCanvasNotice] = useState('');
+  const [canvasError, setCanvasError] = useState('');
 
   // Filters
   const [reviewFilter, setReviewFilter] = useState<'pending' | 'approved' | 'rejected' | 'revisions'>('pending');
@@ -1293,16 +1311,26 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   };
 
   const convertEnquiry = async (enquiryId: string) => {
+    if (convertingEnquiryId) return;
+    setConvertingEnquiryId(enquiryId);
     setError('');
+    setActionNotice('');
     try {
-      const result = await httpsCallable<{ enquiryId: string }, { projectId: string }>(
+      const result = await httpsCallable<{ enquiryId: string }, { projectId: string; alreadyConverted?: boolean }>(
         functions,
         'convertServiceEnquiryToProject'
       )({ enquiryId });
       setSelectedProjectId(result.data.projectId);
       setProjectTab('overview');
+      setActionNotice(
+        result.data.alreadyConverted
+          ? 'Enquiry was already converted — opened existing linked production project.'
+          : 'Converted enquiry into a new client production project.'
+      );
     } catch (convertError) {
       setError(friendlyError(convertError));
+    } finally {
+      setConvertingEnquiryId('');
     }
   };
 
@@ -1328,12 +1356,104 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   };
 
   const updateStage = async (stage: ProductionStage) => {
-    const progress = stage === 'Delivered' ? 100 : selectedProject?.progress || 0;
+    if (!selectedProject) return;
+    const current = selectedProject.progress || 0;
+    const minProgressByStage: Record<ProductionStage, number> = {
+      'New Request': 0,
+      'Brief Approved': 15,
+      'In Production': 35,
+      'Internal QA': 75,
+      'Client Review': 85,
+      'Revision Required': Math.min(current, 80),
+      'Ready for Delivery': 95,
+      Delivered: 100,
+    };
+    const nextProgress =
+      stage === 'Delivered'
+        ? 100
+        : stage === 'Revision Required'
+          ? Math.min(current, 80)
+          : Math.max(current, minProgressByStage[stage]);
     await updateProject({
       stage,
       status: statusForStage(stage),
-      progress,
+      progress: nextProgress,
       ...(stage === 'Delivered' ? { deliveredAt: new Date().toISOString() } : {}),
+    });
+    setActionNotice(
+      stage === 'Delivered'
+        ? `Marked "${selectedProject.title}" as Delivered & Completed (100%).`
+        : `Advanced "${selectedProject.title}" to ${stage}.`
+    );
+  };
+
+  const openProjectCanvas = (existingDesign?: CampaignDesign) => {
+    if (!selectedProject) return;
+    const wsId = selectedProject.workspaceId;
+    if (!wsId) {
+      setError('Link an active client workspace to this project before launching the Creative Canvas Engine.');
+      return;
+    }
+    const now = new Date().toISOString();
+    const ws = workspacesById.get(wsId);
+    const defaultDesign: CanvasDesign = existingDesign?.canvasDesign || {
+      id: existingDesign?.id || `studio-${selectedProject.id}-${Date.now()}`,
+      workspaceId: wsId,
+      name: existingDesign?.name || `${selectedProject.title} Artwork`,
+      aspectRatio: existingDesign?.exportPreset || '1:1 Square',
+      width: 1200,
+      height: 1200,
+      backgroundColor: ws?.brand?.primaryColor || '#080808',
+      backgroundTheme: 'black',
+      category: existingDesign?.category || 'Release Day',
+      elements: [
+        {
+          id: `el-head-${Date.now()}`,
+          type: 'text',
+          name: 'Headline',
+          x: 50,
+          y: 44,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          visible: true,
+          text: selectedProject.title,
+          fontFamily: 'sans',
+          fontSize: 52,
+          fontWeight: '800',
+          textAlign: 'center',
+          color: '#FFFFFF',
+        },
+        {
+          id: `el-sub-${Date.now()}`,
+          type: 'text',
+          name: 'Project Tagline',
+          x: 50,
+          y: 62,
+          rotation: 0,
+          opacity: 0.85,
+          zIndex: 2,
+          visible: true,
+          text: selectedProject.category || 'KEEDOHUB PRODUCTION',
+          fontFamily: 'mono',
+          fontSize: 16,
+          fontWeight: '500',
+          textAlign: 'center',
+          color: '#A3A3A3',
+        },
+      ],
+      createdAt: existingDesign?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setCanvasNotice('');
+    setCanvasError('');
+    setCanvasSession({
+      design: { ...defaultDesign, workspaceId: wsId },
+      campaignDesignId: existingDesign?.id,
+      templateId: existingDesign?.templateId || 'project-canvas-studio',
+      category: existingDesign?.category || 'Release Day',
+      internalNotes: existingDesign?.internalNotes || `Created for project "${selectedProject.title}".`,
     });
   };
 
@@ -1803,6 +1923,11 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
         'Deliverable version uploaded',
         `${deliverable.title} version ${versionNumber} was uploaded.`,
         deliverable.isClientPublished
+      );
+      setActionNotice(
+        deliverable.isClientPublished
+          ? `Uploaded v${versionNumber} for "${deliverable.title}" (status: Revised - Awaiting Review).`
+          : `Uploaded v${versionNumber} for "${deliverable.title}" into Internal QA Draft.`
       );
     } catch (err) {
       setError(friendlyError(err));
@@ -2629,10 +2754,11 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     {enquiry.status !== 'Converted' && enquiry.status !== 'Closed' && (
                       <button
                         type="button"
+                        disabled={Boolean(convertingEnquiryId)}
                         onClick={() => void convertEnquiry(enquiry.id)}
-                        className="rounded border border-red-900/60 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/30"
+                        className="rounded border border-red-900/60 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/30 disabled:opacity-50"
                       >
-                        Convert to production request
+                        {convertingEnquiryId === enquiry.id ? 'Converting…' : 'Convert to production request'}
                       </button>
                     )}
                     {enquiry.projectId && (
@@ -3154,8 +3280,18 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     </div>
                   </div>
 
-                  {/* Quick Stage, Design Library & Priority Selectors */}
+                  {/* Quick Stage, Creative Canvas & Priority Selectors */}
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {selectedProject.workspaceId && (
+                      <button
+                        type="button"
+                        onClick={() => openProjectCanvas()}
+                        className="inline-flex items-center gap-1.5 bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white"
+                      >
+                        <Sparkles size={12} />
+                        <span>New Artwork in Canvas</span>
+                      </button>
+                    )}
                     {onOpenDesignLibrary && (
                       <button
                         type="button"
@@ -3208,6 +3344,158 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     </label>
                   </div>
                 </div>
+
+                {/* Contextual Production Lifecycle Pipeline & Stage Action Bar */}
+                {(() => {
+                  const currentStage = (selectedProject.stage || 'New Request') as ProductionStage;
+                  const stageIdx = STAGES.indexOf(currentStage);
+                  return (
+                    <div className="my-3 border border-[#1E1E1E] bg-[#101010] p-3 space-y-2.5">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {STAGES.map((stageName, idx) => {
+                          const isCurrent = stageName === currentStage;
+                          const isCompleted = idx < stageIdx;
+                          return (
+                            <span
+                              key={stageName}
+                              className={`px-2 py-0.5 text-[10px] font-mono border ${
+                                isCurrent
+                                  ? 'border-[#FF1E1E] bg-[#240B0B] text-white font-semibold'
+                                  : isCompleted
+                                    ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-300'
+                                    : 'border-[#222] bg-[#141414] text-neutral-500'
+                              }`}
+                            >
+                              {stageName}
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#1A1A1A]">
+                        <span className="text-[11px] font-mono text-neutral-400">
+                          Stage actions ({currentStage}):
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {currentStage === 'New Request' && selectedProject.requestStatus === 'Accepted' && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void updateStage('In Production')}
+                              className="bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                            >
+                              Start Production
+                            </button>
+                          )}
+                          {currentStage === 'Brief Approved' && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void updateStage('In Production')}
+                              className="bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                            >
+                              Start Production
+                            </button>
+                          )}
+                          {currentStage === 'In Production' && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void updateStage('Internal QA')}
+                              className="bg-amber-600 hover:bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-black disabled:opacity-50"
+                            >
+                              Submit to Internal QA
+                            </button>
+                          )}
+                          {currentStage === 'Internal QA' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void updateStage('In Production')}
+                                className="border border-[#333] bg-[#141414] px-2.5 py-1 text-[11px] text-neutral-200 hover:border-white disabled:opacity-50"
+                              >
+                                Return to Production
+                              </button>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void updateStage('Client Review')}
+                                className="bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                              >
+                                Pass QA → Client Review
+                              </button>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void updateStage('Ready for Delivery')}
+                                className="border border-emerald-700 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-900/50 disabled:opacity-50"
+                              >
+                                Pass QA → Ready for Delivery
+                              </button>
+                            </>
+                          )}
+                          {currentStage === 'Revision Required' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void updateStage('In Production')}
+                                className="border border-[#333] bg-[#141414] px-2.5 py-1 text-[11px] text-white hover:border-[#FF1E1E] disabled:opacity-50"
+                              >
+                                Resume Production
+                              </button>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void updateStage('Internal QA')}
+                                className="bg-amber-600 hover:bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-black disabled:opacity-50"
+                              >
+                                Submit Revised to Internal QA
+                              </button>
+                            </>
+                          )}
+                          {currentStage === 'Client Review' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => setProjectTab('deliverables')}
+                                className="border border-[#333] bg-[#141414] px-2.5 py-1 text-[11px] text-neutral-200 hover:border-white"
+                              >
+                                Review Deliverables
+                              </button>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void updateStage('Ready for Delivery')}
+                                className="border border-emerald-700 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-900/50 disabled:opacity-50"
+                              >
+                                Mark Ready for Delivery
+                              </button>
+                            </>
+                          )}
+                          {currentStage === 'Ready for Delivery' && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void updateStage('Delivered')}
+                              className="bg-emerald-600 hover:bg-emerald-500 px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                            >
+                              Mark Delivered &amp; Completed
+                            </button>
+                          )}
+                          {currentStage === 'Delivered' && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-300">
+                              <CheckCircle2 size={12} />
+                              Completed{selectedProject.deliveredAt ? ` on ${formatShortDate(selectedProject.deliveredAt)}` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Project Detail Tabs */}
                 <nav className="my-4 flex flex-wrap gap-2 border-b border-[#1A1A1A] pb-3">
@@ -3595,14 +3883,24 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                                         {design.category} · {design.exportPreset}
                                       </p>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => setProjectTab('deliverables')}
-                                      className="shrink-0 border border-[#2C2C2C] bg-[#161616] hover:border-[#FF1E1E] px-2 py-1 text-[10px] text-white"
-                                      title="Design specs stay internal; upload finished client outputs in Deliverables"
-                                    >
-                                      Deliverables
-                                    </button>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => openProjectCanvas(design)}
+                                        className="border border-[#FF1E1E]/60 bg-[#1A0E0E] hover:bg-[#FF1E1E] px-2 py-1 text-[10px] font-semibold text-white"
+                                        title="Open in DesignCanvasEditor"
+                                      >
+                                        Canvas
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setProjectTab('deliverables')}
+                                        className="border border-[#2C2C2C] bg-[#161616] hover:border-[#FF1E1E] px-2 py-1 text-[10px] text-white"
+                                        title="Design specs stay internal; upload finished client outputs in Deliverables"
+                                      >
+                                        Deliverables
+                                      </button>
+                                    </div>
                                   </div>
                                 ))
                               )}
@@ -4102,22 +4400,34 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                           </button>
                         ))}
                       </div>
-                      {onOpenDesignLibrary && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onOpenDesignLibrary({
-                              workspaceId: selectedProject.workspaceId,
-                              projectId: selectedProject.id,
-                              tab: 'designs',
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-neutral-200 hover:border-[#FF1E1E]"
-                        >
-                          <Send size={11} className="text-[#FF1E1E]" />
-                          <span>Stage from Design Library</span>
-                        </button>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {selectedProject.workspaceId && (
+                          <button
+                            type="button"
+                            onClick={() => openProjectCanvas()}
+                            className="inline-flex items-center gap-1.5 bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1 text-xs font-semibold text-white"
+                          >
+                            <Sparkles size={11} />
+                            <span>Create Artwork in Canvas</span>
+                          </button>
+                        )}
+                        {onOpenDesignLibrary && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenDesignLibrary({
+                                workspaceId: selectedProject.workspaceId,
+                                projectId: selectedProject.id,
+                                tab: 'designs',
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-neutral-200 hover:border-[#FF1E1E]"
+                          >
+                            <Send size={11} className="text-[#FF1E1E]" />
+                            <span>Stage from Design Library</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <form onSubmit={uploadDeliverable} className="space-y-2.5 rounded border border-[#222] bg-[#101010] p-3.5">
@@ -4233,10 +4543,12 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                                 className={`rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
                                   deliverable.isClientPublished
                                     ? 'border-emerald-800/60 bg-emerald-950/30 text-emerald-300 hover:border-emerald-700'
-                                    : 'border-[#333] text-neutral-200 hover:border-[#555]'
+                                    : 'border-[#FF1E1E]/60 bg-[#1A0E0E] text-white hover:bg-[#FF1E1E]'
                                 }`}
                               >
-                                {deliverable.isClientPublished ? 'Published (Click to Unpublish)' : 'Publish to client'}
+                                {deliverable.isClientPublished
+                                  ? 'Published (Click to Unpublish)'
+                                  : 'Pass QA & Publish to Client'}
                               </button>
                             </div>
                           </div>
@@ -4249,14 +4561,27 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                             </p>
                           )}
                           {deliverable.fileUrl && (
-                            <a
-                              href={deliverable.fileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs text-red-300 underline"
-                            >
-                              Preview / Download current file
-                            </a>
+                            <div className="space-y-2">
+                              {deliverable.fileType?.startsWith('image/') && (
+                                <div className="border border-[#242424] bg-[#090909] p-2 inline-block">
+                                  <img
+                                    src={deliverable.fileUrl}
+                                    alt={deliverable.title}
+                                    className="max-h-52 max-w-full object-contain"
+                                  />
+                                </div>
+                              )}
+                              <div>
+                                <a
+                                  href={deliverable.fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-xs text-red-300 underline"
+                                >
+                                  Preview / Download current file
+                                </a>
+                              </div>
+                            </div>
                           )}
                           {(deliverable.versions || []).length > 0 && (
                             <details className="text-xs text-neutral-400">
@@ -4331,28 +4656,55 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                 {/* TAB: REVISIONS */}
                 {projectTab === 'revisions' && (
                   <div className="space-y-3">
-                    {revisions.map(revision => (
-                      <article key={revision.id} className="rounded border border-[#222] bg-[#101010] p-3.5">
-                        <p className="text-sm text-neutral-200">{revision.feedback}</p>
-                        <div className="mt-3 flex items-center justify-between gap-2">
-                          <span className="text-xs text-neutral-500">
-                            {revision.status} · {new Date(revision.submittedAt).toLocaleString()}
-                          </span>
-                          <select
-                            value={revision.status}
-                            onChange={event =>
-                              void updateRevision(
-                                revision,
-                                event.target.value as ProductionRevisionRequest['status']
-                              )
-                            }
-                            className="rounded border border-[#333] bg-[#141414] px-2 py-1 text-xs text-white"
-                          >
-                            {['Submitted', 'In Progress', 'Completed', 'Cancelled'].map(status => (
-                              <option key={status}>{status}</option>
-                            ))}
-                          </select>
-                        </div>
+                    {revisions.map(revision => {
+                      const targetDeliverable = deliverables.find(d => d.id === revision.deliverableId);
+                      return (
+                        <article key={revision.id} className="rounded border border-[#222] bg-[#101010] p-3.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {targetDeliverable && (
+                                <span className="border border-[#2C2C2C] bg-[#161616] px-2 py-0.5 text-[10px] font-mono text-neutral-300">
+                                  Deliverable: {targetDeliverable.title} (v{targetDeliverable.currentVersion || 1})
+                                </span>
+                              )}
+                              <span className="text-[11px] font-mono text-neutral-500">
+                                {revision.status} · {new Date(revision.submittedAt).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setProjectTab('deliverables')}
+                                className="border border-[#333] bg-[#141414] px-2 py-1 text-[11px] text-neutral-200 hover:border-[#FF1E1E]"
+                              >
+                                Upload New Version → Deliverables
+                              </button>
+                              {selectedProject.workspaceId && (
+                                <button
+                                  type="button"
+                                  onClick={() => openProjectCanvas()}
+                                  className="border border-[#FF1E1E]/60 bg-[#1A0E0E] px-2 py-1 text-[11px] text-white hover:bg-[#FF1E1E]"
+                                >
+                                  Open Canvas
+                                </button>
+                              )}
+                              <select
+                                value={revision.status}
+                                onChange={event =>
+                                  void updateRevision(
+                                    revision,
+                                    event.target.value as ProductionRevisionRequest['status']
+                                  )
+                                }
+                                className="rounded border border-[#333] bg-[#141414] px-2 py-1 text-xs text-white"
+                              >
+                                {['Submitted', 'In Progress', 'Completed', 'Cancelled'].map(status => (
+                                  <option key={status}>{status}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <p className="text-sm text-neutral-200">{revision.feedback}</p>
                         {revision.adminResponse && (
                           <p className="mt-3 rounded bg-[#151515] p-2 text-xs text-neutral-300">
                             Sent to client: {revision.adminResponse}
@@ -4381,7 +4733,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                           </button>
                         </div>
                       </article>
-                    ))}
+                      );
+                    })}
                     {revisions.length === 0 && (
                       <p className="text-sm text-neutral-500 py-4">No revision requests for this project.</p>
                     )}
@@ -4992,6 +5345,154 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
           </form>
         )}
       </Modal>
+
+      {/* ============================================================
+          FULL-SCREEN DESIGN CANVAS STUDIO OVERLAY FOR SELECTED PROJECT
+         ============================================================ */}
+      {canvasSession && selectedProject && selectedProject.workspaceId && (
+        <div className="fixed inset-0 z-50 bg-black/95 p-3 sm:p-5 flex flex-col gap-3 overflow-y-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 border border-[#242424] bg-[#0D0D0D] px-4 py-2.5 shrink-0">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="inline-flex items-center gap-1.5 font-mono uppercase tracking-wider text-white font-semibold">
+                <Sparkles size={13} className="text-[#FF1E1E]" />
+                Production Canvas Studio
+              </span>
+              <span className="text-neutral-400">
+                Project: <strong className="text-white">{selectedProject.title}</strong>
+              </span>
+              {selectedProjectWorkspace && (
+                <span className="text-neutral-500 font-mono">
+                  Workspace: {selectedProjectWorkspace.name}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCanvasSession(null);
+                  setProjectTab('deliverables');
+                }}
+                className="border border-[#333] bg-[#141414] px-3 py-1 text-xs text-neutral-200 hover:border-[#FF1E1E]"
+              >
+                Return to Project Deliverables
+              </button>
+            </div>
+          </div>
+
+          {canvasError && (
+            <div role="alert" className="border border-red-900/60 bg-red-950/30 px-3.5 py-2 text-xs text-red-200 flex items-center justify-between">
+              <span>{canvasError}</span>
+              <button type="button" onClick={() => setCanvasError('')} className="underline">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {canvasNotice && (
+            <div role="status" className="border border-emerald-900/60 bg-emerald-950/25 px-3.5 py-2 text-xs text-emerald-200 flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 size={13} className="text-emerald-400" />
+                {canvasNotice}
+              </span>
+              <button type="button" onClick={() => setCanvasNotice('')} className="underline">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          <DesignCanvasEditor
+            key={canvasSession.campaignDesignId || canvasSession.design.id}
+            initialDesign={canvasSession.design}
+            targetProjectTitle={selectedProject.title}
+            onClose={() => setCanvasSession(null)}
+            onSaveDesign={async savedDesign => {
+              const wsId = selectedProject.workspaceId;
+              if (!wsId) return;
+              setCanvasError('');
+              setCanvasNotice('');
+              try {
+                const now = new Date().toISOString();
+                const targetRef = canvasSession.campaignDesignId
+                  ? doc(db, 'workspaces', wsId, 'campaignDesigns', canvasSession.campaignDesignId)
+                  : doc(collection(db, 'workspaces', wsId, 'campaignDesigns'));
+                const record: CampaignDesign = {
+                  id: targetRef.id,
+                  workspaceId: wsId,
+                  projectId: selectedProject.id,
+                  name: savedDesign.name || canvasSession.design.name,
+                  templateId: canvasSession.templateId || 'project-canvas-studio',
+                  canvasDesign: {
+                    ...savedDesign,
+                    id: targetRef.id,
+                    workspaceId: wsId,
+                    updatedAt: now,
+                  },
+                  category: canvasSession.category || 'Release Day',
+                  exportPreset: savedDesign.aspectRatio,
+                  internalNotes: canvasSession.internalNotes || '',
+                  createdAt: savedDesign.createdAt || now,
+                  updatedAt: now,
+                };
+                await setDoc(targetRef, record, { merge: true });
+                setCanvasSession(prev =>
+                  prev ? { ...prev, campaignDesignId: targetRef.id, design: record.canvasDesign } : null
+                );
+                setCanvasNotice(`Saved design spec "${record.name}" to workspace repository.`);
+                setActionNotice(`Saved design spec "${record.name}" for "${selectedProject.title}".`);
+              } catch (err) {
+                setCanvasError(friendlyError(err));
+              }
+            }}
+            onSaveAsWorkingAsset={async (blob, renderedDesign) => {
+              const wsId = selectedProject.workspaceId;
+              if (!wsId) return;
+              setCanvasError('');
+              setCanvasNotice('');
+              try {
+                const asset = await saveCanvasWorkingAssetFromBlob({
+                  workspaceId: wsId,
+                  projectId: selectedProject.id,
+                  name: renderedDesign.name || 'Canvas Artwork',
+                  blob,
+                  mimeType: 'image/png',
+                });
+                const msg = `Saved "${asset.name}" to admin-only Working Assets.`;
+                setCanvasNotice(msg);
+                setActionNotice(msg);
+              } catch (err) {
+                setCanvasError(friendlyError(err));
+              }
+            }}
+            onSaveAsDeliverable={async (blob, renderedDesign, format) => {
+              if (!user) return;
+              setCanvasError('');
+              setCanvasNotice('');
+              try {
+                const ext = format === 'jpeg' ? 'jpg' : 'png';
+                const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+                await createDeliverableFromBlob({
+                  project: selectedProject,
+                  title: renderedDesign.name || `${selectedProject.title} Artwork`,
+                  description: `Rendered in DesignCanvasEditor (${renderedDesign.aspectRatio}, ${renderedDesign.width}×${renderedDesign.height}px).`,
+                  fileName: `${sanitizeStorageFileName(renderedDesign.name || 'canvas-deliverable')}.${ext}`,
+                  mimeType,
+                  blob,
+                  actorUid: user.uid,
+                  actorName: user.displayName || user.email || 'Production Admin',
+                  publishImmediately: false,
+                  activityDetails: `Staged creative studio output "${renderedDesign.name}" as Internal QA Draft deliverable.`,
+                });
+                const msg = `Staged "${renderedDesign.name}" into Deliverables as an Internal QA Draft.`;
+                setCanvasNotice(msg);
+                setActionNotice(msg);
+              } catch (err) {
+                setCanvasError(friendlyError(err));
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };

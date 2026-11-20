@@ -117,13 +117,13 @@ export interface RegisterWithEmailInput {
   fullName: string;
   email: string;
   password: string;
-  accountType: 'Artist' | 'Brand';
+  accountType: 'Artist' | 'Brand' | 'Company';
   organizationName?: string;
 }
 
 export interface GoogleLoginOptions {
   intent?: 'login' | 'register';
-  accountType?: 'Artist' | 'Brand';
+  accountType?: 'Artist' | 'Brand' | 'Company';
   organizationName?: string;
   fullName?: string;
 }
@@ -461,6 +461,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<PlatformUser>(INITIAL_PLATFORM_USER);
   const registrationInFlightRef = useRef(false);
   const manualAuthFlowInFlightRef = useRef(false);
+  const manualAuthEpochRef = useRef(0);
   const initialAuthResolvedRef = useRef(false);
   const adminDocActiveRef = useRef(false);
   const profileSuspendedRef = useRef(false);
@@ -638,6 +639,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
 
+      const startManualEpoch = manualAuthEpochRef.current;
       setIsClientProfileLoading(true);
       setClientProfileError(null);
       const {
@@ -657,27 +659,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (!active || currentAuthChangeId !== authChangeId) return;
 
-      const adminPermDenied = isFirestorePermissionError(adminError);
-      const profilePermDenied = isFirestorePermissionError(profileError);
+      const staleAfterManualAuth =
+        manualAuthFlowInFlightRef.current || manualAuthEpochRef.current !== startManualEpoch;
       const inAdminArea = appModeRef.current === 'workspace' || appModeRef.current === 'admin';
+      const profilePermDenied = isFirestorePermissionError(profileError);
 
-      adminDocActiveRef.current = isAdmin;
-      profileSuspendedRef.current = isSuspended;
-      const effectiveAdmin = isAdmin && !isSuspended;
-      setIsPlatformAdmin(effectiveAdmin);
-      setClientProfile(loadedProfile);
-      setClientProfileError(
-        profilePermDenied
-          ? 'Unable to access your client profile (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
-          : profileError
-            ? profileError instanceof Error
-              ? profileError.message
-              : 'Unable to load your client profile.'
-            : null
-      );
-      setIsClientProfileLoading(false);
+      if (!staleAfterManualAuth) {
+        adminDocActiveRef.current = isAdmin;
+        profileSuspendedRef.current = isSuspended;
+        const effectiveAdmin = isAdmin && !isSuspended;
+        setIsPlatformAdmin(effectiveAdmin);
+        setClientProfile(loadedProfile);
+        setClientProfileError(
+          profilePermDenied
+            ? 'Unable to access your client profile (Missing or insufficient permissions). Ensure updated firestore.rules are deployed.'
+            : profileError
+              ? profileError instanceof Error
+                ? profileError.message
+                : 'Unable to load your client profile.'
+              : null
+        );
+        setIsClientProfileLoading(false);
 
-      if (!manualAuthFlowInFlightRef.current) {
         if (effectiveAdmin) {
           // Verified platform administrator must always enter Admin HQ ('workspace')
           if (appModeRef.current !== 'workspace') {
@@ -847,8 +850,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (passwordIssue) {
       throw new Error(passwordIssue);
     }
-    if (accountType !== 'Artist' && accountType !== 'Brand') {
-      throw new Error('Choose either Artist or Brand for your workspace experience.');
+    if (accountType !== 'Artist' && accountType !== 'Brand' && accountType !== 'Company') {
+      throw new Error('Choose Artist, Brand, or Company for your workspace experience.');
     }
     if (trimmedOrg.length > 100) {
       throw new Error('Workspace name must be 100 characters or fewer.');
@@ -935,10 +938,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('Enter your password.');
     }
 
+    manualAuthEpochRef.current += 1;
     manualAuthFlowInFlightRef.current = true;
     try {
       const credential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
-      const { loadedProfile, isSuspended, profileError } = await verifyAdminAndProfile(credential.user);
+      await credential.user.getIdToken(true);
+      const { loadedProfile, isAdmin, isSuspended, profileError } = await verifyAdminAndProfile(credential.user);
 
       if (isSuspended) {
         await firebaseSignOut(auth);
@@ -960,16 +965,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ? profileError.message
             : 'Unable to load your client profile.';
         setClientProfileError(permMsg);
-        setAuthError(permMsg);
+        if (!isAdmin) {
+          setAuthError(permMsg);
+        }
       } else {
         setClientProfileError(null);
       }
 
+      const effectiveAdmin = isAdmin && !isSuspended;
+      adminDocActiveRef.current = isAdmin;
       profileSuspendedRef.current = false;
+      setIsPlatformAdmin(effectiveAdmin);
       setClientProfile(loadedProfile);
       clearPublicAuthHash();
-      // Client sign-in always enters the unified client workspace, never Admin HQ
-      persistAppMode('client');
+      // Verified PlatformAdmin always enters Admin HQ ('workspace'); ordinary accounts enter 'client'
+      persistAppMode(effectiveAdmin ? 'workspace' : 'client');
     } catch (error) {
       const message = friendlyFirebaseAuthError(error, 'Sign in failed. Please check your credentials.');
       setAuthError(message);
@@ -990,6 +1000,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('Enter your password.');
     }
 
+    manualAuthEpochRef.current += 1;
     manualAuthFlowInFlightRef.current = true;
     try {
       const credential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
@@ -1081,6 +1092,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (intent === 'register') {
       registrationInFlightRef.current = true;
     }
+    manualAuthEpochRef.current += 1;
     manualAuthFlowInFlightRef.current = true;
     try {
       const res = await signInWithPopup(auth, googleProvider);
@@ -1124,7 +1136,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         let resolvedProfile: ClientProfile | null = existingProfile;
 
         if (intent === 'register' && (!existingProfile || existingProfile.onboardingComplete !== true)) {
-          const accountType: 'Artist' | 'Brand' = options?.accountType === 'Brand' ? 'Brand' : 'Artist';
+          const accountType: 'Artist' | 'Brand' | 'Company' =
+            options?.accountType === 'Brand' || options?.accountType === 'Company' ? options.accountType : 'Artist';
           const fallbackName = res.user.email?.split('@')[0] || 'Keedohub Member';
           const trimmedName = ((options?.fullName || res.user.displayName || fallbackName).trim() || fallbackName).slice(0, 100);
           const trimmedOrg = ((options?.organizationName || trimmedName).trim() || trimmedName).slice(0, 100);

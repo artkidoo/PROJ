@@ -8,12 +8,19 @@ import {
   query,
 } from 'firebase/firestore';
 import {
+  AlertTriangle,
   ArrowRight,
   Building2,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
   FileCheck2,
   FolderKanban,
   Inbox,
+  Layers,
+  Plus,
   ShieldAlert,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
@@ -23,16 +30,32 @@ import {
   ClientProject,
   ProductionDeliverable,
   ProductionRevisionRequest,
+  ProductionStage,
   Workspace,
 } from '../../types';
+
+export interface AdminHQOverviewNavigateOptions {
+  stageFilter?: string;
+  overdueOnly?: boolean;
+  tab?: 'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity';
+}
 
 export type AdminHQOverviewTarget =
   | 'clients-accounts'
   | 'workspaces'
+  | 'services-packages'
+  | 'production-studio'
   | 'projects'
   | 'deliverables-reviews'
   | 'creative-requests'
-  | 'audit-history';
+  | 'design-library'
+  | 'invoices-payments'
+  | 'proposals'
+  | 'business-documents'
+  | 'admin-management'
+  | 'security-access'
+  | 'audit-history'
+  | 'platform-settings';
 
 interface ServiceEnquirySummary {
   id: string;
@@ -53,7 +76,11 @@ interface AuditLogSummary {
 }
 
 interface AdminHQOverviewProps {
-  onNavigate: (target: AdminHQOverviewTarget, projectId?: string) => void;
+  onNavigate: (
+    target: AdminHQOverviewTarget,
+    projectId?: string,
+    options?: AdminHQOverviewNavigateOptions
+  ) => void;
 }
 
 export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) => {
@@ -214,6 +241,7 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
       w => !w.status || w.status === 'Active' || w.status === 'Onboarding'
     ).length;
 
+    const todayIso = new Date().toISOString().slice(0, 10);
     const activeProjects = projects.filter(p => p.stage !== 'Delivered');
     const awaitingProduction = projects.filter(
       p => p.stage === 'New Request' || p.stage === 'Brief Approved'
@@ -224,6 +252,26 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
         p.requestStatus === 'Clarification Requested' ||
         (!p.requestStatus && p.stage === 'New Request')
     );
+
+    const stageCounts: Record<ProductionStage, number> = {
+      'New Request': projects.filter(p => (p.stage || 'New Request') === 'New Request').length,
+      'Brief Approved': projects.filter(p => p.stage === 'Brief Approved').length,
+      'In Production': projects.filter(p => p.stage === 'In Production').length,
+      'Internal QA': projects.filter(p => p.stage === 'Internal QA').length,
+      'Client Review': projects.filter(p => p.stage === 'Client Review').length,
+      'Revision Required': projects.filter(p => p.stage === 'Revision Required').length,
+      'Ready for Delivery': projects.filter(p => p.stage === 'Ready for Delivery').length,
+      'Delivered': projects.filter(p => p.stage === 'Delivered').length,
+    };
+
+    const overdueProjects = projects.filter(
+      p =>
+        p.expectedDeliveryDate &&
+        p.expectedDeliveryDate < todayIso &&
+        p.stage !== 'Delivered'
+    );
+
+    const itemsAwaitingQA = deliverables.filter(d => !d.isClientPublished);
 
     const openEnquiries = enquiries.filter(
       e => e.status !== 'Closed' && e.status !== 'Converted'
@@ -246,11 +294,14 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
       activeWorkspaces,
       activeProjectsCount: activeProjects.length,
       awaitingProductionCount: awaitingProduction.length,
-      deliveredProjectsCount: projects.length - activeProjects.length,
+      deliveredProjectsCount: projects.filter(p => p.stage === 'Delivered').length,
       pendingRequests,
       openEnquiries,
       deliverablesAwaitingReview,
       pendingRevisions,
+      stageCounts,
+      overdueProjects,
+      itemsAwaitingQA,
     };
   }, [clients, workspaces, projects, enquiries, deliverables, revisions]);
 
@@ -292,6 +343,49 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           )}
         </div>
       )}
+
+      {/* Quick Operational Actions Bar */}
+      <section aria-label="Quick operations actions" className="border border-[#1E1E1E] bg-[#0C0C0C] p-3.5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[#FF1E1E] font-bold">OPERATIONS CENTER</span>
+          <span className="text-neutral-600 hidden sm:inline">·</span>
+          <span className="text-xs text-neutral-400 hidden sm:inline">Creative Production Direct Controls</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onNavigate('projects', undefined, { tab: 'overview' })}
+            className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-[#FF1E1E] px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+          >
+            <Plus size={13} className="text-[#FF1E1E]" />
+            <span>Create / Browse Projects</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('creative-requests')}
+            className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+          >
+            <Inbox size={13} className="text-amber-400" />
+            <span>Review Requests ({metrics.pendingRequests.length + metrics.openEnquiries.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('design-library')}
+            className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-white px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+          >
+            <Sparkles size={13} className="text-[#FF1E1E]" />
+            <span>Open Creative Engine</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('workspaces')}
+            className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-white px-3 py-1.5 text-xs text-neutral-300 hover:text-white transition-colors"
+          >
+            <Building2 size={13} />
+            <span>Workspaces ({metrics.totalWorkspaces})</span>
+          </button>
+        </div>
+      </section>
 
       {/* Primary KPI Grid */}
       <section aria-label="Platform operational metrics">
@@ -402,13 +496,101 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
         </div>
       </section>
 
+      {/* Active Projects by Production Stage (9-Stage Lifecycle Pipeline) */}
+      <section aria-label="Active projects by stage" className="border border-[#1E1E1E] bg-[#0C0C0C] p-4 sm:p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-300 flex items-center gap-2">
+              <FolderKanban size={14} className="text-[#FF1E1E]" />
+              <span>Production Lifecycle Pipeline · Stage Breakdown</span>
+            </h2>
+            <p className="text-[11px] text-neutral-500 mt-0.5">
+              Click any stage to filter active projects and inspect deliverables.
+            </p>
+          </div>
+          <span className="text-xs font-mono tabular-nums text-neutral-400">
+            {metrics.activeProjectsCount} active · {metrics.deliveredProjectsCount} completed
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-1">
+          {(
+            [
+              ['New Request', 'New Request', metrics.stageCounts['New Request'], 'border-neutral-800 bg-[#121212] text-neutral-300'],
+              ['Brief Approved', 'Brief Approved', metrics.stageCounts['Brief Approved'], 'border-blue-900/50 bg-blue-950/20 text-blue-300'],
+              ['In Production', 'In Production', metrics.stageCounts['In Production'], 'border-indigo-900/50 bg-indigo-950/20 text-indigo-300'],
+              ['Internal QA', 'Internal QA', metrics.stageCounts['Internal QA'], 'border-amber-900/50 bg-amber-950/20 text-amber-300'],
+              ['Client Review', 'Client Review', metrics.stageCounts['Client Review'], 'border-amber-800/60 bg-amber-950/30 text-amber-200'],
+              ['Revision Required', 'Revision Req.', metrics.stageCounts['Revision Required'], 'border-red-900/60 bg-red-950/30 text-red-300'],
+              ['Ready for Delivery', 'Ready Delivery', metrics.stageCounts['Ready for Delivery'], 'border-cyan-900/50 bg-cyan-950/20 text-cyan-300'],
+              ['Delivered', 'Delivered / Done', metrics.stageCounts['Delivered'], 'border-emerald-800/60 bg-emerald-950/30 text-emerald-200'],
+            ] as const
+          ).map(([stageValue, stageLabel, count, colorClasses]) => (
+            <button
+              key={stageValue}
+              type="button"
+              onClick={() => onNavigate('projects', undefined, { stageFilter: stageValue })}
+              className={`border p-2.5 text-left rounded transition-all hover:border-[#FF1E1E] group ${colorClasses}`}
+            >
+              <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 group-hover:text-white truncate">
+                {stageLabel}
+              </div>
+              <div className="mt-1 text-lg font-bold font-mono tabular-nums text-white">
+                {loadingStates.projects ? '—' : count}
+              </div>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Overdue Milestones Alert */}
+      {metrics.overdueProjects.length > 0 && (
+        <section aria-label="Overdue milestones" className="border border-amber-900/60 bg-amber-950/15 p-4 rounded space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
+              <AlertTriangle size={15} />
+              <span>Overdue Production Milestones ({metrics.overdueProjects.length})</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('projects', undefined, { overdueOnly: true })}
+              className="text-xs text-amber-400 hover:text-white underline font-mono"
+            >
+              Filter Overdue Projects →
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {metrics.overdueProjects.slice(0, 3).map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onNavigate('projects', p.id)}
+                className="text-left bg-[#101010] border border-[#2B2B2B] hover:border-amber-500 p-2.5 rounded transition-colors"
+              >
+                <p className="text-xs font-semibold text-white truncate">{p.title}</p>
+                <p className="text-[11px] text-amber-300 font-mono mt-0.5">
+                  Due {p.expectedDeliveryDate} · Stage: {p.stage}
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Operational Queues */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pending Creative Requests & Public Enquiries */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 1. Pending Creative Requests & Public Enquiries */}
         <div className="bg-[#0C0C0C] border border-[#1E1E1E]">
           <div className="px-5 py-4 border-b border-[#1E1E1E] flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold text-white">Pending Requests & Enquiries</h2>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Requests & Enquiries</span>
+                {(metrics.pendingRequests.length + metrics.openEnquiries.length > 0) && (
+                  <span className="text-[11px] font-mono text-amber-400 bg-amber-950/40 border border-amber-900/50 px-1.5 py-0.5 rounded">
+                    {metrics.pendingRequests.length + metrics.openEnquiries.length}
+                  </span>
+                )}
+              </h2>
               <p className="text-xs text-neutral-400 mt-0.5">
                 Client project briefs and public service enquiries requiring review.
               </p>
@@ -478,11 +660,80 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           </div>
         </div>
 
-        {/* Deliverables Awaiting Review & Pending Revisions */}
+        {/* 2. Items Awaiting Internal QA */}
         <div className="bg-[#0C0C0C] border border-[#1E1E1E]">
           <div className="px-5 py-4 border-b border-[#1E1E1E] flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold text-white">Deliverables & Revisions Queue</h2>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Internal QA Queue</span>
+                {metrics.itemsAwaitingQA.length > 0 && (
+                  <span className="text-[11px] font-mono text-amber-400 bg-amber-950/40 border border-amber-900/50 px-1.5 py-0.5 rounded">
+                    {metrics.itemsAwaitingQA.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                Internal draft deliverables requiring QA sign-off before client release.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('projects', undefined, { stageFilter: 'Internal QA' })}
+              className="text-xs font-medium text-amber-400 hover:text-amber-300 inline-flex items-center gap-1 shrink-0"
+            >
+              <span>View Projects</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+
+          <div className="divide-y divide-[#171717]">
+            {loadingStates.deliverables ? (
+              <div className="p-5 space-y-2.5">
+                <div className="h-9 bg-[#141414]" />
+                <div className="h-9 bg-[#141414]" />
+              </div>
+            ) : metrics.itemsAwaitingQA.length === 0 ? (
+              <div className="p-6 text-xs text-neutral-500">
+                No internal draft deliverables currently awaiting QA review.
+              </div>
+            ) : (
+              metrics.itemsAwaitingQA.slice(0, 4).map(deliverable => {
+                const project = projects.find(p => p.id === deliverable.projectId);
+                return (
+                  <button
+                    key={deliverable.id}
+                    type="button"
+                    onClick={() => onNavigate('projects', deliverable.projectId, { tab: 'deliverables' })}
+                    className="w-full px-5 py-3 text-left hover:bg-[#121212] transition-colors flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-white truncate">{deliverable.title}</p>
+                      <p className="text-[11px] text-neutral-400 mt-0.5 truncate">
+                        {project?.title || 'Project'} · v{deliverable.currentVersion || 1} · {deliverable.fileName}
+                      </p>
+                    </div>
+                    <span className="text-[11px] font-mono text-amber-400 border border-amber-900/50 bg-amber-950/20 px-2 py-0.5 shrink-0">
+                      QA Draft
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* 3. Deliverables & Revisions Queue (Awaiting Client Review) */}
+        <div className="bg-[#0C0C0C] border border-[#1E1E1E]">
+          <div className="px-5 py-4 border-b border-[#1E1E1E] flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Client Review Queue</span>
+                {(metrics.deliverablesAwaitingReview.length + metrics.pendingRevisions.length > 0) && (
+                  <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 px-1.5 py-0.5 rounded">
+                    {metrics.deliverablesAwaitingReview.length + metrics.pendingRevisions.length}
+                  </span>
+                )}
+              </h2>
               <p className="text-xs text-neutral-400 mt-0.5">
                 Published deliverables awaiting client sign-off and active revision requests.
               </p>

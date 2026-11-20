@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Briefcase, Disc3, UserPlus } from 'lucide-react';
+import { ArrowRight, Briefcase, Building2, Disc3, UserPlus } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { validateEmailInput, validatePasswordInput } from '../../lib/firebaseAuth';
 import { PublicFooter } from '../public/PublicFooter';
@@ -23,7 +23,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [accountType, setAccountType] = useState<'Artist' | 'Brand'>('Artist');
+  const [accountType, setAccountType] = useState<'Artist' | 'Brand' | 'Company'>('Artist');
   const [organizationName, setOrganizationName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -192,7 +192,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
                   <span className="block text-[10px] font-mono uppercase tracking-widest text-neutral-400">
                     Workspace Experience *
                   </span>
-                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-2 grid gap-3 sm:grid-cols-3">
                     <button
                       type="button"
                       aria-pressed={accountType === 'Artist'}
@@ -226,7 +226,26 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
                       <span>
                         <span className="block text-sm font-bold">Brand</span>
                         <span className="mt-1 block text-xs text-neutral-400">
-                          Brand OS for identity systems, creative campaigns, and documents.
+                          Brand OS for identity systems, creative visuals, and documents.
+                        </span>
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-pressed={accountType === 'Company'}
+                      onClick={() => setAccountType('Company')}
+                      className={`flex items-start gap-3 border p-4 text-left transition-colors ${
+                        accountType === 'Company'
+                          ? 'border-[#FF1E1E] bg-[#FF1E1E]/10 text-white'
+                          : 'border-[#262626] bg-[#121212] text-neutral-400 hover:border-[#444] hover:text-white'
+                      }`}
+                    >
+                      <Building2 size={18} className="mt-0.5 shrink-0 text-[#FF1E1E]" />
+                      <span>
+                        <span className="block text-sm font-bold">Company</span>
+                        <span className="mt-1 block text-xs text-neutral-400">
+                          Business OS for brand systems, proposals, invoices, and assets.
                         </span>
                       </span>
                     </button>
@@ -235,7 +254,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
 
                 <div>
                   <label htmlFor="register-org-name" className="block text-[10px] font-mono uppercase tracking-widest text-neutral-400">
-                    {accountType === 'Artist' ? 'Artist / Stage Name (Optional)' : 'Brand / Studio Name (Optional)'}
+                    {accountType === 'Artist'
+                      ? 'Artist / Stage Name (Optional)'
+                      : accountType === 'Company'
+                        ? 'Company / Organization Name (Optional)'
+                        : 'Brand / Studio Name (Optional)'}
                   </label>
                   <input
                     id="register-org-name"
@@ -243,7 +266,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
                     maxLength={100}
                     value={organizationName}
                     onChange={(e) => setOrganizationName(e.target.value)}
-                    placeholder={accountType === 'Artist' ? 'Defaults to your full name if left blank' : 'Defaults to your full name if left blank'}
+                    placeholder="Defaults to your full name if left blank"
                     className="mt-1.5 w-full border border-[#292929] bg-[#141414] px-3.5 py-2.5 text-sm text-white placeholder-neutral-600 focus:border-[#FF1E1E] focus:outline-none"
                   />
                 </div>

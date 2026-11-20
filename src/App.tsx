@@ -28,11 +28,11 @@ const AppContent: React.FC = () => {
   if (canAccessAdminCenter) {
     return <AdminHQ key={firebaseUser.uid} />;
   }
-  if (appMode === 'client') {
-    return <ClientWorkspace key={firebaseUser.uid} />;
-  }
-  if (appMode === 'workspace' || appMode === 'admin') {
+  if ((appMode === 'workspace' || appMode === 'admin') && canAccessAdminCenter) {
     return <AdminHQ key={firebaseUser.uid} />;
+  }
+  if (appMode === 'client' || appMode === 'workspace' || appMode === 'admin') {
+    return <ClientWorkspace key={firebaseUser.uid} />;
   }
 
   return <PublicSite />;

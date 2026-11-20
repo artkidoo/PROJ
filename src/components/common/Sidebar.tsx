@@ -33,7 +33,7 @@ import {
   Settings
 } from 'lucide-react';
 import { ClientProfile } from '../../types';
-
+import { KeedohubLogo } from '../brand/KeedohubLogo';
 
 interface SidebarProps {
   mobileMenuOpen: boolean;
@@ -67,7 +67,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
   const accountType = clientProfile?.accountType;
   const isArtist = accountType === 'Artist';
   const isBrand = accountType === 'Brand';
-  const brandAccent = isArtist ? '#D97706' : isBrand ? '#2563EB' : '#10B981';
+  const isBusiness = accountType === 'Company';
+  const brandAccent = isArtist ? '#D97706' : isBrand ? '#2563EB' : isBusiness ? '#10B981' : '#FF1E1E';
 
   const pendingTasks = tasks.filter(t => t.status !== 'Done' && t.workspaceId === activeWorkspace.id).length;
   const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;
@@ -89,12 +90,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
       ];
     }
 
-    if (account === 'Brand') {
+    if (account === 'Brand' || account === 'Company') {
+      const isCompany = account === 'Company';
       return [
-        { id: 'dashboard', label: 'Brand Overview', icon: LayoutDashboard },
+        { id: 'dashboard', label: isCompany ? 'Company Overview' : 'Brand Overview', icon: LayoutDashboard },
         { id: 'brand', label: 'Brand Identity & Creative System', icon: Layers },
         { id: 'documents', label: 'Business Documents', icon: FileText, badgeCount: showBadge(pendingDocs) },
-        { id: 'assets', label: 'Brand Asset Library', icon: FolderArchive },
+        { id: 'assets', label: isCompany ? 'Asset Library' : 'Brand Asset Library', icon: FolderArchive },
         { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: showBadge(pendingTasks) },
         { id: 'deliverables', label: 'Deliverables', icon: FileCheck2 },
         { id: 'updates', label: 'Updates & Revisions', icon: RefreshCw },
@@ -145,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
       <div className="px-3 pb-3 pt-2 border-t border-[#1B1B1B] bg-[#0A0A0A]">
         <div className="flex items-center gap-3 px-2">
           <div className="flex items-center gap-3 flex-1 text-left min-w-0">
-            <button type="button" onClick={() => {}} className="flex items-center gap-3 flex-1 text-left min-w-0" aria-label="My Profile &amp; Settings">
+            <button type="button" onClick={() => handleSelect('profile')} className="flex items-center gap-3 flex-1 text-left min-w-0" aria-label="My Profile &amp; Settings">
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#FF1E1E] to-[#FF7A7A] flex items-center justify-center text-white text-sm font-bold shrink-0">
                 {clientProfile?.displayName?.charAt(0)?.toUpperCase() || 'U'}
               </div>
@@ -154,11 +156,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                   {clientProfile?.displayName || 'Account'}
                 </p>
                 <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-wider">
-                  {accountType === 'Artist' ? 'Artist' : accountType === 'Brand' ? 'Brand' : 'Client'}
+                  {accountType === 'Artist' ? 'Artist' : accountType === 'Brand' ? 'Brand' : accountType === 'Company' ? 'Company' : 'Client'}
                 </p>
               </div>
             </button>
-            <button type="button" onClick={() => {}} className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-medium text-neutral-400 hover:text-white hover:bg-[#141414] rounded-md transition-colors" aria-label="Open My Profile &amp; Settings">
+            <button type="button" onClick={() => handleSelect('profile')} className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-medium text-neutral-400 hover:text-white hover:bg-[#141414] rounded-md transition-colors" aria-label="Open My Profile &amp; Settings">
               <Settings size={13} />
             </button>
           </div>
@@ -184,12 +186,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
 
         {/* Navigation list */}
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
-          <div className="px-3 pb-2 text-[10px] font-mono tracking-widest text-neutral-500 uppercase flex items-center justify-between">
+          <div className="px-3 pb-2 text-[10px] font-mono tracking-widest uppercase flex items-center justify-between" style={{ color: brandAccent }}>
             <span>{isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : isBusiness ? 'COMPANY WORKSPACE' : 'CLIENT WORKSPACE'}</span>
-            <span 
-              className="w-1.5 h-1.5 rounded-full" 
-              style={{ backgroundColor: brandAccent }} 
-            />
           </div>
 
           {navItems.map((item) => {

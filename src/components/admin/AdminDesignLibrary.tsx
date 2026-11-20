@@ -27,6 +27,7 @@ import {
   Plus,
   Search,
   Send,
+  Sparkles,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -34,12 +35,14 @@ import { db, storage } from '../../lib/firebase';
 import { isAdminRecordActive } from '../../lib/firebaseAuth';
 import {
   ALLOWED_PRODUCTION_MIME_TYPES,
+  createDeliverableFromBlob,
   inferBrandAssetFileType,
   isDeliverablePromotionRestrictedAsset,
   isInternalStoragePath,
   MAX_PRODUCTION_ASSET_BYTES,
   promoteBrandAssetToDeliverable,
   sanitizeStorageFileName,
+  saveCanvasWorkingAssetFromBlob,
 } from '../../lib/productionPromotion';
 import { useApp } from '../../context/AppContext';
 import {
@@ -54,6 +57,7 @@ import { CreativeTemplate, MASTER_CREATIVE_TEMPLATES } from '../../data/creative
 import { TEMPLATE_FAMILIES } from '../../data/templateFamiliesData';
 import { buildHonestDesignForTemplate } from '../../utils/templateDesignBuilder';
 import { Modal } from '../common/Modal';
+import { DesignCanvasEditor } from '../studio/DesignCanvasEditor';
 
 export type DesignLibraryTab = 'designs' | 'assets' | 'templates';
 
@@ -228,6 +232,19 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
     title: string;
     notes: string;
   } | null>(null);
+
+  // Active DesignCanvasEditor creative production session
+  const [activeCanvasSession, setActiveCanvasSession] = useState<{
+    design: CanvasDesign;
+    workspaceId: string;
+    projectId: string;
+    campaignDesignId?: string;
+    templateId: string;
+    category: CampaignCategory;
+    internalNotes: string;
+  } | null>(null);
+  const [canvasOverlayNotice, setCanvasOverlayNotice] = useState('');
+  const [canvasOverlayError, setCanvasOverlayError] = useState('');
 
   // Sync incoming navigation context props cleanly
   useEffect(() => {
@@ -689,9 +706,116 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
     });
   };
 
-  const saveDesignSpec = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const buildDesignModalPayload = () => {
     if (!designModal || !designModal.workspaceId || !designModal.name.trim()) {
+      return null;
+    }
+    const now = new Date().toISOString();
+    const targetRef =
+      designModal.mode === 'edit' && designModal.existingId
+        ? doc(db, 'workspaces', designModal.workspaceId, 'campaignDesigns', designModal.existingId)
+        : doc(collection(db, 'workspaces', designModal.workspaceId, 'campaignDesigns'));
+    const dims = dimensionsForAspect(designModal.exportPreset);
+
+    let canvasDesign: CanvasDesign;
+    if (designModal.baseCanvasDesign) {
+      const clonedElements = designModal.baseCanvasDesign.elements.map(el => ({ ...el }));
+      let textCount = 0;
+      for (const el of clonedElements) {
+        if (el.type === 'text') {
+          if (textCount === 0 && designModal.headline.trim()) el.text = designModal.headline.trim();
+          if (textCount === 1 && designModal.subtext.trim()) el.text = designModal.subtext.trim();
+          textCount += 1;
+        }
+      }
+      canvasDesign = {
+        ...designModal.baseCanvasDesign,
+        id: targetRef.id,
+        workspaceId: designModal.workspaceId,
+        name: designModal.name.trim(),
+        aspectRatio: designModal.exportPreset,
+        width: dims.width,
+        height: dims.height,
+        backgroundColor: designModal.bgColor,
+        backgroundTheme: designModal.bgTheme,
+        elements: clonedElements,
+        updatedAt: now,
+      };
+    } else {
+      canvasDesign = {
+        id: targetRef.id,
+        workspaceId: designModal.workspaceId,
+        name: designModal.name.trim(),
+        aspectRatio: designModal.exportPreset,
+        width: dims.width,
+        height: dims.height,
+        backgroundColor: designModal.bgColor,
+        backgroundTheme: designModal.bgTheme,
+        category: designModal.category,
+        elements: [
+          {
+            id: `el-head-${targetRef.id}`,
+            type: 'text',
+            name: 'Primary Headline',
+            x: 50,
+            y: 42,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 1,
+            visible: true,
+            text: designModal.headline.trim() || designModal.name.trim(),
+            fontFamily: 'sans',
+            fontSize: 48,
+            fontWeight: '800',
+            textAlign: 'center',
+            color: designModal.bgTheme === 'cream' || designModal.bgTheme === 'silver' ? '#111111' : '#FFFFFF',
+          },
+          {
+            id: `el-sub-${targetRef.id}`,
+            type: 'text',
+            name: 'Production Subtext',
+            x: 50,
+            y: 62,
+            rotation: 0,
+            opacity: 0.85,
+            zIndex: 2,
+            visible: true,
+            text: designModal.subtext.trim() || 'KeedoHub Production Specification',
+            fontFamily: 'mono',
+            fontSize: 16,
+            fontWeight: '500',
+            textAlign: 'center',
+            color: '#A3A3A3',
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+
+    const payload: CampaignDesign = {
+      id: targetRef.id,
+      workspaceId: designModal.workspaceId,
+      projectId: designModal.projectId || '',
+      name: designModal.name.trim(),
+      templateId: designModal.templateId || 'custom-production-spec',
+      canvasDesign,
+      category: designModal.category,
+      exportPreset: designModal.exportPreset,
+      internalNotes: designModal.internalNotes.trim(),
+      createdAt:
+        designModal.mode === 'edit' && designModal.baseCanvasDesign?.createdAt
+          ? designModal.baseCanvasDesign.createdAt
+          : now,
+      updatedAt: now,
+    };
+
+    return { targetRef, payload, canvasDesign };
+  };
+
+  const persistDesignModal = async (openCanvasAfterSave: boolean) => {
+    const built = buildDesignModalPayload();
+    if (!built) {
       setError('Select a workspace and enter a production design name.');
       return;
     }
@@ -699,119 +823,202 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
     setError('');
     setStatusMessage('');
     try {
-      const now = new Date().toISOString();
-      const targetRef =
-        designModal.mode === 'edit' && designModal.existingId
-          ? doc(db, 'workspaces', designModal.workspaceId, 'campaignDesigns', designModal.existingId)
-          : doc(collection(db, 'workspaces', designModal.workspaceId, 'campaignDesigns'));
-      const dims = dimensionsForAspect(designModal.exportPreset);
-
-      let canvasDesign: CanvasDesign;
-      if (designModal.baseCanvasDesign) {
-        const clonedElements = designModal.baseCanvasDesign.elements.map(el => ({ ...el }));
-        let textCount = 0;
-        for (const el of clonedElements) {
-          if (el.type === 'text') {
-            if (textCount === 0 && designModal.headline.trim()) el.text = designModal.headline.trim();
-            if (textCount === 1 && designModal.subtext.trim()) el.text = designModal.subtext.trim();
-            textCount += 1;
-          }
-        }
-        canvasDesign = {
-          ...designModal.baseCanvasDesign,
-          id: targetRef.id,
-          workspaceId: designModal.workspaceId,
-          name: designModal.name.trim(),
-          aspectRatio: designModal.exportPreset,
-          width: dims.width,
-          height: dims.height,
-          backgroundColor: designModal.bgColor,
-          backgroundTheme: designModal.bgTheme,
-          elements: clonedElements,
-          updatedAt: now,
-        };
-      } else {
-        canvasDesign = {
-          id: targetRef.id,
-          workspaceId: designModal.workspaceId,
-          name: designModal.name.trim(),
-          aspectRatio: designModal.exportPreset,
-          width: dims.width,
-          height: dims.height,
-          backgroundColor: designModal.bgColor,
-          backgroundTheme: designModal.bgTheme,
-          category: designModal.category,
-          elements: [
-            {
-              id: `el-head-${targetRef.id}`,
-              type: 'text',
-              name: 'Primary Headline',
-              x: 50,
-              y: 42,
-              rotation: 0,
-              opacity: 1,
-              zIndex: 1,
-              visible: true,
-              text: designModal.headline.trim() || designModal.name.trim(),
-              fontFamily: 'sans',
-              fontSize: 48,
-              fontWeight: '800',
-              textAlign: 'center',
-              color: designModal.bgTheme === 'cream' || designModal.bgTheme === 'silver' ? '#111111' : '#FFFFFF',
-            },
-            {
-              id: `el-sub-${targetRef.id}`,
-              type: 'text',
-              name: 'Production Subtext',
-              x: 50,
-              y: 62,
-              rotation: 0,
-              opacity: 0.85,
-              zIndex: 2,
-              visible: true,
-              text: designModal.subtext.trim() || 'KeedoHub Production Specification',
-              fontFamily: 'mono',
-              fontSize: 16,
-              fontWeight: '500',
-              textAlign: 'center',
-              color: '#A3A3A3',
-            },
-          ],
-          createdAt: now,
-          updatedAt: now,
-        };
-      }
-
-      const payload: CampaignDesign = {
-        id: targetRef.id,
-        workspaceId: designModal.workspaceId,
-        projectId: designModal.projectId || '',
-        name: designModal.name.trim(),
-        templateId: designModal.templateId || 'custom-production-spec',
-        canvasDesign,
-        category: designModal.category,
-        exportPreset: designModal.exportPreset,
-        internalNotes: designModal.internalNotes.trim(),
-        createdAt:
-          designModal.mode === 'edit' && designModal.baseCanvasDesign?.createdAt
-            ? designModal.baseCanvasDesign.createdAt
-            : now,
-        updatedAt: now,
-      };
-
-      await setDoc(targetRef, payload, { merge: true });
+      await setDoc(built.targetRef, built.payload, { merge: true });
       setStatusMessage(
-        designModal.mode === 'edit'
-          ? `Updated production design "${payload.name}".`
-          : `Saved production design "${payload.name}" to workspace library.`
+        designModal?.mode === 'edit'
+          ? `Updated production design "${built.payload.name}".`
+          : `Saved production design "${built.payload.name}" to workspace library.`
       );
       setDesignModal(null);
       setActiveTab('designs');
+      if (openCanvasAfterSave) {
+        setCanvasOverlayNotice('');
+        setCanvasOverlayError('');
+        setActiveCanvasSession({
+          design: built.canvasDesign,
+          workspaceId: built.payload.workspaceId || designModal?.workspaceId || '',
+          projectId: built.payload.projectId || '',
+          campaignDesignId: built.payload.id,
+          templateId: built.payload.templateId,
+          category: built.payload.category,
+          internalNotes: built.payload.internalNotes || '',
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusyAction(false);
     }
+  };
+
+  const saveDesignSpec = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await persistDesignModal(false);
+  };
+
+  const launchCanvasFromDesign = (design: WorkspaceDesignRecord) => {
+    const dims = dimensionsForAspect(design.exportPreset);
+    const now = new Date().toISOString();
+    const fallbackCanvas: CanvasDesign = design.canvasDesign || {
+      id: design.id,
+      workspaceId: design.workspaceId,
+      name: design.name,
+      aspectRatio: design.exportPreset,
+      width: dims.width,
+      height: dims.height,
+      backgroundColor: '#080808',
+      backgroundTheme: 'black',
+      category: design.category,
+      elements: [
+        {
+          id: `el-head-${design.id}`,
+          type: 'text',
+          name: 'Primary Headline',
+          x: 50,
+          y: 45,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          visible: true,
+          text: design.name,
+          fontFamily: 'sans',
+          fontSize: 48,
+          fontWeight: '800',
+          textAlign: 'center',
+          color: '#FFFFFF',
+        },
+      ],
+      createdAt: design.createdAt || now,
+      updatedAt: design.updatedAt || now,
+    };
+    const defaultProj =
+      design.projectId ||
+      (projectFilter && projectsById.get(projectFilter)?.workspaceId === design.workspaceId ? projectFilter : '') ||
+      projects.find(p => p.workspaceId === design.workspaceId)?.id ||
+      '';
+    setCanvasOverlayNotice('');
+    setCanvasOverlayError('');
+    setActiveCanvasSession({
+      design: { ...fallbackCanvas, workspaceId: design.workspaceId },
+      workspaceId: design.workspaceId,
+      projectId: defaultProj,
+      campaignDesignId: design.id,
+      templateId: design.templateId,
+      category: design.category,
+      internalNotes: design.internalNotes || '',
+    });
+  };
+
+  const launchCanvasFromCreativeTemplate = (template: CreativeTemplate) => {
+    const wsId = workspaceFilter || workspaces[0]?.id || '';
+    if (!wsId) {
+      setError('Create or select a client workspace before opening the creative engine.');
+      return;
+    }
+    const projId =
+      (projectFilter && projectsById.get(projectFilter)?.workspaceId === wsId ? projectFilter : '') ||
+      projects.find(p => p.workspaceId === wsId)?.id ||
+      '';
+    const built = buildHonestDesignForTemplate(template);
+    const category: CampaignCategory =
+      template.category === 'Pre-Launch Campaigns'
+        ? 'Anticipation'
+        : template.category === 'Post-Launch Campaigns'
+          ? 'Post-Release'
+          : 'Release Day';
+    setCanvasOverlayNotice('');
+    setCanvasOverlayError('');
+    setActiveCanvasSession({
+      design: { ...built, workspaceId: wsId },
+      workspaceId: wsId,
+      projectId: projId,
+      templateId: template.id,
+      category,
+      internalNotes: `${template.category} · ${template.style} · ${template.tagline}`,
+    });
+  };
+
+  const launchCanvasFromFamilyTemplate = (item: TemplateFamilyItem) => {
+    const wsId = workspaceFilter || workspaces[0]?.id || '';
+    if (!wsId) {
+      setError('Create or select a client workspace before opening the creative engine.');
+      return;
+    }
+    const projId =
+      (projectFilter && projectsById.get(projectFilter)?.workspaceId === wsId ? projectFilter : '') ||
+      projects.find(p => p.workspaceId === wsId)?.id ||
+      '';
+    setCanvasOverlayNotice('');
+    setCanvasOverlayError('');
+    setActiveCanvasSession({
+      design: {
+        ...item.design,
+        workspaceId: wsId,
+        elements: item.design.elements.map(el => ({ ...el })),
+      },
+      workspaceId: wsId,
+      projectId: projId,
+      templateId: item.id,
+      category: 'Release Day',
+      internalNotes: `${item.familyName} · ${item.description}`,
+    });
+  };
+
+  const launchBlankCanvasEngine = () => {
+    const wsId = workspaceFilter || workspaces[0]?.id || '';
+    if (!wsId) {
+      setError('Create or select a client workspace before opening the creative engine.');
+      return;
+    }
+    const projId =
+      (projectFilter && projectsById.get(projectFilter)?.workspaceId === wsId ? projectFilter : '') ||
+      projects.find(p => p.workspaceId === wsId)?.id ||
+      '';
+    const now = new Date().toISOString();
+    const blankDesign: CanvasDesign = {
+      id: `studio-${Date.now()}`,
+      workspaceId: wsId,
+      name: projectsById.get(projId)?.title
+        ? `${projectsById.get(projId)?.title} Key Visual`
+        : 'New Studio Production Design',
+      aspectRatio: '1:1 Square',
+      width: 1200,
+      height: 1200,
+      backgroundColor: '#080808',
+      backgroundTheme: 'black',
+      category: 'Release Day',
+      elements: [
+        {
+          id: `el-title-${Date.now()}`,
+          type: 'text',
+          name: 'Main Title',
+          x: 50,
+          y: 45,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          visible: true,
+          text: 'KEEDOHUB STUDIO',
+          fontFamily: 'sans',
+          fontSize: 56,
+          fontWeight: '800',
+          textAlign: 'center',
+          color: '#FFFFFF',
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    setCanvasOverlayNotice('');
+    setCanvasOverlayError('');
+    setActiveCanvasSession({
+      design: blankDesign,
+      workspaceId: wsId,
+      projectId: projId,
+      templateId: 'custom-canvas-studio',
+      category: 'Release Day',
+      internalNotes: 'Created directly in DesignCanvasEditor production engine.',
+    });
   };
 
   const duplicateDesign = async (design: WorkspaceDesignRecord) => {
@@ -1141,6 +1348,15 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={launchBlankCanvasEngine}
+              disabled={workspaces.length === 0}
+              className="inline-flex items-center gap-1.5 border border-[#FF1E1E]/60 bg-[#1A0E0E] px-3 py-2 text-xs font-semibold text-white hover:bg-[#FF1E1E] disabled:opacity-40 whitespace-nowrap"
+            >
+              <Sparkles size={13} />
+              <span>Open Creative Engine</span>
+            </button>
             <button
               type="button"
               onClick={openUploadAssetModal}
@@ -1496,6 +1712,14 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
 
                         <div className="border-t border-[#181818] bg-[#0A0A0A] px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => launchCanvasFromDesign(design)}
+                              className="inline-flex items-center gap-1 bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white"
+                            >
+                              <Sparkles size={11} />
+                              <span>Open in Canvas</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => openEditDesignModal(design)}
@@ -1927,19 +2151,30 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                             </div>
                           </div>
 
-                          <div className="border-t border-[#181818] bg-[#0A0A0A] px-4 py-2.5 flex items-center justify-between gap-2">
+                          <div className="border-t border-[#181818] bg-[#0A0A0A] px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
                             <span className="text-[11px] font-mono text-neutral-500">
-                              Spec ready for workspace assignment
+                              Ready for studio
                             </span>
-                            <button
-                              type="button"
-                              disabled={workspaces.length === 0}
-                              onClick={() => openTemplateStageModal(template)}
-                              className="inline-flex items-center gap-1 bg-[#1A1A1A] border border-[#2E2E2E] hover:border-[#FF1E1E] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40"
-                            >
-                              <Plus size={11} className="text-[#FF1E1E]" />
-                              <span>Use in Workspace</span>
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={workspaces.length === 0}
+                                onClick={() => launchCanvasFromCreativeTemplate(template)}
+                                className="inline-flex items-center gap-1 bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                              >
+                                <Sparkles size={11} />
+                                <span>Open in Canvas</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={workspaces.length === 0}
+                                onClick={() => openTemplateStageModal(template)}
+                                className="inline-flex items-center gap-1 bg-[#1A1A1A] border border-[#2E2E2E] hover:border-[#FF1E1E] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40"
+                              >
+                                <Plus size={11} className="text-[#FF1E1E]" />
+                                <span>Use Spec</span>
+                              </button>
+                            </div>
                           </div>
                         </article>
                       );
@@ -1978,17 +2213,28 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                         </p>
                       </div>
 
-                      <div className="border-t border-[#181818] bg-[#0A0A0A] px-4 py-2.5 flex items-center justify-between gap-2">
+                      <div className="border-t border-[#181818] bg-[#0A0A0A] px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[11px] font-mono text-neutral-500">{item.id}</span>
-                        <button
-                          type="button"
-                          disabled={workspaces.length === 0}
-                          onClick={() => openFamilyTemplateStageModal(item)}
-                          className="inline-flex items-center gap-1 bg-[#1A1A1A] border border-[#2E2E2E] hover:border-[#FF1E1E] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40"
-                        >
-                          <Plus size={11} className="text-[#FF1E1E]" />
-                          <span>Use in Workspace</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={workspaces.length === 0}
+                            onClick={() => launchCanvasFromFamilyTemplate(item)}
+                            className="inline-flex items-center gap-1 bg-[#FF1E1E] hover:bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                          >
+                            <Sparkles size={11} />
+                            <span>Open in Canvas</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={workspaces.length === 0}
+                            onClick={() => openFamilyTemplateStageModal(item)}
+                            className="inline-flex items-center gap-1 bg-[#1A1A1A] border border-[#2E2E2E] hover:border-[#FF1E1E] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40"
+                          >
+                            <Plus size={11} className="text-[#FF1E1E]" />
+                            <span>Use Spec</span>
+                          </button>
+                        </div>
                       </div>
                     </article>
                   ))}
@@ -2192,7 +2438,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#1E1E1E]">
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-[#1E1E1E]">
               <button
                 type="button"
                 disabled={busyAction}
@@ -2200,6 +2446,15 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                 className="border border-[#333] px-4 py-2 text-xs text-neutral-300 hover:text-white"
               >
                 Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busyAction}
+                onClick={() => void persistDesignModal(true)}
+                className="inline-flex items-center gap-1.5 border border-[#FF1E1E]/60 bg-[#1A0E0E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#FF1E1E] disabled:opacity-50"
+              >
+                <Sparkles size={12} />
+                <span>{busyAction ? 'Opening…' : 'Save & Open in Canvas'}</span>
               </button>
               <button
                 type="submit"
@@ -2500,6 +2755,223 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
           </form>
         )}
       </Modal>
+
+      {/* ==========================================================
+          FULL-SCREEN ADMIN CREATIVE CANVAS STUDIO OVERLAY
+         ========================================================== */}
+      {activeCanvasSession && (
+        <div className="fixed inset-0 z-50 bg-black/95 p-3 sm:p-5 flex flex-col gap-3 overflow-y-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 border border-[#242424] bg-[#0D0D0D] px-4 py-2.5 shrink-0">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="inline-flex items-center gap-1.5 font-mono uppercase tracking-wider text-white font-semibold">
+                <Sparkles size={13} className="text-[#FF1E1E]" />
+                KeedoHub Creative Engine
+              </span>
+              <label className="inline-flex items-center gap-1.5 text-neutral-400">
+                <span>Workspace:</span>
+                <select
+                  value={activeCanvasSession.workspaceId}
+                  onChange={event => {
+                    const nextWsId = event.target.value;
+                    const nextProjId = projects.find(p => p.workspaceId === nextWsId)?.id || '';
+                    setActiveCanvasSession(prev =>
+                      prev
+                        ? {
+                            ...prev,
+                            workspaceId: nextWsId,
+                            projectId: nextProjId,
+                            campaignDesignId:
+                              prev.workspaceId === nextWsId ? prev.campaignDesignId : undefined,
+                          }
+                        : null
+                    );
+                  }}
+                  className="border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-white"
+                >
+                  {workspaces.map(ws => (
+                    <option key={ws.id} value={ws.id}>
+                      {ws.name} ({ws.type})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-neutral-400">
+                <span>Target Project:</span>
+                <select
+                  value={activeCanvasSession.projectId}
+                  onChange={event =>
+                    setActiveCanvasSession(prev =>
+                      prev ? { ...prev, projectId: event.target.value } : null
+                    )
+                  }
+                  className="border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-white"
+                >
+                  <option value="">Workspace-wide (no project selected)</option>
+                  {projects
+                    .filter(p => p.workspaceId === activeCanvasSession.workspaceId)
+                    .map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.title} ({p.stage || p.status})
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              {activeCanvasSession.projectId && onOpenProject && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const projId = activeCanvasSession.projectId;
+                    setActiveCanvasSession(null);
+                    onOpenProject(projId, 'deliverables');
+                  }}
+                  className="inline-flex items-center gap-1 border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-neutral-200 hover:border-[#FF1E1E]"
+                >
+                  <FolderKanban size={12} className="text-[#FF1E1E]" />
+                  <span>Open Project Deliverables</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveCanvasSession(null)}
+                className="border border-[#333] bg-[#141414] px-3 py-1 text-xs text-neutral-300 hover:text-white"
+              >
+                Close Studio
+              </button>
+            </div>
+          </div>
+
+          {canvasOverlayError && (
+            <div role="alert" className="border border-red-900/60 bg-red-950/30 px-3.5 py-2 text-xs text-red-200 flex items-center justify-between">
+              <span>{canvasOverlayError}</span>
+              <button type="button" onClick={() => setCanvasOverlayError('')} className="underline">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {canvasOverlayNotice && (
+            <div role="status" className="border border-emerald-900/60 bg-emerald-950/25 px-3.5 py-2 text-xs text-emerald-200 flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 size={13} className="text-emerald-400" />
+                {canvasOverlayNotice}
+              </span>
+              <button type="button" onClick={() => setCanvasOverlayNotice('')} className="underline">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          <DesignCanvasEditor
+            key={activeCanvasSession.campaignDesignId || activeCanvasSession.design.id}
+            initialDesign={activeCanvasSession.design}
+            targetProjectTitle={projectsById.get(activeCanvasSession.projectId)?.title}
+            onClose={() => setActiveCanvasSession(null)}
+            onSaveDesign={async savedDesign => {
+              if (!activeCanvasSession.workspaceId) return;
+              setCanvasOverlayError('');
+              setCanvasOverlayNotice('');
+              try {
+                const now = new Date().toISOString();
+                const targetRef = activeCanvasSession.campaignDesignId
+                  ? doc(
+                      db,
+                      'workspaces',
+                      activeCanvasSession.workspaceId,
+                      'campaignDesigns',
+                      activeCanvasSession.campaignDesignId
+                    )
+                  : doc(collection(db, 'workspaces', activeCanvasSession.workspaceId, 'campaignDesigns'));
+                const record: CampaignDesign = {
+                  id: targetRef.id,
+                  workspaceId: activeCanvasSession.workspaceId,
+                  projectId: activeCanvasSession.projectId || '',
+                  name: savedDesign.name || activeCanvasSession.design.name,
+                  templateId: activeCanvasSession.templateId || 'custom-canvas-studio',
+                  canvasDesign: {
+                    ...savedDesign,
+                    id: targetRef.id,
+                    workspaceId: activeCanvasSession.workspaceId,
+                    updatedAt: now,
+                  },
+                  category: activeCanvasSession.category || 'Release Day',
+                  exportPreset: savedDesign.aspectRatio,
+                  internalNotes: activeCanvasSession.internalNotes || '',
+                  createdAt: savedDesign.createdAt || now,
+                  updatedAt: now,
+                };
+                await setDoc(targetRef, record, { merge: true });
+                setActiveCanvasSession(prev =>
+                  prev ? { ...prev, campaignDesignId: targetRef.id, design: record.canvasDesign } : null
+                );
+                setCanvasOverlayNotice(`Saved production design "${record.name}" to workspace library.`);
+                setStatusMessage(`Saved production design "${record.name}" to workspace library.`);
+              } catch (err) {
+                setCanvasOverlayError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+            onSaveAsWorkingAsset={async (blob, renderedDesign) => {
+              setCanvasOverlayError('');
+              setCanvasOverlayNotice('');
+              try {
+                const asset = await saveCanvasWorkingAssetFromBlob({
+                  workspaceId: activeCanvasSession.workspaceId,
+                  projectId: activeCanvasSession.projectId || undefined,
+                  name: renderedDesign.name || 'Canvas Artwork',
+                  blob,
+                  mimeType: 'image/png',
+                });
+                const msg = `Saved "${asset.name}" to admin-only Working Assets (Internal Storage).`;
+                setCanvasOverlayNotice(msg);
+                setStatusMessage(msg);
+              } catch (err) {
+                setCanvasOverlayError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+            onSaveAsDeliverable={async (blob, renderedDesign, format) => {
+              setCanvasOverlayError('');
+              setCanvasOverlayNotice('');
+              if (!firebaseUser) {
+                setCanvasOverlayError('Authenticated admin session is required.');
+                return;
+              }
+              const targetProject =
+                projectsById.get(activeCanvasSession.projectId) ||
+                projects.find(p => p.workspaceId === activeCanvasSession.workspaceId);
+              if (!targetProject) {
+                setCanvasOverlayError(
+                  'Select a Target Project in the top bar (or create a project for this workspace) before staging a deliverable.'
+                );
+                return;
+              }
+              try {
+                const ext = format === 'jpeg' ? 'jpg' : 'png';
+                const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+                const actorName = firebaseUser.displayName || firebaseUser.email || 'Production Admin';
+                await createDeliverableFromBlob({
+                  project: targetProject,
+                  title: renderedDesign.name || `${targetProject.title} Artwork`,
+                  description: `Rendered in DesignCanvasEditor (${renderedDesign.aspectRatio}, ${renderedDesign.width}×${renderedDesign.height}px).`,
+                  fileName: `${sanitizeStorageFileName(renderedDesign.name || 'canvas-deliverable')}.${ext}`,
+                  mimeType,
+                  blob,
+                  actorUid: firebaseUser.uid,
+                  actorName,
+                  publishImmediately: false,
+                  activityDetails: `Staged creative studio output "${renderedDesign.name}" as Internal QA Draft deliverable.`,
+                });
+                const msg = `Staged "${renderedDesign.name}" as a QA Draft deliverable inside "${targetProject.title}".`;
+                setCanvasOverlayNotice(msg);
+                setStatusMessage(msg);
+                setProjectFilter(targetProject.id);
+              } catch (err) {
+                setCanvasOverlayError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };
