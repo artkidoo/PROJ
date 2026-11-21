@@ -37,6 +37,7 @@ import {
   FolderArchive,
   ArrowRight
 } from 'lucide-react';
+import vinylPressMockup from '../../assets/images/vinyl_press_mockup_1792791744149.jpg';
 
 export const MusicReleaseManagement: React.FC = () => {
   const { 
@@ -140,7 +141,7 @@ export const MusicReleaseManagement: React.FC = () => {
     setSongwriters('');
     setCredits(`Executive Producer: ${activeWorkspace.name} LLC.`);
     setPlannedReleaseDate(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]);
-    setArtworkUrl(activeWorkspace.brand?.logoUrl || '/src/assets/images/vinyl_press_mockup_1792791744149.jpg');
+    setArtworkUrl(activeWorkspace.brand?.logoUrl || vinylPressMockup);
     setAudioLocation(`${workspaceShort} Cloud Vault // Master_WAV.zip`);
     setDistributionStatus('Planning');
     setIsrc('');

@@ -9,6 +9,7 @@ import React from 'react';
 import { CanvasDesign } from '../../types/designStudio';
 import { LineArtRenderer } from './LineArtRenderer';
 import { LyricalLogoConcept } from '../brand/LogoConcepts';
+import artistShowcasePortrait from '../../assets/images/artist_showcase_portrait_1792791744296.jpg';
 
 interface HonestCanvasThumbnailProps {
   design: CanvasDesign;
@@ -69,7 +70,7 @@ export const HonestCanvasThumbnail: React.FC<HonestCanvasThumbnailProps> = ({
               {el.type === 'image' && (
                 <div className="w-full h-full relative overflow-hidden rounded-[1px]">
                   <img 
-                    src={el.src || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg'} 
+                    src={el.src || artistShowcasePortrait} 
                     alt={el.name}
                     className={`w-full h-full object-${el.objectFit || 'cover'} ${
                       el.filter === 'noir' ? 'grayscale contrast-125' :

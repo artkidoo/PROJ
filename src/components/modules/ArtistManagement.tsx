@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   X
 } from 'lucide-react';
+import artistShowcasePortrait from '../../assets/images/artist_showcase_portrait_1792791744296.jpg';
 
 export const ArtistManagement: React.FC = () => {
   const { 
@@ -101,7 +102,7 @@ export const ArtistManagement: React.FC = () => {
         bio: bio || `Artist roster profile managed under ${activeWorkspace.name} development program.`,
         email,
         status,
-        avatarUrl: avatarUrl || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+        avatarUrl: avatarUrl || artistShowcasePortrait,
         careerGoals: `Produce and release projects under ${activeWorkspace.name}`,
         developmentNotes: `Active ${activeWorkspace.name} roster artist`,
         projectHistory: [],

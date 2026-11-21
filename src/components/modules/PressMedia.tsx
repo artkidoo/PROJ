@@ -16,6 +16,9 @@ import {
   Camera,
   Share2
 } from 'lucide-react';
+import artistShowcasePortrait from '../../assets/images/artist_showcase_portrait_1792791744296.jpg';
+import lyricalStudioHero from '../../assets/images/lyrical_ent_studio_hero_1792791743831.jpg';
+import vinylPressMockup from '../../assets/images/vinyl_press_mockup_1792791744149.jpg';
 
 export const PressMedia: React.FC = () => {
   const { 
@@ -411,7 +414,7 @@ export const PressMedia: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
             <div className="border border-[#1E1E1E] rounded overflow-hidden bg-[#121212]">
               <img 
-                src="/src/assets/images/artist_showcase_portrait_1792791744296.jpg" 
+                src={artistShowcasePortrait} 
                 alt="Sariyah Cole Master Press Portrait" 
                 referrerPolicy="no-referrer"
                 className="w-full h-56 object-cover grayscale contrast-125"
@@ -421,7 +424,7 @@ export const PressMedia: React.FC = () => {
                 <div className="text-[10px] text-neutral-400 font-mono mt-0.5">Credit: {wsName} Visuals · 2026</div>
                 <div className="mt-2 pt-2 border-t border-[#1C1C1C] flex items-center justify-between text-[10px] font-mono">
                   <span className="text-neutral-300">APPROVED FOR PRINT</span>
-                  <a href="/src/assets/images/artist_showcase_portrait_1792791744296.jpg" download className="text-white hover:underline flex items-center gap-1">
+                  <a href={artistShowcasePortrait} download className="text-white hover:underline flex items-center gap-1">
                     <Download size={10} />
                     <span>Download</span>
                   </a>
@@ -431,7 +434,7 @@ export const PressMedia: React.FC = () => {
 
             <div className="border border-[#1E1E1E] rounded overflow-hidden bg-[#121212]">
               <img 
-                src="/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg" 
+                src={lyricalStudioHero} 
                 alt="LYRICAL ENT Sound Lab A Control Room" 
                 referrerPolicy="no-referrer"
                 className="w-full h-56 object-cover grayscale contrast-125"
@@ -441,7 +444,7 @@ export const PressMedia: React.FC = () => {
                 <div className="text-[10px] text-neutral-400 font-mono mt-0.5">Credit: Architectural Archive · 2026</div>
                 <div className="mt-2 pt-2 border-t border-[#1C1C1C] flex items-center justify-between text-[10px] font-mono">
                   <span className="text-neutral-300">APPROVED FOR WEB</span>
-                  <a href="/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg" download className="text-white hover:underline flex items-center gap-1">
+                  <a href={lyricalStudioHero} download className="text-white hover:underline flex items-center gap-1">
                     <Download size={10} />
                     <span>Download</span>
                   </a>
@@ -451,7 +454,7 @@ export const PressMedia: React.FC = () => {
 
             <div className="border border-[#1E1E1E] rounded overflow-hidden bg-[#121212]">
               <img 
-                src="/src/assets/images/vinyl_press_mockup_1792791744149.jpg" 
+                src={vinylPressMockup} 
                 alt="LYRICAL ENT Vinyl Master Pressing" 
                 referrerPolicy="no-referrer"
                 className="w-full h-56 object-cover grayscale contrast-125"
@@ -461,7 +464,7 @@ export const PressMedia: React.FC = () => {
                 <div className="text-[10px] text-neutral-400 font-mono mt-0.5">Credit: {wsName} Archive · 2026</div>
                 <div className="mt-2 pt-2 border-t border-[#1C1C1C] flex items-center justify-between text-[10px] font-mono">
                   <span className="text-neutral-300">APPROVED FOR SYNDICATION</span>
-                  <a href="/src/assets/images/vinyl_press_mockup_1792791744149.jpg" download className="text-white hover:underline flex items-center gap-1">
+                  <a href={vinylPressMockup} download className="text-white hover:underline flex items-center gap-1">
                     <Download size={10} />
                     <span>Download</span>
                   </a>

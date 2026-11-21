@@ -368,7 +368,7 @@ export const adminCreateClientWorkspace = functions.https.onCall(async (data, co
     await client.ref.update({ workspaceId: workspace.id, updatedAt: new Date().toISOString() });
     return { success: true, workspaceId: workspace.id, alreadyExists: true };
   }
-  const type = data.workspaceType === 'Brand' ? 'Brand' : 'Artist';
+  const type = data.workspaceType === 'Brand' ? 'Brand' : data.workspaceType === 'Business' ? 'Business' : 'Artist';
   const category = type.toLowerCase();
   const accentColor = typeof data.accentColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.accentColor)
     ? data.accentColor
@@ -826,7 +826,7 @@ export const adminUpdatePlatformSettings = functions.https.onCall(async (data, c
   }
   if (payload.supportEmail !== undefined) {
     const email = requireStringField(payload, 'supportEmail', 254);
-    const emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailPattern.test(email)) {
       throw new functions.https.HttpsError('invalid-argument', 'Support email is not a valid email address.');
     }

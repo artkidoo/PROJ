@@ -41,6 +41,7 @@ import {
   Sparkles,
   BookOpen
 } from 'lucide-react';
+import lyricalBrandStationery from '../../assets/images/lyrical_ent_brand_stationery_1792793391733.jpg';
 
 export const BrandIdentityManager: React.FC = () => {
   const { 
@@ -616,7 +617,7 @@ export const BrandIdentityManager: React.FC = () => {
 
               <div className="lg:col-span-5 relative min-h-[200px] bg-[#141414] border-t lg:border-t-0 lg:border-l border-[#222222]">
                 <img 
-                  src="/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg" 
+                  src={lyricalBrandStationery} 
                   alt="LYRICAL ENT Brand Stationery Suite"
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover grayscale contrast-125"
@@ -1080,7 +1081,7 @@ export const BrandIdentityManager: React.FC = () => {
                   <td className="py-3 pr-3 font-mono text-neutral-300">APPROVED</td>
                   <td className="py-3 text-right">
                     <a
-                      href="/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg"
+                      href={lyricalBrandStationery}
                       download="lyrical_ent_stationery.jpg"
                       className="px-2.5 py-1 text-xs font-mono bg-[#1A1A1A] hover:bg-[#242424] text-white rounded border border-[#2B2B2B] inline-flex items-center gap-1"
                     >

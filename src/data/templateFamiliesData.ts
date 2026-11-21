@@ -6,6 +6,8 @@
  */
 
 import { TemplateFamilyItem, CanvasDesign } from '../types/designStudio';
+import artistShowcasePortrait from '../assets/images/artist_showcase_portrait_1792791744296.jpg';
+import vinylPressMockup from '../assets/images/vinyl_press_mockup_1792791744149.jpg';
 
 export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
   // ================= A. PREMIUM EDITORIAL (6 templates) =================
@@ -108,7 +110,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 0.95,
           zIndex: 2,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -310,7 +312,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'contrast'
         },
@@ -443,7 +445,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 2,
           visible: true,
-          src: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+          src: vinylPressMockup,
           objectFit: 'cover',
           filter: 'noir'
         }
@@ -482,7 +484,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 0.6,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -753,7 +755,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 0.85,
           zIndex: 2,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -897,7 +899,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -1011,7 +1013,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -1027,7 +1029,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 2,
           visible: true,
-          src: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+          src: vinylPressMockup,
           objectFit: 'cover',
           filter: 'contrast'
         },
@@ -1162,7 +1164,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 0.9,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'contrast'
         },
@@ -1278,7 +1280,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 0.8,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+          src: vinylPressMockup,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -1393,7 +1395,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -1450,7 +1452,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 0.75,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'contrast'
         },
@@ -1578,7 +1580,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+          src: vinylPressMockup,
           objectFit: 'cover'
         },
         {
@@ -2032,7 +2034,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },
@@ -2048,7 +2050,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+          src: vinylPressMockup,
           objectFit: 'cover',
           filter: 'contrast'
         }
@@ -2087,7 +2089,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 0.85,
           zIndex: 2,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover'
         },
         {
@@ -2260,7 +2262,7 @@ export const TEMPLATE_FAMILIES: TemplateFamilyItem[] = [
           opacity: 1,
           zIndex: 1,
           visible: true,
-          src: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+          src: artistShowcasePortrait,
           objectFit: 'cover',
           filter: 'noir'
         },

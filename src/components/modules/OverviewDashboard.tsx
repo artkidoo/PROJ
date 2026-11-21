@@ -28,6 +28,9 @@ import {
 } from 'lucide-react';
 import { ClientRequestModal } from '../modals/ClientRequestModal';
 import { triggerSvgDownload } from '../brand/LogoSystem';
+import vinylPressMockup from '../../assets/images/vinyl_press_mockup_1792791744149.jpg';
+import lyricalBrandStationery from '../../assets/images/lyrical_ent_brand_stationery_1792793391733.jpg';
+import lyricalStudioHero from '../../assets/images/lyrical_ent_studio_hero_1792791743831.jpg';
 
 const triggerBlobDownload = (filename: string, content: string, contentType: string = 'text/plain') => {
   const blob = new Blob([content], { type: contentType });
@@ -365,10 +368,10 @@ export const OverviewDashboard: React.FC = () => {
           <div className="lg:col-span-5 relative min-h-[220px] bg-[#141414] border-t lg:border-t-0 lg:border-l border-[#222222]">
             <img 
               src={isArtist 
-                ? "/src/assets/images/vinyl_press_mockup_1792791744149.jpg" 
+                ? vinylPressMockup 
                 : (isBrand || isBusiness)
-                ? "/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg" 
-                : "/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg"
+                ? lyricalBrandStationery 
+                : lyricalStudioHero
               } 
               alt={activeWorkspace.name}
               referrerPolicy="no-referrer"

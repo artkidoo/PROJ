@@ -12,7 +12,7 @@ export const StudioImage: React.FC<StudioImageProps> = ({
   src,
   alt,
   className = 'h-full w-full object-cover',
-  loading = 'lazy',
+  loading = 'eager',
   fallbackLabel = 'KeedoHub Studio Archive',
 }) => {
   const [failed, setFailed] = useState(false);

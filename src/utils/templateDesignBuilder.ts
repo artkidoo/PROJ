@@ -7,6 +7,7 @@
 
 import { CreativeTemplate } from '../data/creativeTemplatesData';
 import { CanvasDesign, CanvasElement } from '../types/designStudio';
+import artistShowcasePortrait from '../assets/images/artist_showcase_portrait_1792791744296.jpg';
 
 export function buildHonestDesignForTemplate(t: CreativeTemplate): CanvasDesign {
   const isDark = t.bgTheme !== 'cream' && t.bgTheme !== 'silver';
@@ -52,7 +53,7 @@ export function buildHonestDesignForTemplate(t: CreativeTemplate): CanvasDesign 
         opacity: 0.65,
         zIndex: 1,
         visible: true,
-        src: t.imageUrl || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+        src: t.imageUrl || artistShowcasePortrait,
         filter: 'noir',
         objectFit: 'cover'
       },
@@ -160,7 +161,7 @@ export function buildHonestDesignForTemplate(t: CreativeTemplate): CanvasDesign 
         opacity: 0.92,
         zIndex: 2,
         visible: true,
-        src: t.imageUrl || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+        src: t.imageUrl || artistShowcasePortrait,
         filter: 'grayscale',
         objectFit: 'cover'
       },
@@ -552,7 +553,7 @@ export function buildHonestDesignForTemplate(t: CreativeTemplate): CanvasDesign 
         opacity: 0.92,
         zIndex: 1,
         visible: true,
-        src: t.imageUrl || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+        src: t.imageUrl || artistShowcasePortrait,
         filter: t.style === 'Grainy Film' ? 'noir' : 'contrast',
         objectFit: 'cover'
       },

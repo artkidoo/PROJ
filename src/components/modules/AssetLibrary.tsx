@@ -16,6 +16,10 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { triggerSvgDownload, triggerPngDownload } from '../brand/LogoSystem';
+import lyricalBrandStationery from '../../assets/images/lyrical_ent_brand_stationery_1792793391733.jpg';
+import lyricalStudioHero from '../../assets/images/lyrical_ent_studio_hero_1792791743831.jpg';
+import artistShowcasePortrait from '../../assets/images/artist_showcase_portrait_1792791744296.jpg';
+import vinylPressMockup from '../../assets/images/vinyl_press_mockup_1792791744149.jpg';
 
 interface AssetItem {
   id: string;
@@ -82,7 +86,7 @@ export const AssetLibrary: React.FC = () => {
       fileSize: '3.4 MB',
       version: 'v1.0 Final',
       status: 'Approved',
-      fileUrl: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg',
+      fileUrl: lyricalBrandStationery,
       uploadedDate: '2026-03-02',
       metadata: 'Master physical brand collateral featuring debossed business cards, A4 letterhead, and vinyl sleeve.'
     },
@@ -94,7 +98,7 @@ export const AssetLibrary: React.FC = () => {
       fileSize: '4.2 MB',
       version: 'v1.0',
       status: 'Approved',
-      fileUrl: '/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg',
+      fileUrl: lyricalStudioHero,
       uploadedDate: '2026-02-14',
       metadata: 'Leica 35mm documentary press photo of mixing console.'
     },
@@ -106,7 +110,7 @@ export const AssetLibrary: React.FC = () => {
       fileSize: '3.8 MB',
       version: 'v1.2',
       status: 'Approved',
-      fileUrl: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+      fileUrl: artistShowcasePortrait,
       uploadedDate: '2026-02-20',
       metadata: '300 DPI high-contrast black & white portrait for press and billboards.'
     },
@@ -118,7 +122,7 @@ export const AssetLibrary: React.FC = () => {
       fileSize: '5.1 MB',
       version: 'v2.0',
       status: 'Approved',
-      fileUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+      fileUrl: vinylPressMockup,
       uploadedDate: '2026-02-28',
       metadata: '3000x3000px master packaging for single and physical vinyl press.'
     },

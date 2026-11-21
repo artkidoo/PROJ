@@ -184,7 +184,7 @@ export const WorkspacesManagement: React.FC<Props> = ({
   const [provisionModalOpen, setProvisionModalOpen] = useState(false);
   const [provisionEmail, setProvisionEmail] = useState('');
   const [provisionName, setProvisionName] = useState('');
-  const [provisionType, setProvisionType] = useState<'Artist' | 'Brand'>('Artist');
+  const [provisionType, setProvisionType] = useState<'Artist' | 'Brand' | 'Business'>('Artist');
   const [provisionTagline, setProvisionTagline] = useState('');
   const [provisionDescription, setProvisionDescription] = useState('');
   const [provisionAccentColor, setProvisionAccentColor] = useState('#D97706');
@@ -607,7 +607,12 @@ export const WorkspacesManagement: React.FC<Props> = ({
     if (!client) return;
     setProvisionEmail(client.email);
     setProvisionName(client.organizationName || client.displayName || '');
-    const nextType: 'Artist' | 'Brand' = client.accountType === 'Artist' ? 'Artist' : 'Brand';
+    const nextType: 'Artist' | 'Brand' | 'Business' =
+      client.accountType === 'Artist'
+        ? 'Artist'
+        : client.accountType === 'Company'
+          ? 'Business'
+          : 'Brand';
     setProvisionType(nextType);
     setProvisionAccentColor(nextType === 'Artist' ? '#D97706' : '#2563EB');
   };
@@ -1803,7 +1808,12 @@ export const WorkspacesManagement: React.FC<Props> = ({
                 id="provision-workspace-type"
                 value={provisionType}
                 onChange={e => {
-                  const next = e.target.value === 'Brand' ? 'Brand' : 'Artist';
+                  const next: 'Artist' | 'Brand' | 'Business' =
+                    e.target.value === 'Brand'
+                      ? 'Brand'
+                      : e.target.value === 'Business'
+                        ? 'Business'
+                        : 'Artist';
                   setProvisionType(next);
                   setProvisionAccentColor(next === 'Artist' ? '#D97706' : '#2563EB');
                 }}
@@ -1811,6 +1821,7 @@ export const WorkspacesManagement: React.FC<Props> = ({
               >
                 <option value="Artist">Artist</option>
                 <option value="Brand">Brand</option>
+                <option value="Business">Business / Company</option>
               </select>
             </div>
             <div>

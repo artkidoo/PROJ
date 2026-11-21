@@ -17,13 +17,18 @@ import {
   ServicePackage,
   MotionProjectSpec
 } from '../types';
+import artistShowcasePortrait from '../assets/images/artist_showcase_portrait_1792791744296.jpg';
+import artistEditorialPortraitTwo from '../assets/images/artist_editorial_portrait_two_1795183778275.jpg';
+import vinylPressMockup from '../assets/images/vinyl_press_mockup_1792791744149.jpg';
+import lyricalStudioHero from '../assets/images/lyrical_ent_studio_hero_1792791743831.jpg';
+import lyricalBrandStationery from '../assets/images/lyrical_ent_brand_stationery_1792793391733.jpg';
 
 export const INITIAL_PLATFORM_USER: PlatformUser = {
   id: 'user-01',
   name: 'Ojo Abdulkareem',
   email: 'ojoabdulkareem53@gmail.com',
   status: 'Active',
-  avatarUrl: '/src/assets/images/user_avatar_placeholder.jpg',
+  avatarUrl: artistShowcasePortrait,
   createdAt: '2024-01-01T00:00:00Z'
 };
 
@@ -182,7 +187,7 @@ export const INITIAL_ARTISTS: Artist[] = [
       'Single: "Monochrome State" (Upcoming)'
     ],
     releaseIds: ['rel-01', 'rel-02'],
-    avatarUrl: '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+    avatarUrl: artistShowcasePortrait,
     isConfidential: false,
     createdAt: '2025-08-15T10:00:00Z',
     updatedAt: '2026-03-01T14:30:00Z'
@@ -242,7 +247,7 @@ export const INITIAL_RELEASES: MusicRelease[] = [
     songwriters: 'Sariyah Cole, Kaelen Vance, David Okoye',
     credits: 'Mastered at Abbey Road Studios by Christian Wright. Mixed by Alex Tumay. Executive Producer: LYRICAL ENT.',
     plannedReleaseDate: '2026-11-14',
-    artworkUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+    artworkUrl: vinylPressMockup,
     audioLocation: 'LYRICAL Cloud Vault // Master_24bit_96kHz_WAV.zip',
     distributionStatus: 'Metadata Verification',
     isrc: 'US-LYR-26-00104',
@@ -288,7 +293,7 @@ export const INITIAL_RELEASES: MusicRelease[] = [
         category: 'Artwork',
         format: '1:1 Square (3000x3000px)',
         stage: 'Delivered',
-        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        previewUrl: vinylPressMockup,
         fileSpecs: 'PNG · 3000x3000px · 300DPI · 8.2 MB',
         revisionCount: 1,
         maxRevisions: 3,
@@ -302,7 +307,7 @@ export const INITIAL_RELEASES: MusicRelease[] = [
         category: 'Motion Video',
         format: '9:16 Vertical (1080x1920px)',
         stage: 'Client Review',
-        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        previewUrl: vinylPressMockup,
         fileSpecs: 'MP4 ProRes · 1080x1920 · 60FPS · 16.4 MB',
         revisionCount: 2,
         maxRevisions: 3,
@@ -349,7 +354,7 @@ export const INITIAL_RELEASES: MusicRelease[] = [
     songwriters: 'Sariyah Cole',
     credits: 'Recorded at LYRICAL Sound Lab A, London. Mastered by Sterling Sound.',
     plannedReleaseDate: '2025-11-20',
-    artworkUrl: '/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg',
+    artworkUrl: lyricalStudioHero,
     distributionStatus: 'Live',
     isrc: 'US-LYR-25-00088',
     upc: '198273947119',
@@ -424,7 +429,7 @@ export const INITIAL_CAMPAIGNS: CreativeCampaign[] = [
         status: 'Approved',
         assignedTo: 'Creative Direction',
         dueDate: '2026-10-15',
-        assetUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg'
+        assetUrl: vinylPressMockup
       },
       {
         id: 'del-02',
@@ -1260,7 +1265,7 @@ export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
       referenceLinks: ['https://spotify.com/album/midnight-solitude']
     },
     sourceMaterials: [
-      { id: 'src-01', name: 'Raw 35mm Studio Contact Sheet', fileType: 'TIFF', url: '/src/assets/images/artist_sariyah_press.jpg', uploadedAt: '2026-10-01T12:00:00Z' },
+      { id: 'src-01', name: 'Raw 35mm Studio Contact Sheet', fileType: 'TIFF', url: artistEditorialPortraitTwo, uploadedAt: '2026-10-01T12:00:00Z' },
       { id: 'src-02', name: 'Master Track Multi-Stems (Lossless)', fileType: 'ZIP', url: '/assets/stems/midnight_solitude.zip', uploadedAt: '2026-10-05T14:30:00Z' }
     ],
     versions: [
@@ -1268,8 +1273,8 @@ export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
         id: 'ver-01-1',
         versionNumber: 'v1.0',
         title: 'Initial Gatefold Sleeve Draft',
-        fileUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
-        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        fileUrl: vinylPressMockup,
+        previewUrl: vinylPressMockup,
         fileType: 'image/jpeg',
         fileSize: '4.2 MB',
         uploadedAt: '2026-10-10T10:00:00Z',
@@ -1281,8 +1286,8 @@ export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
         id: 'ver-01-2',
         versionNumber: 'v1.1',
         title: 'Final Vinyl Gatefold & High-Res Master Sleeve',
-        fileUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
-        previewUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+        fileUrl: vinylPressMockup,
+        previewUrl: vinylPressMockup,
         fileType: 'image/jpeg',
         fileSize: '18.4 MB',
         uploadedAt: '2026-10-20T16:00:00Z',
@@ -1325,15 +1330,15 @@ export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
       inspirationNotes: 'Velvety shadows, minimal typography, warm golden accents'
     },
     sourceMaterials: [
-      { id: 'src-03', name: 'Studio Film Scans Roll 4', fileType: 'PNG', url: '/src/assets/images/artist_sariyah_press.jpg', uploadedAt: '2026-10-18T09:00:00Z' }
+      { id: 'src-03', name: 'Studio Film Scans Roll 4', fileType: 'PNG', url: artistEditorialPortraitTwo, uploadedAt: '2026-10-18T09:00:00Z' }
     ],
     versions: [
       {
         id: 'ver-02-1',
         versionNumber: 'v1.0',
         title: 'Single Cover Art Proof (Variant B - Warm Accent)',
-        fileUrl: '/src/assets/images/artist_sariyah_press.jpg',
-        previewUrl: '/src/assets/images/artist_sariyah_press.jpg',
+        fileUrl: artistEditorialPortraitTwo,
+        previewUrl: artistEditorialPortraitTwo,
         fileType: 'image/jpeg',
         fileSize: '6.8 MB',
         uploadedAt: '2026-10-24T15:30:00Z',
@@ -1373,15 +1378,15 @@ export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
       inspirationNotes: 'Electric cobalt #2563EB accent, geometric Swiss grid, razor-sharp typography'
     },
     sourceMaterials: [
-      { id: 'src-04', name: 'Legacy Monogram Assets & Brand Deck', fileType: 'PDF', url: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg', uploadedAt: '2026-10-15T11:00:00Z' }
+      { id: 'src-04', name: 'Legacy Monogram Assets & Brand Deck', fileType: 'PDF', url: lyricalBrandStationery, uploadedAt: '2026-10-15T11:00:00Z' }
     ],
     versions: [
       {
         id: 'ver-03-1',
         versionNumber: 'v1.0',
         title: 'Core Monogram Geometry & Grid Construction',
-        fileUrl: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg',
-        previewUrl: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg',
+        fileUrl: lyricalBrandStationery,
+        previewUrl: lyricalBrandStationery,
         fileType: 'image/jpeg',
         fileSize: '8.1 MB',
         uploadedAt: '2026-10-19T14:00:00Z',
@@ -1428,8 +1433,8 @@ export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
         id: 'ver-04-1',
         versionNumber: 'v1.0',
         title: 'Kinetic 3D Sting Draft (Render 01)',
-        fileUrl: '/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg',
-        previewUrl: '/src/assets/images/lyrical_ent_studio_hero_1792791743831.jpg',
+        fileUrl: lyricalStudioHero,
+        previewUrl: lyricalStudioHero,
         fileType: 'image/jpeg',
         fileSize: '24.5 MB',
         uploadedAt: '2026-10-23T11:00:00Z',
@@ -1475,7 +1480,7 @@ export const INITIAL_PRODUCTION_PROJECTS: ProductionProject[] = [
         versionNumber: 'v1.0',
         title: 'Master Retainer Agreement (Signed & Executed)',
         fileUrl: '/documents/apex_retainer_executed.pdf',
-        previewUrl: '/src/assets/images/lyrical_ent_brand_stationery_1792793391733.jpg',
+        previewUrl: lyricalBrandStationery,
         fileType: 'application/pdf',
         fileSize: '1.2 MB',
         uploadedAt: '2026-10-14T10:00:00Z',
@@ -1698,7 +1703,7 @@ export const INITIAL_MOTION_PROJECTS: MotionProjectSpec[] = [
     clientFeedback: 'Approved the initial cut, please ensure the artist moniker appears clearly in upper third safe zone.',
     internalProductionNotes: 'Ensure 1080x1920 60FPS render with H.264 profile high and stereo AAC 320kbps audio stems.',
     currentVersion: 'v1.2',
-    previewKeyframeUrl: '/src/assets/images/vinyl_press_mockup_1792791744149.jpg',
+    previewKeyframeUrl: vinylPressMockup,
     exportSpecs: {
       fps: 60,
       resolution: '1080x1920',

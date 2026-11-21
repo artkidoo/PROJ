@@ -75,6 +75,7 @@ import {
   LineArtCategory 
 } from '../../data/lineArtLibrary';
 import { LineArtRenderer, getLineArtSvgString } from '../common/LineArtRenderer';
+import artistShowcasePortrait from '../../assets/images/artist_showcase_portrait_1792791744296.jpg';
 
 interface DesignCanvasEditorProps {
   initialDesign: CanvasDesign;
@@ -223,7 +224,7 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
         opacity: 1,
         zIndex: newZ,
         visible: true,
-        src: extra?.src || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg',
+        src: extra?.src || artistShowcasePortrait,
         objectFit: 'cover',
         filter: 'none',
         ...extra
@@ -1093,7 +1094,7 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
                     {el.type === 'image' && (
                       <div className="w-full h-full relative overflow-hidden rounded-sm pointer-events-none">
                         <img 
-                          src={el.src || '/src/assets/images/artist_showcase_portrait_1792791744296.jpg'} 
+                          src={el.src || artistShowcasePortrait} 
                           alt={el.name}
                           className={`w-full h-full object-${el.objectFit || 'cover'} ${
                             el.filter === 'noir' ? 'grayscale contrast-125' :
