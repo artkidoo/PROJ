@@ -718,5 +718,133 @@ service cloud.firestore {
       allow read: if isPlatformAdmin() || resource.data.isActive == true;
       allow write: if false;
     }
+
+    function clientMatchesProductAudience(audience) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.onboardingComplete == true &&
+        (
+          audience == 'Shared' ||
+          (get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Artist' &&
+            audience == 'Artist') ||
+          (get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Brand' &&
+            audience in ['Brand', 'Brand & Business']) ||
+          (get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Company' &&
+            audience in ['Business', 'Brand & Business'])
+        );
+    }
+
+    function clientHasOpenWorkspace() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId is string &&
+        isValidId(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId) &&
+        isWorkspaceOpen(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId) &&
+        (
+          ownsProjectWorkspace(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId) ||
+          (
+            exists(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)/memberships/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)/memberships/$(request.auth.uid)).data.status == 'Active'
+          )
+        );
+    }
+
+    function clientHasWorkspaceAccessToProduct(assignedWorkspaceIds) {
+      return clientHasOpenWorkspace() &&
+        get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId in assignedWorkspaceIds;
+    }
+
+    function isServicePackageActive(packageId) {
+      return packageId is string &&
+        isValidId(packageId) &&
+        exists(/databases/$(database)/documents/services/$(packageId)) &&
+        get(/databases/$(database)/documents/services/$(packageId)).data.isActive == true;
+    }
+
+    function clientMatchesPackageAt(productPkgIds, wsPkgIds, idx) {
+      return wsPkgIds.size() > idx &&
+        wsPkgIds[idx] is string &&
+        wsPkgIds[idx].size() > 0 &&
+        (wsPkgIds[idx] in productPkgIds) &&
+        isServicePackageActive(wsPkgIds[idx]);
+    }
+
+    function clientHasPackageEntitlementForProduct(productPkgIds) {
+      return clientHasOpenWorkspace() &&
+        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['contractedPackageIds']) &&
+        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds is list &&
+        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds.size() > 0 &&
+        (
+          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 0) ||
+          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 1) ||
+          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 2) ||
+          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 3) ||
+          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 4)
+        );
+    }
+
+    function validCreativeProduct(productId, data) {
+      return data.keys().hasOnly([
+          'id', 'title', 'slug', 'audience', 'productFamily', 'category', 'subcategory', 'summary',
+          'description', 'status', 'accessType', 'assignedWorkspaceIds',
+          'includedPackageIds', 'linkedServiceCategory', 'version',
+          'supportedFormats', 'deliverablesSummary', 'dimensionSpecs',
+          'previewImageUrl', 'previewStoragePath', 'previewAlt', 'files',
+          'linkedCanvasDesignId', 'linkedTemplateId', 'featured',
+          'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.id == productId &&
+        isValidId(productId) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 160 &&
+        data.slug is string && data.slug.size() > 0 && data.slug.size() <= 160 &&
+        data.audience in ['Artist', 'Brand', 'Business', 'Brand & Business', 'Shared'] &&
+        (!data.keys().hasAny(['productFamily']) || (data.productFamily is string && data.productFamily.size() <= 120)) &&
+        data.category is string && data.category.size() > 0 && data.category.size() <= 120 &&
+        (!data.keys().hasAny(['subcategory']) || (data.subcategory is string && data.subcategory.size() <= 120)) &&
+        data.summary is string && data.summary.size() <= 600 &&
+        data.description is string && data.description.size() <= 5000 &&
+        data.status in ['Draft', 'Published', 'Archived'] &&
+        data.accessType in ['Free', 'IncludedInPackage', 'AdminAssigned', 'RequestRequired'] &&
+        data.assignedWorkspaceIds is list && data.assignedWorkspaceIds.size() <= 200 &&
+        (!data.keys().hasAny(['includedPackageIds']) || (data.includedPackageIds is list && data.includedPackageIds.size() <= 50)) &&
+        (data.status != 'Published' ||
+          data.accessType != 'IncludedInPackage' ||
+          (data.keys().hasAny(['includedPackageIds']) && data.includedPackageIds is list && data.includedPackageIds.size() > 0) ||
+          data.assignedWorkspaceIds.size() > 0) &&
+        data.linkedServiceCategory is string && data.linkedServiceCategory.size() <= 120 &&
+        data.version is string && data.version.size() <= 40 &&
+        data.supportedFormats is list && data.supportedFormats.size() <= 20 &&
+        data.deliverablesSummary is list && data.deliverablesSummary.size() <= 30 &&
+        data.dimensionSpecs is list && data.dimensionSpecs.size() <= 30 &&
+        data.previewImageUrl is string && data.previewImageUrl.size() <= 2048 &&
+        data.files is list && data.files.size() <= 50 &&
+        data.createdAt is string && data.updatedAt is string &&
+        data.createdBy is string && data.updatedBy is string;
+    }
+
+    // Phase 6 Creative Products Catalog & Deliverables
+    match /creativeProducts/{productId} {
+      allow read: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        clientHasOpenWorkspace() &&
+        resource.data.status == 'Published' &&
+        clientMatchesProductAudience(resource.data.audience) &&
+        (
+          resource.data.accessType in ['Free', 'RequestRequired'] ||
+          clientHasWorkspaceAccessToProduct(resource.data.assignedWorkspaceIds) ||
+          (
+            resource.data.accessType == 'IncludedInPackage' &&
+            clientHasPackageEntitlementForProduct(resource.data.includedPackageIds)
+          )
+        )
+      );
+      allow create, update: if isPlatformAdmin() && validCreativeProduct(productId, request.resource.data);
+      allow delete: if isPlatformAdmin();
+
+      // Strictly admin-only Canvas specs, notes, and internal working source metadata
+      match /internalSpecs/{specId} {
+        allow read, write: if isPlatformAdmin();
+      }
+    }
   }
 }

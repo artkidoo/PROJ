@@ -44,18 +44,14 @@ import {
   ProductionDeliverable,
   Workspace,
 } from '../../types';
-import type { AspectRatioType, CanvasDesign } from '../../types/designStudio';
 import { db, storage } from '../../lib/firebase';
 import { isInternalStoragePath } from '../../lib/productionPromotion';
 import {
   buildBrandProductionPrefill,
-  buildClientCanvasDesign,
-  buildClientWorkspaceCanvasAssetMetadata,
   buildReleaseProductionPrefill,
   ProductionRequestPrefill,
 } from '../../lib/clientOS';
 import { generateBrandGuidelinesPdf, generateCorporateDocumentPdf } from '../../utils/pdfGenerator';
-import { DesignCanvasEditor } from '../studio/DesignCanvasEditor';
 
 export type ClientStudioSection =
   | 'artist-profile'
@@ -202,7 +198,7 @@ interface ClientStudioProps {
   deliverables?: ProductionDeliverable[];
   primaryWorkspaceId?: string;
   externalData?: ClientStudioExternalData;
-  onNavigateSection?: (section: ClientStudioSection | 'projects' | 'deliverables' | 'requests') => void;
+  onNavigateSection?: (section: ClientStudioSection | 'creative-hub' | 'projects' | 'deliverables' | 'requests') => void;
   onRequestProduction?: (prefill: ProductionRequestPrefill) => void;
 }
 
@@ -295,21 +291,6 @@ function downloadText(fileName: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-function canvasDraftStorageKey(workspaceId: string): string {
-  return `keedohub_client_canvas_drafts_${workspaceId}`;
-}
-
-function loadClientCanvasDrafts(workspaceId: string): CanvasDesign[] {
-  try {
-    const raw = localStorage.getItem(canvasDraftStorageKey(workspaceId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 export const ClientStudio: React.FC<ClientStudioProps> = ({
   section,
   workspace,
@@ -384,11 +365,6 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     body: '',
   });
 
-  // Canvas overlay state for client content/creative graphics
-  const [canvasDrafts, setCanvasDrafts] = useState<CanvasDesign[]>(() => loadClientCanvasDrafts(workspace.id));
-  const [activeCanvasDesign, setActiveCanvasDesign] = useState<CanvasDesign | null>(null);
-  const [canvasLinkedReleaseId, setCanvasLinkedReleaseId] = useState('');
-
   // Business documents sub-view
   const [docSubTab, setDocSubTab] = useState<'all' | 'proposals' | 'invoices' | 'corporate'>('all');
   const [previewDocument, setPreviewDocument] = useState<StudioDocument | null>(null);
@@ -437,7 +413,6 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   }, [workspace]);
 
   useEffect(() => {
-    setCanvasDrafts(loadClientCanvasDrafts(workspace.id));
     setAssetCategory(isArtistWorkspace(workspace) ? 'Artwork' : 'Logo');
     setContentForm(prev =>
       contentEditingId || prev.title || prev.body
@@ -851,78 +826,6 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     }
   };
 
-  const persistCanvasDraft = (design: CanvasDesign) => {
-    const next = [design, ...canvasDrafts.filter(d => d.id !== design.id)].slice(0, 20);
-    setCanvasDrafts(next);
-    try {
-      localStorage.setItem(canvasDraftStorageKey(workspace.id), JSON.stringify(next));
-    } catch {
-      // Ignore quota errors gracefully
-    }
-  };
-
-  const removeCanvasDraft = (designId: string) => {
-    const next = canvasDrafts.filter(d => d.id !== designId);
-    setCanvasDrafts(next);
-    try {
-      localStorage.setItem(canvasDraftStorageKey(workspace.id), JSON.stringify(next));
-    } catch {
-      // ignore
-    }
-  };
-
-  const saveCanvasToWorkspaceLibrary = async (blob: Blob, design: CanvasDesign) => {
-    setError('');
-    if (blob.size <= 0 || blob.size >= 50 * 1024 * 1024) {
-      throw new Error('Rendered artwork must be smaller than 50 MB.');
-    }
-    const assetId = crypto.randomUUID();
-    const safeName = `${design.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'canvas-graphic'}.png`;
-    const storagePath = `workspaces/${workspace.id}/assets/${assetId}/${safeName}`;
-    await uploadBytes(ref(storage, storagePath), blob, { contentType: 'image/png' });
-
-    const linkedRelease = canvasLinkedReleaseId ? releaseById.get(canvasLinkedReleaseId) : undefined;
-    const record = buildClientWorkspaceCanvasAssetMetadata({
-      workspaceId: workspace.id,
-      assetId,
-      name: design.name,
-      storagePath,
-      fileSizeBytes: blob.size,
-      uid,
-      category: 'Promotional',
-      releaseId: canvasLinkedReleaseId,
-      projectId: linkedRelease?.projectId || '',
-      description: `Created in ${isArtist ? 'Artist OS' : 'Brand OS'} Design Canvas (${design.aspectRatio}).`,
-    });
-
-    await setDoc(doc(db, 'workspaces', workspace.id, 'brandAssets', assetId), record);
-    persistCanvasDraft(design);
-    showNotice(`Saved "${design.name}" to your Asset Library.`);
-  };
-
-  const openCanvasForStudio = (options?: {
-    title?: string;
-    subtitle?: string;
-    aspectRatio?: AspectRatioType;
-    releaseId?: string;
-    existingDraft?: CanvasDesign;
-  }) => {
-    setCanvasLinkedReleaseId(options?.releaseId || '');
-    if (options?.existingDraft) {
-      setActiveCanvasDesign({ ...options.existingDraft, workspaceId: workspace.id });
-      return;
-    }
-    const draft = buildClientCanvasDesign({
-      workspace,
-      isArtist,
-      title: options?.title,
-      subtitle: options?.subtitle,
-      aspectRatio: options?.aspectRatio,
-      linkedReleaseId: options?.releaseId,
-    });
-    setActiveCanvasDesign(draft);
-  };
-
   const editDocument = (item: StudioDocument) => {
     setDocumentEditingId(item.id);
     setDocumentForm({
@@ -1280,20 +1183,16 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              openCanvasForStudio({
-                title: workspaceName || workspace.name,
-                subtitle: artistProfile.genre ? artistProfile.genre.toUpperCase() : 'OFFICIAL ARTIST VISUAL',
-                aspectRatio: '1:1 Square',
-              })
-            }
-            className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
-          >
-            <Sparkles size={13} />
-            <span>Open Artist Canvas</span>
-          </button>
+          {onNavigateSection && (
+            <button
+              type="button"
+              onClick={() => onNavigateSection('creative-hub')}
+              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
+            >
+              <Sparkles size={13} />
+              <span>Browse Artist Creative Hub</span>
+            </button>
+          )}
           {onRequestProduction && (
             <button
               type="button"
@@ -1510,14 +1409,16 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#1E1E1E] pt-4">
-          <button
-            type="button"
-            onClick={() => openCanvasForStudio({ title: `${workspace.name} Brand Visual`, aspectRatio: '1:1 Square' })}
-            className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
-          >
-            <Sparkles size={13} />
-            <span>Open Brand Canvas</span>
-          </button>
+          {onNavigateSection && (
+            <button
+              type="button"
+              onClick={() => onNavigateSection('creative-hub')}
+              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
+            >
+              <Sparkles size={13} />
+              <span>Browse Brand Creative Hub</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -2042,20 +1943,16 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                           <Pencil size={12} />
                           Edit
                         </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openCanvasForStudio({
-                              title: release.title,
-                              subtitle: `${release.type.toUpperCase()} · ${release.releaseDate || 'COMING SOON'}`,
-                              releaseId: release.id,
-                            })
-                          }
-                          className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-950/20 px-2.5 py-1.5 text-xs text-amber-200 hover:text-white"
-                        >
-                          <Sparkles size={12} />
-                          Promo Graphic
-                        </button>
+                        {onNavigateSection && (
+                          <button
+                            type="button"
+                            onClick={() => onNavigateSection('creative-hub')}
+                            className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-950/20 px-2.5 py-1.5 text-xs text-amber-200 hover:text-white"
+                          >
+                            <Sparkles size={12} />
+                            Creative Packs
+                          </button>
+                        )}
                         {onNavigateSection && (
                           <button
                             type="button"
@@ -2302,46 +2199,32 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
 
     return (
       <div className="space-y-5">
-        {/* Creative Engine / Design Canvas Launcher */}
+        {/* Creative Hub & Studio Production Launcher */}
         <section className={`${panelClass} flex flex-col lg:flex-row lg:items-center justify-between gap-4`}>
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-red-400">
               {isArtist ? 'Artist OS · Content Engine' : 'Brand OS · Creative System'}
             </p>
             <h2 className="mt-1 text-xl font-bold text-white">
-              {isArtist ? 'Content Engine & Visual Studio' : 'Creative System & Visual Studio'}
+              {isArtist ? 'Content Engine & Release Messaging' : 'Creative System & Messaging'}
             </h2>
             <p className="mt-1 text-sm text-neutral-400">
               {isArtist
-                ? 'Keep captions, lyrics and promo copy connected to releases and deliverables, or open the Design Canvas to build cover & social graphics.'
-                : 'Coordinate marketing visuals, social copy and design graphics tied to your brand identity and active deliverables.'}
+                ? 'Organize release captions, lyrics and promo copy alongside deliverables, or browse Artist Creative Hub packs produced by KeedoHub.'
+                : 'Coordinate brand messaging, campaign copy and visual specifications tied to your Creative Hub packs and deliverables.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => openCanvasForStudio({ aspectRatio: '1:1 Square' })}
-              className="inline-flex items-center gap-2 rounded bg-[#FF1E1E] px-4 py-2.5 text-xs font-semibold text-white hover:bg-red-600 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <Sparkles size={14} />
-              <span>Open Design Canvas</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => openCanvasForStudio({ aspectRatio: '9:16 Vertical Story' })}
-              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2.5 text-xs font-medium text-neutral-200 hover:text-white whitespace-nowrap shrink-0"
-            >
-              <Layers size={14} />
-              <span>9:16 Story Graphic</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => openCanvasForStudio({ aspectRatio: '16:9 Landscape' })}
-              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2.5 text-xs font-medium text-neutral-200 hover:text-white whitespace-nowrap shrink-0"
-            >
-              <Layers size={14} />
-              <span>16:9 Landscape</span>
-            </button>
+            {onNavigateSection && (
+              <button
+                type="button"
+                onClick={() => onNavigateSection('creative-hub')}
+                className="inline-flex items-center gap-2 rounded bg-[#FF1E1E] px-4 py-2.5 text-xs font-semibold text-white hover:bg-red-600 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Sparkles size={14} />
+                <span>Open Creative Hub</span>
+              </button>
+            )}
             {(onRequestProduction || onNavigateSection) && (
               <button
                 type="button"
@@ -2360,57 +2243,13 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                     onNavigateSection('requests');
                   }
                 }}
-                className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2.5 text-xs font-medium text-neutral-300 hover:text-white whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2.5 text-xs font-medium text-neutral-200 hover:text-white whitespace-nowrap shrink-0"
               >
                 <span>Request Studio Production</span>
               </button>
             )}
           </div>
         </section>
-
-        {/* Local Saved Canvas Drafts */}
-        {canvasDrafts.length > 0 && (
-          <section className={panelClass}>
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-white">Your Canvas Graphics Drafts ({canvasDrafts.length})</h3>
-              <span className="text-[11px] font-mono text-neutral-500">
-                Open a draft to export or save directly into Asset Library
-              </span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {canvasDrafts.map(draft => (
-                <div key={draft.id} className="rounded border border-[#252525] bg-[#111] p-3.5 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white truncate">{draft.name}</p>
-                    <p className="mt-0.5 text-[11px] font-mono text-neutral-500 tabular-nums">
-                      {draft.aspectRatio} · {draft.width}×{draft.height}
-                    </p>
-                    <p className="mt-1 text-[10px] font-mono text-neutral-600 tabular-nums">
-                      Updated {new Date(draft.updatedAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => openCanvasForStudio({ existingDraft: draft })}
-                      className="rounded border border-[#333] bg-[#161616] px-2.5 py-1 text-xs font-medium text-white hover:border-[#FF1E1E]"
-                    >
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeCanvasDraft(draft.id)}
-                      aria-label={`Delete draft ${draft.name}`}
-                      className="rounded border border-[#2A2A2A] p-1 text-neutral-500 hover:text-red-300"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
           <section className={panelClass}>
@@ -3751,22 +3590,6 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Full-Screen Design Canvas Overlay */}
-      {activeCanvasDesign && (
-        <div className="fixed inset-0 z-50 bg-black/95 p-2 sm:p-4 flex flex-col">
-          <DesignCanvasEditor
-            initialDesign={activeCanvasDesign}
-            targetProjectTitle={
-              canvasLinkedReleaseId ? `Release: ${releaseById.get(canvasLinkedReleaseId)?.title || ''}` : workspace.name
-            }
-            saveAssetLabel="Save to Asset Library"
-            onSaveDesign={persistCanvasDraft}
-            onSaveAsWorkingAsset={saveCanvasToWorkspaceLibrary}
-            onClose={() => setActiveCanvasDesign(null)}
-          />
         </div>
       )}
     </div>

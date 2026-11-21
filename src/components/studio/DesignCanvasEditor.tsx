@@ -12,9 +12,13 @@ import {
   AspectRatioType,
   TextureOverlayType 
 } from '../../types/designStudio';
+import { doc, getDocFromServer } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import { isAdminRecordActive } from '../../lib/firebaseAuth';
 import { useApp } from '../../context/AppContext';
 import { 
-  Sliders, 
+  ShieldAlert, 
+  Sliders,
   Layers, 
   Type, 
   Image as ImageIcon, 
@@ -96,7 +100,30 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
   onClose,
   targetProjectTitle
 }) => {
-  const { activeWorkspace } = useApp();
+  const { activeWorkspace, firebaseUser, canAccessAdminCenter } = useApp();
+  const [adminGateStatus, setAdminGateStatus] = useState<'checking' | 'authorized' | 'denied'>(() =>
+    canAccessAdminCenter && firebaseUser ? 'checking' : 'denied'
+  );
+
+  useEffect(() => {
+    let active = true;
+    if (!firebaseUser || !canAccessAdminCenter) {
+      setAdminGateStatus('denied');
+      return;
+    }
+    setAdminGateStatus('checking');
+    getDocFromServer(doc(db, 'admins', firebaseUser.uid))
+      .then(snap => {
+        if (!active) return;
+        setAdminGateStatus(isAdminRecordActive(snap) ? 'authorized' : 'denied');
+      })
+      .catch(() => {
+        if (active) setAdminGateStatus('denied');
+      });
+    return () => {
+      active = false;
+    };
+  }, [firebaseUser, canAccessAdminCenter]);
 
   // Current design state
   const [design, setDesign] = useState<CanvasDesign>({
@@ -839,6 +866,37 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
 
   // Filtered illustrations for browse panel
   const displayedIllustrations = queryLineArtLibrary(illustrationCategory, illustrationSearch);
+
+  if (adminGateStatus === 'checking') {
+    return (
+      <div className="w-full min-h-[320px] flex items-center justify-center bg-[#090909] border border-[#202020] rounded-xl p-8 text-xs font-mono uppercase tracking-widest text-neutral-400">
+        Verifying Admin Studio Access…
+      </div>
+    );
+  }
+
+  if (adminGateStatus !== 'authorized') {
+    return (
+      <div className="w-full min-h-[320px] flex items-center justify-center bg-[#090909] border border-red-900/50 rounded-xl p-8">
+        <div className="max-w-md space-y-3 text-center">
+          <ShieldAlert size={28} className="mx-auto text-[#FF1E1E]" />
+          <h2 className="text-base font-bold text-white">Design Canvas Restricted to Admin HQ</h2>
+          <p className="text-xs text-neutral-400 leading-relaxed">
+            The Design Canvas Editor is an internal KeedoHub creative production studio reserved exclusively for verified administrators. Browse your Creative Hub to access approved products and request custom deliverables.
+          </p>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-2 inline-flex items-center gap-1.5 rounded border border-[#333] bg-[#141414] px-4 py-2 text-xs font-semibold text-white hover:border-white"
+            >
+              Return to Workspace
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-full overflow-hidden flex flex-col h-[calc(100vh-140px)] min-h-[660px] bg-[#090909] border border-[#202020] rounded-xl shadow-2xl">

@@ -70,6 +70,7 @@ export interface AdminDesignLibraryProps {
     tab?: 'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity'
   ) => void;
   onOpenWorkspace?: (workspaceId: string) => void;
+  onCreateCreativeProductFromDesign?: (design: CanvasDesign) => void;
 }
 
 interface WorkspaceDesignRecord extends CampaignDesign {
@@ -156,6 +157,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
   initialTab = 'designs',
   onOpenProject,
   onOpenWorkspace,
+  onCreateCreativeProductFromDesign,
 }) => {
   const { firebaseUser, canAccessAdminCenter } = useApp();
 
@@ -1755,17 +1757,30 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                             </button>
                           </div>
 
-                          {eligibleTargetProject && onOpenProject && (
-                            <button
-                              type="button"
-                              onClick={() => onOpenProject(eligibleTargetProject.id, 'deliverables')}
-                              className="inline-flex items-center gap-1 bg-[#1A1A1A] border border-[#2E2E2E] hover:border-[#FF1E1E] px-2.5 py-1 text-[11px] font-medium text-white"
-                              title="Internal specs stay admin-only; upload finished client outputs in Project Deliverables"
-                            >
-                              <FolderKanban size={11} className="text-[#FF1E1E]" />
-                              <span>Project Deliverables</span>
-                            </button>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {onCreateCreativeProductFromDesign && design.canvasDesign && (
+                              <button
+                                type="button"
+                                onClick={() => onCreateCreativeProductFromDesign(design.canvasDesign)}
+                                className="inline-flex items-center gap-1 bg-[#141414] border border-[#2E2E2E] hover:border-[#FF1E1E] px-2.5 py-1 text-[11px] font-medium text-neutral-200 hover:text-white"
+                                title="Create a publishable Creative Product from this design"
+                              >
+                                <Sparkles size={11} className="text-[#FF1E1E]" />
+                                <span>To Product</span>
+                              </button>
+                            )}
+                            {eligibleTargetProject && onOpenProject && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenProject(eligibleTargetProject.id, 'deliverables')}
+                                className="inline-flex items-center gap-1 bg-[#1A1A1A] border border-[#2E2E2E] hover:border-[#FF1E1E] px-2.5 py-1 text-[11px] font-medium text-white"
+                                title="Internal specs stay admin-only; upload finished client outputs in Project Deliverables"
+                              >
+                                <FolderKanban size={11} className="text-[#FF1E1E]" />
+                                <span>Project Deliverables</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </article>
                     );
@@ -2818,6 +2833,20 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
               </label>
             </div>
             <div className="flex items-center gap-2">
+              {onCreateCreativeProductFromDesign && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const draft = activeCanvasSession.design;
+                    setActiveCanvasSession(null);
+                    onCreateCreativeProductFromDesign(draft);
+                  }}
+                  className="inline-flex items-center gap-1 border border-[#2E2E2E] bg-[#141414] px-2.5 py-1 text-xs text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
+                >
+                  <Sparkles size={12} className="text-[#FF1E1E]" />
+                  <span>Create Creative Product</span>
+                </button>
+              )}
               {activeCanvasSession.projectId && onOpenProject && (
                 <button
                   type="button"

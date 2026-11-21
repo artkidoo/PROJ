@@ -222,6 +222,40 @@
         "deliverables": { "type": "array" }
       },
       "required": ["id", "name", "category", "priceUsd"]
+    },
+    "CreativeProduct": {
+      "title": "Creative Product",
+      "description": "Studio-authored creative pack, streaming suite, brand asset pack, or business document deliverable catalog item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "audience": { "type": "string" },
+        "productFamily": { "type": "string" },
+        "category": { "type": "string" },
+        "subcategory": { "type": "string" },
+        "status": { "type": "string" },
+        "accessType": { "type": "string" },
+        "assignedWorkspaceIds": { "type": "array" },
+        "linkedServiceCategory": { "type": "string" },
+        "version": { "type": "string" },
+        "files": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "audience", "category", "status", "accessType"]
+    },
+    "CreativeProductInternalSpec": {
+      "title": "Creative Product Internal Spec",
+      "description": "Admin-only source notes, Canvas JSON specs, and confidential source file metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productionNotes": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "productId"]
     }
   },
   "firestore": {
@@ -232,6 +266,14 @@
     "/services/{serviceId}": {
       "schema": { "$ref": "#/entities/ServicePackage" },
       "description": "Global catalog of available creative packages and retainers"
+    },
+    "/creativeProducts/{productId}": {
+      "schema": { "$ref": "#/entities/CreativeProduct" },
+      "description": "Creative Hub studio products authored by Admin HQ with audience and workspace access controls"
+    },
+    "/creativeProducts/{productId}/internalSpecs/{specId}": {
+      "schema": { "$ref": "#/entities/CreativeProductInternalSpec" },
+      "description": "Admin-only internal Canvas JSON specs and confidential production source metadata"
     },
     "/workspaces/{workspaceId}": {
       "schema": { "$ref": "#/entities/Workspace" },

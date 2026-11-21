@@ -18,6 +18,7 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Users,
   X,
 } from 'lucide-react';
@@ -44,6 +45,8 @@ import { SecurityAccessManagement } from './SecurityAccessManagement';
 import { AuditHistoryManagement } from './AuditHistoryManagement';
 import { CorporateDocuments } from '../modules/CorporateDocuments';
 import { PlatformSettingsManagement } from './PlatformSettingsManagement';
+import { AdminCreativeProducts } from './AdminCreativeProducts';
+import type { CanvasDesign } from '../../types/designStudio';
 
 export type AdminHQSection =
   | 'hq-overview'
@@ -54,6 +57,7 @@ export type AdminHQSection =
   | 'projects'
   | 'deliverables-reviews'
   | 'creative-requests'
+  | 'creative-products'
   | 'design-library'
   | 'invoices-payments'
   | 'proposals'
@@ -103,6 +107,7 @@ const ADMIN_HQ_NAV: NavGroup[] = [
   {
     group: 'Creative Library',
     items: [
+      { id: 'creative-products', label: 'Creative Products', icon: Sparkles, implemented: true },
       { id: 'design-library', label: 'Design & Templates', icon: Layers, implemented: true },
     ],
   },
@@ -165,6 +170,11 @@ const SECTION_DESCRIPTIONS: Record<AdminHQSection, { title: string; group: strin
     title: 'Creative Requests',
     group: 'Production',
     subtitle: 'Incoming client creative briefs and public service enquiries awaiting review.',
+  },
+  'creative-products': {
+    title: 'Creative Products',
+    group: 'Creative Library',
+    subtitle: 'Create, organize, preview, upload real deliverables (PNG/JPG/PDF/PSD/SVG/ZIP/MP4), assign workspaces, and publish Artist & Brand Creative Hub packs.',
   },
   'design-library': {
     title: 'Design & Templates',
@@ -254,6 +264,7 @@ export const AdminHQ: React.FC = () => {
   const [designLibraryWorkspaceId, setDesignLibraryWorkspaceId] = useState('');
   const [designLibraryProjectId, setDesignLibraryProjectId] = useState('');
   const [designLibraryTab, setDesignLibraryTab] = useState<DesignLibraryTab>('designs');
+  const [pendingProductCanvasDraft, setPendingProductCanvasDraft] = useState<CanvasDesign | null>(null);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -539,6 +550,14 @@ export const AdminHQ: React.FC = () => {
           />
         );
 
+      case 'creative-products':
+        return (
+          <AdminCreativeProducts
+            initialCanvasDraft={pendingProductCanvasDraft}
+            onConsumeInitialCanvasDraft={() => setPendingProductCanvasDraft(null)}
+          />
+        );
+
       case 'design-library':
         return (
           <AdminDesignLibrary
@@ -553,6 +572,10 @@ export const AdminHQ: React.FC = () => {
             onOpenWorkspace={workspaceId => {
               setSelectedWorkspaceId(workspaceId);
               setActiveSection('workspaces');
+            }}
+            onCreateCreativeProductFromDesign={design => {
+              setPendingProductCanvasDraft(design);
+              setActiveSection('creative-products');
             }}
           />
         );

@@ -47,7 +47,7 @@ import { HonestCanvasThumbnail } from '../common/HonestCanvasThumbnail';
 import { buildHonestDesignForTemplate } from '../../utils/templateDesignBuilder';
 
 export const CreativeTemplateLibrary: React.FC = () => {
-  const { releases, artists, activeWorkspace } = useApp();
+  const { releases, artists, activeWorkspace, canAccessAdminCenter, firebaseUser } = useApp();
 
   // Active top view: 'families' | 'categories' | 'saved'
   const [activeView, setActiveView] = useState<'families' | 'categories' | 'saved'>('families');
@@ -159,6 +159,18 @@ export const CreativeTemplateLibrary: React.FC = () => {
     const newDesign = buildHonestDesignForTemplate(t);
     setActiveStudioDesign(newDesign);
   };
+
+  // Admin-only enforcement
+  if (!firebaseUser || !canAccessAdminCenter) {
+    return (
+      <div className="rounded-lg border border-red-900/50 bg-[#0C0C0C] p-6 text-center space-y-2">
+        <h2 className="text-base font-bold text-white">Internal Template Studio Restricted</h2>
+        <p className="text-xs text-neutral-400">
+          Creative templates and the Design Canvas Editor are reserved exclusively for Admin HQ production operators.
+        </p>
+      </div>
+    );
+  }
 
   // If a design is active in Studio Canvas Editor, render the editor!
   if (activeStudioDesign) {

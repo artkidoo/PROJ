@@ -26,6 +26,7 @@ import {
   LogOut,
   Menu,
   Music2,
+  Package,
   Palette,
   Plus,
   Send,
@@ -63,6 +64,7 @@ import {
 } from './ClientStudio';
 import {
   ClientTab,
+  formatDynamicRequestBrief,
   getRequestCategoriesForExperience,
   ProductionRequestPrefill,
   resolveClientExperience,
@@ -70,6 +72,7 @@ import {
 } from '../../lib/clientOS';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { ClientOnboarding } from './ClientOnboarding';
+import { ClientCreativeHub } from './ClientCreativeHub';
 
 const STAGE_ORDER = [
   'New Request',
@@ -92,6 +95,7 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 const TAB_ICONS: Record<ClientTab, React.ComponentType<{ size?: number; className?: string }>> = {
   overview: Sparkles,
+  'creative-hub': Package,
   projects: FolderKanban,
   requests: Inbox,
   deliverables: FileCheck2,
@@ -157,6 +161,13 @@ export const ClientWorkspace: React.FC = () => {
   const [requestFiles, setRequestFiles] = useState<File[]>([]);
   const [requestCategory, setRequestCategory] = useState<string>(defaultCategoryForAudience(true));
   const [requestDueDate, setRequestDueDate] = useState('');
+  const [requestIntendedUse, setRequestIntendedUse] = useState('');
+  const [requestTargetPlatforms, setRequestTargetPlatforms] = useState<string[]>([]);
+  const [requestDeliverableTypes, setRequestDeliverableTypes] = useState<string[]>([]);
+  const [requestPackagingSpec, setRequestPackagingSpec] = useState('');
+  const [requestLinkedProductId, setRequestLinkedProductId] = useState('');
+  const [requestLinkedProductTitle, setRequestLinkedProductTitle] = useState('');
+  const [requestLinkedReleaseId, setRequestLinkedReleaseId] = useState('');
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestReplyByProject, setRequestReplyByProject] = useState<Record<string, string>>({});
   const [replySubmittingId, setReplySubmittingId] = useState('');
@@ -667,6 +678,67 @@ export const ClientWorkspace: React.FC = () => {
     setMobileMenuOpen(false);
   };
 
+  const dynamicPlatformOptions = useMemo(() => {
+    if (experience.isArtist) {
+      return [
+        'Spotify Canvas (1080×1920)',
+        'Spotify Cover & Header (3000×3000 / 2660×1140)',
+        'Apple Music Cover & Motion',
+        'YouTube Music (1280×720 / 2560×1440)',
+        'Audiomack',
+        'Boomplay',
+        'Instagram / TikTok Reels (9:16)',
+      ];
+    }
+    return [
+      'A4 / US Letter Print & Digital PDF',
+      'Instagram & LinkedIn Feed / Carousel',
+      'Corporate Web & Landing Banners',
+      '16:9 Presentation / Pitch Deck',
+      'CMYK 300 DPI Press Print',
+      'Email Signature & Stationery',
+    ];
+  }, [experience.isArtist]);
+
+  const dynamicDeliverableOptions = useMemo(() => {
+    const cat = requestCategory.toLowerCase();
+    if (experience.isArtist) {
+      if (cat.includes('cover') || cat.includes('streaming')) {
+        return [
+          '3000×3000 Master Cover Artwork',
+          'Explicit & Clean Artwork Variants',
+          'Spotify Canvas / 9:16 Loop',
+          'Apple & YouTube DSP Headers',
+          'Out-Now & Countdown Promo Pack',
+          'Tracklist Back Sleeve / Lyrics Card',
+        ];
+      }
+      return [
+        'Artist EPK / Press Kit PDF',
+        'Booking & Press Photos Layout',
+        'Tour / Show Poster & Flyer',
+        '9:16 Release Teaser Video / Motion',
+        'Social Rollout Carousel Kit',
+      ];
+    }
+    if (cat.includes('brand') || cat.includes('card')) {
+      return [
+        'Primary & Secondary Logo Lockups (SVG/PDF)',
+        'Brand Guidelines & Usage Deck',
+        'Business Cards (Print CMYK 300 DPI)',
+        'Official Letterhead & Email Signature',
+        'Social Avatars & Cover System',
+      ];
+    }
+    return [
+      'Company Profile Deck',
+      'Commercial Proposal / Quotation Template',
+      'Branded Invoice & Receipt Suite',
+      'Tri-Fold / Digital Brochure',
+      'Paid Social & Launch Banners',
+    ];
+  }, [experience.isArtist, requestCategory]);
+
   const openRequestModal = (prefill?: Partial<ProductionRequestPrefill>) => {
     setRequestSuccessSummary(null);
     setError('');
@@ -680,6 +752,13 @@ export const ClientWorkspace: React.FC = () => {
     setRequestRequirements(prefill?.requirements || '');
     setRequestReferences(prefill?.references || '');
     setRequestDueDate(prefill?.dueDate || '');
+    setRequestIntendedUse(prefill?.intendedUse || '');
+    setRequestTargetPlatforms(prefill?.targetPlatforms || []);
+    setRequestDeliverableTypes(prefill?.requiredDeliverables || []);
+    setRequestPackagingSpec(prefill?.packagingSpec || '');
+    setRequestLinkedProductId(prefill?.linkedProductId || '');
+    setRequestLinkedProductTitle(prefill?.linkedProductTitle || '');
+    setRequestLinkedReleaseId(prefill?.linkedReleaseId || '');
     setRequestFiles([]);
     setRequestOpen(true);
   };
@@ -736,18 +815,21 @@ export const ClientWorkspace: React.FC = () => {
         uploadedPaths.push(storagePath);
         attachments.push({ fileName: file.name.slice(0, 120), storagePath, fileType: file.type, fileSize: file.size });
       }
-      const requestBrief = [
-        `Workspace: ${activeWorkspace?.name || clientProfile?.organizationName || 'Client workspace'}`,
-        `Workspace type: ${activeWorkspace?.type || clientProfile?.accountType || 'Client'}`,
-        `Requested service: ${requestCategory}`,
-        '',
-        requestDescription.trim(),
-        requestRequirements.trim() ? `Requirements:\n${requestRequirements.trim()}` : '',
-        requestReferences.trim() ? `References:\n${requestReferences.trim()}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n')
-        .slice(0, 5000);
+      const linkedRelease = studioReleases.find(r => r.id === requestLinkedReleaseId);
+      const requestBrief = formatDynamicRequestBrief({
+        workspaceName: activeWorkspace?.name || clientProfile?.organizationName || 'Client workspace',
+        workspaceType: activeWorkspace?.type || clientProfile?.accountType || 'Client',
+        category: requestCategory,
+        description: requestDescription,
+        requirements: requestRequirements,
+        references: requestReferences,
+        intendedUse: requestIntendedUse,
+        targetPlatforms: requestTargetPlatforms,
+        requiredDeliverables: requestDeliverableTypes,
+        packagingSpec: requestPackagingSpec,
+        linkedProductTitle: requestLinkedProductTitle || (requestLinkedProductId ? `Product ${requestLinkedProductId}` : undefined),
+        linkedReleaseTitle: linkedRelease ? `${linkedRelease.title} (${linkedRelease.type})` : undefined,
+      });
       await callable({
         title: requestTitle.trim(),
         description: requestBrief,
@@ -767,6 +849,13 @@ export const ClientWorkspace: React.FC = () => {
       setRequestDescription('');
       setRequestRequirements('');
       setRequestReferences('');
+      setRequestIntendedUse('');
+      setRequestTargetPlatforms([]);
+      setRequestDeliverableTypes([]);
+      setRequestPackagingSpec('');
+      setRequestLinkedProductId('');
+      setRequestLinkedProductTitle('');
+      setRequestLinkedReleaseId('');
       setRequestFiles([]);
       setRequestDueDate('');
     } catch (err) {
@@ -1322,6 +1411,14 @@ export const ClientWorkspace: React.FC = () => {
                 <>
                   <button
                     type="button"
+                    onClick={() => selectTab('creative-hub')}
+                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
+                  >
+                    <span>Artist Creative Hub &amp; Streaming Packs</span>
+                    <ArrowRight size={13} />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => selectTab('releases')}
                     className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
                   >
@@ -1333,7 +1430,7 @@ export const ClientWorkspace: React.FC = () => {
                     onClick={() => selectTab('content')}
                     className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
                   >
-                    <span>Content Engine &amp; Design Canvas ({studioContentItems.length})</span>
+                    <span>Release Content Engine ({studioContentItems.length})</span>
                     <ArrowRight size={13} />
                   </button>
                   <button
@@ -1349,6 +1446,14 @@ export const ClientWorkspace: React.FC = () => {
                 <>
                   <button
                     type="button"
+                    onClick={() => selectTab('creative-hub')}
+                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
+                  >
+                    <span>{experience.osMode === 'company' ? 'Business Creative Hub & Packs' : 'Brand Creative Hub & Packs'}</span>
+                    <ArrowRight size={13} />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => selectTab('brand')}
                     className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
                   >
@@ -1360,7 +1465,7 @@ export const ClientWorkspace: React.FC = () => {
                     onClick={() => selectTab('content')}
                     className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
                   >
-                    <span>Creative System &amp; Design Canvas ({studioContentItems.length})</span>
+                    <span>Creative Copy &amp; Messaging ({studioContentItems.length})</span>
                     <ArrowRight size={13} />
                   </button>
                   <button
@@ -1939,7 +2044,15 @@ export const ClientWorkspace: React.FC = () => {
             </div>
           )}
 
-          {isStudioSection ? (
+          {activeTab === 'creative-hub' ? (
+            <ClientCreativeHub
+              workspace={activeWorkspace}
+              clientProfile={clientProfile}
+              experience={experience}
+              onRequestProduction={prefill => openRequestModal(prefill)}
+              onNavigateSection={target => selectTab(target)}
+            />
+          ) : isStudioSection ? (
             <ClientStudio
               section={activeTab as ClientStudioSection}
               workspace={activeWorkspace}
@@ -2622,7 +2735,14 @@ export const ClientWorkspace: React.FC = () => {
               className="w-full max-w-lg max-h-[90vh] overflow-y-auto space-y-3 rounded-xl border border-[#292929] bg-[#0C0C0C] p-5 shadow-2xl"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-white">Submit a production request</h2>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Submit a production request</h2>
+                  {requestLinkedProductTitle && (
+                    <p className="text-[11px] font-mono text-[#FF1E1E] mt-0.5">
+                      Customizing product: {requestLinkedProductTitle}
+                    </p>
+                  )}
+                </div>
                 <button type="button" onClick={() => setRequestOpen(false)} className="text-sm text-neutral-400 hover:text-white">
                   Close
                 </button>
@@ -2635,24 +2755,110 @@ export const ClientWorkspace: React.FC = () => {
                 placeholder="Project title"
                 className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white"
               />
-              <select
-                value={requestCategory}
-                onChange={event => setRequestCategory(event.target.value)}
-                className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white"
-              >
-                {availableRequestCategories.map(category => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <select
+                  aria-label="Requested service category"
+                  value={requestCategory}
+                  onChange={event => setRequestCategory(event.target.value)}
+                  className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white"
+                >
+                  {availableRequestCategories.map(category => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={requestIntendedUse}
+                  onChange={event => setRequestIntendedUse(event.target.value)}
+                  maxLength={140}
+                  placeholder={experience.isArtist ? 'Release / rollout goal' : 'Usage / distribution channel'}
+                  className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white"
+                />
+              </div>
+
+              {experience.isArtist && studioReleases.length > 0 && (
+                <select
+                  aria-label="Link music release"
+                  value={requestLinkedReleaseId}
+                  onChange={event => setRequestLinkedReleaseId(event.target.value)}
+                  className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white"
+                >
+                  <option value="">Optional: link to an existing Music Release…</option>
+                  {studioReleases.map(rel => (
+                    <option key={rel.id} value={rel.id}>
+                      {rel.title} ({rel.type}{rel.releaseDate ? ` · ${rel.releaseDate}` : ''})
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <div className="border border-[#242424] bg-[#111111] p-3 space-y-2">
+                <p className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
+                  Target Platforms &amp; Formats
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {dynamicPlatformOptions.map(platform => {
+                    const checked = requestTargetPlatforms.includes(platform);
+                    return (
+                      <label key={platform} className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setRequestTargetPlatforms(prev =>
+                              checked ? prev.filter(p => p !== platform) : [...prev, platform],
+                            )
+                          }
+                          className="accent-[#FF1E1E]"
+                        />
+                        <span className="truncate">{platform}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="border border-[#242424] bg-[#111111] p-3 space-y-2">
+                <p className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
+                  Requested Deliverables
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {dynamicDeliverableOptions.map(item => {
+                    const checked = requestDeliverableTypes.includes(item);
+                    return (
+                      <label key={item} className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setRequestDeliverableTypes(prev =>
+                              checked ? prev.filter(d => d !== item) : [...prev, item],
+                            )
+                          }
+                          className="accent-[#FF1E1E]"
+                        />
+                        <span className="truncate">{item}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <input
+                  value={requestPackagingSpec}
+                  onChange={event => setRequestPackagingSpec(event.target.value)}
+                  maxLength={140}
+                  placeholder="Preferred deliverable formats (e.g. PNG, JPG, PDF, PSD, SVG)"
+                  className="mt-1 w-full rounded border border-[#2C2C2C] bg-[#161616] px-2.5 py-1.5 text-xs text-white"
+                />
+              </div>
+
               <textarea
                 value={requestDescription}
                 onChange={event => setRequestDescription(event.target.value)}
                 maxLength={5000}
                 required
                 rows={4}
-                placeholder="Describe the work and deliverables"
+                placeholder="Describe the creative direction, copy, messaging, and deliverables"
                 className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white"
               />
               <textarea
@@ -2660,7 +2866,7 @@ export const ClientWorkspace: React.FC = () => {
                 onChange={event => setRequestRequirements(event.target.value)}
                 maxLength={3000}
                 rows={2}
-                placeholder="Requirements, specifications or deliverables"
+                placeholder="Additional dimensions, specs, or branding notes"
                 className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white"
               />
               <textarea
@@ -2668,7 +2874,7 @@ export const ClientWorkspace: React.FC = () => {
                 onChange={event => setRequestReferences(event.target.value)}
                 maxLength={2000}
                 rows={2}
-                placeholder="Reference links or creative examples"
+                placeholder="Reference links or visual examples"
                 className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white"
               />
               <label className="block text-xs text-neutral-400">

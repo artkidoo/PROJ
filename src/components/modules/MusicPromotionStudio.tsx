@@ -33,6 +33,8 @@ export const MusicPromotionStudio: React.FC = () => {
     deleteReleaseProject, 
     updateCampaignDesign,
     activeWorkspace,
+    canAccessAdminCenter,
+    firebaseUser,
     logActivity 
   } = useApp();
 
@@ -172,6 +174,17 @@ Contains 22 coordinated promotional assets.
       setIsExporting(false);
     }
   };
+
+  if (!firebaseUser || !canAccessAdminCenter) {
+    return (
+      <div className="rounded-lg border border-red-900/50 bg-[#0C0C0C] p-6 text-center space-y-2">
+        <h2 className="text-base font-bold text-white">Campaign Canvas Studio Restricted</h2>
+        <p className="text-xs text-neutral-400">
+          This internal campaign design generator is restricted to Admin HQ production operators.
+        </p>
+      </div>
+    );
+  }
 
   if (viewMode === 'edit' && activeDesign) {
     return (

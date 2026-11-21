@@ -81,7 +81,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
       return [
         { id: 'dashboard', label: 'Project Status & Overview', icon: LayoutDashboard },
         { id: 'releases', label: 'Music & Releases', icon: Disc3, badgeCount: showBadge(releases.filter(r => r.workspaceId === activeWorkspace.id).length) },
-        { id: 'templates', label: 'Music & Creative Engine', icon: Sparkles },
         { id: 'assets', label: 'Asset Library', icon: FolderArchive },
         { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: showBadge(pendingTasks) },
         { id: 'deliverables', label: 'Deliverables', icon: FileCheck2 },

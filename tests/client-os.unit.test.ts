@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
+import * as clientOS from '../src/lib/clientOS';
 import {
   buildBrandProductionPrefill,
-  buildClientCanvasDesign,
-  buildClientWorkspaceCanvasAssetMetadata,
+  buildProductRequestPrefill,
   buildReleaseProductionPrefill,
+  formatDynamicRequestBrief,
   getRequestCategoriesForExperience,
   resolveClientExperience,
   validatePersonalAccountUpdate,
 } from '../src/lib/clientOS';
-import { isInternalStoragePath } from '../src/lib/assetSecurity';
 import type { Workspace } from '../src/types';
 
 function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
@@ -49,7 +49,7 @@ function run() {
 
   const artistIds = artistExp.navGroups.flatMap(g => g.items.map(i => i.id));
   assert.equal(new Set(artistIds).size, artistIds.length, 'Artist nav tab IDs must be strictly unique');
-  for (const requiredId of ['overview', 'projects', 'requests', 'deliverables', 'updates', 'artist-profile', 'releases', 'content', 'assets', 'account']) {
+  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'artist-profile', 'releases', 'content', 'assets', 'account']) {
     assert.ok(artistIds.includes(requiredId as typeof artistIds[number]), `Artist OS missing tab ${requiredId}`);
   }
   assert.ok(!artistIds.includes('brand'), 'Artist OS must not expose Brand Identity tab');
@@ -64,7 +64,7 @@ function run() {
 
   const brandIds = brandExp.navGroups.flatMap(g => g.items.map(i => i.id));
   assert.equal(new Set(brandIds).size, brandIds.length, 'Brand nav tab IDs must be strictly unique');
-  for (const requiredId of ['overview', 'projects', 'requests', 'deliverables', 'updates', 'brand', 'content', 'documents', 'assets', 'account']) {
+  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'brand', 'content', 'documents', 'assets', 'account']) {
     assert.ok(brandIds.includes(requiredId as typeof brandIds[number]), `Brand OS missing tab ${requiredId}`);
   }
   assert.ok(!brandIds.includes('releases'), 'Brand OS must not expose Artist Music & Releases tab');
@@ -78,6 +78,7 @@ function run() {
   assert.equal(companyExp.isBrandOrCompany, true);
   const companyIds = companyExp.navGroups.flatMap(g => g.items.map(i => i.id));
   assert.equal(new Set(companyIds).size, companyIds.length, 'Company nav tab IDs must be strictly unique');
+  assert.ok(companyIds.includes('creative-hub'));
   assert.ok(companyIds.includes('brand'));
   assert.ok(companyIds.includes('documents'));
   assert.ok(companyIds.includes('content'));
@@ -149,46 +150,44 @@ function run() {
   assert.equal(collateralPrefill.category, 'Business Cards');
   assert.ok(collateralPrefill.title.includes('Business Cards & Corporate Collateral'));
 
-  // 6. Client Canvas Design generator stays scoped to client workspace & brand tokens
-  const design1 = buildClientCanvasDesign({
-    workspace: artistWorkspace,
-    isArtist: true,
-    title: 'Night Drive',
-    subtitle: 'SINGLE · 2026-06-01',
-    aspectRatio: '9:16 Vertical Story',
-  });
-  assert.equal(design1.workspaceId, 'ws-artist-1');
-  assert.equal(design1.width, 1080);
-  assert.equal(design1.height, 1920);
-  assert.equal(design1.backgroundColor, '#0A0A0A');
-  assert.ok(design1.elements.length >= 3);
+  // 6. Client Canvas design builders are permanently removed from clientOS (Admin HQ exclusive)
+  assert.equal('buildClientCanvasDesign' in clientOS, false, 'Client Canvas generator must not exist in clientOS');
+  assert.equal('buildClientWorkspaceCanvasAssetMetadata' in clientOS, false, 'Client Canvas asset helper must not exist in clientOS');
 
-  const design2 = buildClientCanvasDesign({
-    workspace: brandWorkspace,
-    isArtist: false,
-    aspectRatio: '16:9 Landscape',
+  // 7. Creative Product custom request prefill and dynamic brief formatter
+  const productPrefill = buildProductRequestPrefill({
+    product: {
+      id: 'prod-spotify-kit',
+      title: 'Spotify Canvas & Streaming Visual Pack',
+      category: 'Streaming Platform Packs',
+      subcategory: 'Spotify & Apple Music',
+      linkedServiceCategory: 'Streaming Pack',
+      supportedFormats: ['PNG', 'JPG', 'MP4', 'PSD'],
+      deliverablesSummary: ['1080x1920 Spotify Canvas', '3000x3000 Release Artwork'],
+    },
+    workspaceName: 'Kaelen Ross',
   });
-  assert.equal(design2.workspaceId, 'ws-brand-1');
-  assert.equal(design2.width, 1920);
-  assert.equal(design2.height, 1080);
-  const frame = design2.elements.find(el => el.id === 'el-frame-1');
-  assert.equal(frame?.borderColor, '#FF1E1E', 'Invalid hex brand primary color must fall back cleanly');
+  assert.equal(productPrefill.category, 'Streaming Pack');
+  assert.equal(productPrefill.linkedProductId, 'prod-spotify-kit');
+  assert.ok(productPrefill.title.includes('Kaelen Ross'));
+  assert.deepEqual(productPrefill.requiredDeliverables, ['1080x1920 Spotify Canvas', '3000x3000 Release Artwork']);
 
-  // 7. Client Canvas Asset Library metadata strictly enforces non-internal visibility & valid path
-  const storagePath = 'workspaces/ws-brand-1/assets/asset-123/brand-visual.png';
-  assert.equal(isInternalStoragePath(storagePath), false);
-  const assetMeta = buildClientWorkspaceCanvasAssetMetadata({
-    workspaceId: 'ws-brand-1',
-    assetId: 'asset-123',
-    name: '  Brand Launch Graphic  ',
-    storagePath,
-    fileSizeBytes: 2_500_000,
-    uid: 'user-99',
+  const dynamicBrief = formatDynamicRequestBrief({
+    workspaceName: 'Northbound Co.',
+    workspaceType: 'Brand',
+    category: 'Brand Identity',
+    description: 'Complete identity overhaul for Q3 launch.',
+    intendedUse: 'Corporate rebrand & investor collateral',
+    targetPlatforms: ['A4 Print PDF', 'Instagram & LinkedIn'],
+    requiredDeliverables: ['Vector Logo Lockups', 'Company Profile Deck'],
+    packagingSpec: 'PDF, SVG, PSD',
+    linkedProductTitle: 'Executive Brand Kit',
   });
-  assert.equal(assetMeta.isInternal, false, 'Client-saved canvas asset must never be marked internal');
-  assert.equal(assetMeta.name, 'Brand Launch Graphic');
-  assert.equal(assetMeta.fileSize, '2.4 MB');
-  assert.equal(assetMeta.uploadedBy, 'user-99');
+  assert.ok(dynamicBrief.includes('Northbound Co.'));
+  assert.ok(dynamicBrief.includes('Referenced Creative Hub product: Executive Brand Kit'));
+  assert.ok(dynamicBrief.includes('A4 Print PDF, Instagram & LinkedIn'));
+  assert.ok(dynamicBrief.includes('Vector Logo Lockups'));
+  assert.ok(dynamicBrief.includes('Packaging / file formats: PDF, SVG, PSD'));
 
   // 8. Separated Personal Account validation enforces firestore.rules bounds
   const validAccount = validatePersonalAccountUpdate('  Jane Doe  ', 'https://example.com/avatar.png');

@@ -3,6 +3,8 @@
  * Core Data Models & Type Definitions
  */
 
+export * from './creativeProduct';
+
 export type UserRole = 
   | 'Executive'
   | 'A&R Director'
@@ -310,6 +312,12 @@ export interface BrandWorkspaceProfile {
   creativeReferences: string;
 }
 
+export interface WorkspacePackageEntitlement {
+  packageId: string;
+  status?: 'Active' | 'Inactive' | 'Paused' | 'Expired' | 'Revoked';
+  expiresAt?: string;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -323,6 +331,7 @@ export interface Workspace {
   artistProfile?: ArtistWorkspaceProfile;
   brandProfile?: BrandWorkspaceProfile;
   contractedPackageIds?: string[];
+  packageEntitlements?: WorkspacePackageEntitlement[];
   createdAt: string;
   updatedAt?: string;
 }
