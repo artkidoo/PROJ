@@ -45,6 +45,7 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ size: number; className?: string }>;
   badgeCount?: number;
+  description?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuOpen }) => {
@@ -79,12 +80,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
 
     if (account === 'Artist') {
       return [
-        { id: 'dashboard', label: 'Project Status & Overview', icon: LayoutDashboard },
-        { id: 'releases', label: 'Music & Releases', icon: Disc3, badgeCount: showBadge(releases.filter(r => r.workspaceId === activeWorkspace.id).length) },
-        { id: 'assets', label: 'Asset Library', icon: FolderArchive },
-        { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: showBadge(pendingTasks) },
-        { id: 'deliverables', label: 'Deliverables', icon: FileCheck2 },
-        { id: 'updates', label: 'Updates & Revisions', icon: RefreshCw },
+        { id: 'dashboard', label: 'Project Status & Overview', icon: LayoutDashboard, description: 'Active projects, production stages, and timeline overview' },
+        { id: 'releases', label: 'Music & Releases', icon: Disc3, badgeCount: showBadge(releases.filter(r => r.workspaceId === activeWorkspace.id).length), description: 'Singles, EPs, albums, release metadata, and artwork' },
+        { id: 'assets', label: 'Asset Library', icon: FolderArchive, description: 'Approved cover art, photography, visualizers, and downloads' },
+        { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: showBadge(pendingTasks), description: 'Review revision requests, respond to feedback' },
+        { id: 'deliverables', label: 'Deliverables', icon: FileCheck2, description: 'Review published outputs, download finals, or request revisions' },
+        { id: 'updates', label: 'Updates & Revisions', icon: RefreshCw, description: 'Chronological production timeline and revision responses' },
         { id: 'profile', label: 'My Profile & Settings', icon: User }
       ];
     }
@@ -92,13 +93,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
     if (account === 'Brand' || account === 'Company') {
       const isCompany = account === 'Company';
       return [
-        { id: 'dashboard', label: isCompany ? 'Company Overview' : 'Brand Overview', icon: LayoutDashboard },
-        { id: 'brand', label: 'Brand Identity & Creative System', icon: Layers },
-        { id: 'documents', label: 'Business Documents', icon: FileText, badgeCount: showBadge(pendingDocs) },
-        { id: 'assets', label: isCompany ? 'Asset Library' : 'Brand Asset Library', icon: FolderArchive },
-        { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: showBadge(pendingTasks) },
-        { id: 'deliverables', label: 'Deliverables', icon: FileCheck2 },
-        { id: 'updates', label: 'Updates & Revisions', icon: RefreshCw },
+        { id: 'dashboard', label: isCompany ? 'Company Overview' : 'Brand Overview', icon: LayoutDashboard, description: 'Workspace summary, active work, and quick actions' },
+        { id: 'brand', label: 'Brand Identity & Creative System', icon: Layers, description: 'Logo lockups, color palette, typography, and brand rules' },
+        { id: 'documents', label: 'Business Documents', icon: FileText, badgeCount: showBadge(pendingDocs), description: 'Proposals, commercial invoices, and corporate documents' },
+        { id: 'assets', label: isCompany ? 'Asset Library' : 'Brand Asset Library', icon: FolderArchive, description: 'Approved logos, brand graphics, photography, and downloads' },
+        { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: showBadge(pendingTasks), description: 'Review revision requests, respond to feedback' },
+        { id: 'deliverables', label: 'Deliverables', icon: FileCheck2, description: 'Review published outputs, download finals, or request revisions' },
+        { id: 'updates', label: 'Updates & Revisions', icon: RefreshCw, description: 'Chronological production timeline and revision responses' },
         { id: 'profile', label: 'My Profile & Settings', icon: User }
       ];
     }

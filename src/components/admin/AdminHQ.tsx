@@ -65,6 +65,8 @@ export type AdminHQSection =
   | 'admin-management'
   | 'security-access'
   | 'audit-history'
+|   | 'platform-settings'
+  |   | 'brand-room';
   | 'platform-settings';
 
 interface NavItem {

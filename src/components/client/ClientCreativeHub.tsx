@@ -758,10 +758,12 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
             return (
               <article
                 key={product.id}
-                className="border border-[#1E1E1E] bg-[#0C0C0C] flex flex-col justify-between overflow-hidden"
+                className="border border-[#1E1E1E] bg-[#0C0C0C] flex flex-col hover:bg-[#151515] transition-colors cursor-default overflow-hidden"
               >
                 <div>
-                  <div className="relative h-44 bg-[#121212] border-b border-[#1A1A1A] overflow-hidden">
+                  <div
+                    className="relative h-48 bg-[#121212] border-b border-[#1A1A1A] overflow-hidden hover:border-yellow-500/20 transition-colors"
+                  >
                     {product.previewImageUrl ? (
                       <img
                         src={product.previewImageUrl}

@@ -124,7 +124,7 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
               </p>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-7">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-7">
               {visiblePackages.map(pkg => (
                 <article
                   key={pkg.id}

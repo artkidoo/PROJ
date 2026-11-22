@@ -71,7 +71,7 @@ export const JournalPage: React.FC<Props> = ({ navigate }) => {
             </div>
 
             {leadPost && (
-              <article className="group border border-[#222222] bg-[#0D0D0D] grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] overflow-hidden hover:border-[#3A3A3A] transition-colors">
+              <article className="group border border-[#222222] bg-[#0D0D0D] grid grid-cols-2 lg:grid-cols-3 overflow-hidden hover:border-[#3A3A3A] transition-colors">
                 <button
                   type="button"
                   onClick={() => navigate('article', leadPost.id)}

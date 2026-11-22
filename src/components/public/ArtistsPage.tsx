@@ -50,7 +50,7 @@ export const ArtistsPage: React.FC<Props> = ({ navigate }) => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-8">
               {ARTISTS.map(artist => (
                 <article
                   key={artist.id}
