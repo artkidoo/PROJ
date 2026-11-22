@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 import { Menu, X, ArrowRight, LogIn, LayoutDashboard } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
 
 export type PublicRoute =
   | 'home' | 'about' | 'vision' | 'services' | 'portfolio' | 'artists'
@@ -53,15 +54,21 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
   return (
     <header className="sticky top-0 z-40 h-16 bg-[#080808]/95 backdrop-blur-md border-b border-[#1A1A1A] px-4 md:px-8">
       <div className="max-w-[1440px] mx-auto h-full flex items-center justify-between gap-8">
-        {/* Zone 1: Brand Wordmark */}
+        {/* Zone 1: Official Brand Logo & Wordmark */}
         <button
           type="button"
           onClick={() => go('home')}
-          className="shrink-0 text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF1E1E]"
+          className="shrink-0 inline-flex items-center gap-2.5 text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF1E1E]"
           aria-label="KeedoHub Home"
         >
+          <img
+            src={keedohubBrandLogo}
+            alt="KeedoHub Logo"
+            referrerPolicy="no-referrer"
+            className="h-10 w-10 object-cover border border-[#1E1E1E] shrink-0"
+          />
           <span className="text-lg md:text-xl font-black tracking-tighter text-white uppercase whitespace-nowrap select-none">
-            KEEDO<span className="text-[#FF1E1E]">HUB</span>
+            KEEDOHUB
           </span>
         </button>
 

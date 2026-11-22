@@ -240,6 +240,7 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
   const [setFirstRenderAsPreview, setSetFirstRenderAsPreview] = useState(true);
 
   const [busy, setBusy] = useState(false);
+  const [confirmDeleteProductId, setConfirmDeleteProductId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
@@ -366,6 +367,7 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
   const openEditor = async (product: CreativeProduct) => {
     setError('');
     setNotice('');
+    setConfirmDeleteProductId(null);
     setEditingProduct({
       ...product,
       assignedWorkspaceIds: product.assignedWorkspaceIds || [],
@@ -617,6 +619,31 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
     }
   };
 
+  const resolveLinkedTemplateDesign = (linkedId?: string): CanvasDesign | null => {
+    if (!linkedId) return null;
+    const tpl = MASTER_CREATIVE_TEMPLATES.find(t => t.id === linkedId);
+    if (tpl) return buildHonestDesignForTemplate(tpl);
+    const fam = TEMPLATE_FAMILIES.find(f => f.id === linkedId);
+    if (fam) return fam.design;
+    return null;
+  };
+
+  const handleToggleProductStatus = async (product: CreativeProduct) => {
+    if (!firebaseUser) return;
+    const nextStatus: CreativeProductStatus = product.status === 'Published' ? 'Draft' : 'Published';
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await updateCreativeProductStatus(product.id, nextStatus, firebaseUser.uid);
+      setNotice(`"${product.title}" marked ${nextStatus}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openCanvasForProduct = async (product: CreativeProduct) => {
     setError('');
     let initialDesign = buildBlankCanvasForProduct(product);
@@ -625,12 +652,13 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
       if (specSnap.exists() && specSnap.data()?.internalCanvasDesignJson) {
         const parsed = JSON.parse(specSnap.data().internalCanvasDesignJson);
         if (parsed && parsed.elements) initialDesign = parsed;
-      } else if (product.linkedTemplateId) {
-        const tpl = MASTER_CREATIVE_TEMPLATES.find(t => t.id === product.linkedTemplateId);
-        if (tpl) initialDesign = buildHonestDesignForTemplate(tpl);
+      } else {
+        const resolved = resolveLinkedTemplateDesign(product.linkedTemplateId);
+        if (resolved) initialDesign = resolved;
       }
     } catch {
-      // Use clean default composition
+      const resolved = resolveLinkedTemplateDesign(product.linkedTemplateId);
+      if (resolved) initialDesign = resolved;
     }
     setActiveCanvasSession({ product, design: initialDesign });
   };
@@ -646,10 +674,8 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
     setNotice('');
     try {
       const slug = slugifyProductTitle(product.title);
-      const linkedTpl = product.linkedTemplateId
-        ? MASTER_CREATIVE_TEMPLATES.find(t => t.id === product.linkedTemplateId)
-        : undefined;
-      const linkedDesigns = linkedTpl ? [buildHonestDesignForTemplate(linkedTpl)] : [];
+      const resolvedDesign = resolveLinkedTemplateDesign(product.linkedTemplateId);
+      const linkedDesigns = resolvedDesign ? [resolvedDesign] : [];
 
       const pdfBlob = generateStructuredDocumentPdfBlob(product, 'KeedoHub Studio');
       const svgBlob = generateEditableProductSvgBlob(product);
@@ -1187,14 +1213,9 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        void updateCreativeProductStatus(
-                          product.id,
-                          product.status === 'Published' ? 'Draft' : 'Published',
-                          firebaseUser?.uid || ''
-                        )
-                      }
-                      className="ml-auto border border-[#2E2E2E] bg-[#141414] px-2.5 py-1.5 text-[11px] font-mono text-neutral-300 hover:text-white hover:border-[#FF1E1E]"
+                      disabled={busy}
+                      onClick={() => void handleToggleProductStatus(product)}
+                      className="ml-auto border border-[#2E2E2E] bg-[#141414] px-2.5 py-1.5 text-[11px] font-mono text-neutral-300 hover:text-white hover:border-[#FF1E1E] disabled:opacity-50"
                     >
                       {product.status === 'Published' ? 'Unpublish' : 'Publish'}
                     </button>
@@ -1761,25 +1782,60 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#1E1E1E] pt-4">
                 {!isNewDraft ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      if (!window.confirm(`Delete "${editingProduct.title}" permanently?`)) return;
-                      setBusy(true);
-                      try {
-                        await deleteCreativeProductRecord(editingProduct.id);
-                        setNotice(`Deleted product "${editingProduct.title}".`);
-                        setEditingProduct(null);
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 border border-red-900/60 bg-red-950/20 px-3 py-2 text-xs text-red-300 hover:text-white"
-                  >
-                    <Trash2 size={13} />
-                    <span>Delete Product</span>
-                  </button>
+                  confirmDeleteProductId === editingProduct.id ? (
+                    <div className="flex flex-wrap items-center gap-2 border border-red-900/70 bg-red-950/30 px-3 py-1.5">
+                      <span className="text-xs text-red-200">
+                        Delete &ldquo;{editingProduct.title}&rdquo; &amp; stored files?
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          setBusy(true);
+                          setError('');
+                          try {
+                            const storageCleanupPaths = [
+                              ...(editingProduct.files || []).map(f => f.storagePath),
+                              ...internalSourceFiles.map(f => f.storagePath),
+                              ...(editingProduct.previewStoragePath ? [editingProduct.previewStoragePath] : []),
+                            ];
+                            await Promise.all(
+                              storageCleanupPaths.map(p => deleteProductDeliverableStorageFile(p)),
+                            );
+                            await deleteCreativeProductRecord(editingProduct.id);
+                            setNotice(`Deleted product "${editingProduct.title}".`);
+                            setConfirmDeleteProductId(null);
+                            setEditingProduct(null);
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : String(err));
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                        className="bg-[#FF1E1E] px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+                      >
+                        Confirm Delete
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setConfirmDeleteProductId(null)}
+                        className="border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-neutral-300 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setConfirmDeleteProductId(editingProduct.id)}
+                      className="inline-flex items-center gap-1.5 border border-red-900/60 bg-red-950/20 px-3 py-2 text-xs text-red-300 hover:text-white"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete Product</span>
+                    </button>
+                  )
                 ) : <div />}
 
                 <div className="flex items-center gap-2">
@@ -2056,38 +2112,61 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
             }}
             onSaveAsDeliverable={async (blob, renderedDesign, format) => {
               if (!firebaseUser) return;
-              const ext = format === 'jpeg' ? 'jpg' : 'png';
-              const rec = await uploadProductDeliverableFile({
-                productId: activeCanvasSession.product.id,
-                file: blob,
-                fileName: `${renderedDesign.name || 'product-deliverable'}.${ext}`,
-                label: renderedDesign.name || 'Studio Deliverable',
-                dimensions: `${renderedDesign.width} × ${renderedDesign.height} px`,
-                version: activeCanvasSession.product.version || 'v1.0',
-                isApprovedForClient: true,
-                isInternalSource: false,
-                uploadedBy: firebaseUser.uid,
-              });
-              const targetProduct = editingProduct?.id === activeCanvasSession.product.id
-                ? editingProduct
-                : activeCanvasSession.product;
-              const nextProduct: CreativeProduct = {
-                ...targetProduct,
-                title: targetProduct.title || renderedDesign.name || 'Creative Product',
-                files: [rec, ...(targetProduct.files || [])],
-                supportedFormats: Array.from(new Set([...(targetProduct.supportedFormats || []), ext.toUpperCase()])),
-                linkedCanvasDesignId: renderedDesign.id,
-              };
-              const saved = await saveCreativeProduct({
-                ...nextProduct,
-                deliverablesSummary: deliverablesText
-                  ? deliverablesText.split('\n').map(s => s.trim()).filter(Boolean)
-                  : targetProduct.deliverablesSummary,
-                updatedBy: firebaseUser.uid,
-              });
-              setEditingProduct(saved);
-              setIsNewDraft(false);
-              setNotice(`Attached rendered deliverable "${rec.fileName}" directly to "${saved.title}".`);
+              try {
+                const ext = format === 'jpeg' ? 'jpg' : 'png';
+                const slugName = slugifyProductTitle(renderedDesign.name || 'product-deliverable');
+                const rasterRec = await uploadProductDeliverableFile({
+                  productId: activeCanvasSession.product.id,
+                  file: blob,
+                  fileName: `${slugName}.${ext}`,
+                  label: `${renderedDesign.name || 'Studio Deliverable'} (${ext.toUpperCase()})`,
+                  dimensions: `${renderedDesign.width} × ${renderedDesign.height} px`,
+                  version: activeCanvasSession.product.version || 'v1.0',
+                  isApprovedForClient: true,
+                  isInternalSource: false,
+                  uploadedBy: firebaseUser.uid,
+                });
+
+                const svgBlob = renderCanvasDesignToSvgBlob(renderedDesign);
+                const svgRec = await uploadProductDeliverableFile({
+                  productId: activeCanvasSession.product.id,
+                  file: svgBlob,
+                  fileName: `${slugName}.svg`,
+                  label: `${renderedDesign.name || 'Studio Deliverable'} (Editable Vector SVG)`,
+                  dimensions: `${renderedDesign.width} × ${renderedDesign.height} px`,
+                  version: activeCanvasSession.product.version || 'v1.0',
+                  isApprovedForClient: true,
+                  isInternalSource: false,
+                  uploadedBy: firebaseUser.uid,
+                });
+
+                const targetProduct = editingProduct?.id === activeCanvasSession.product.id
+                  ? editingProduct
+                  : activeCanvasSession.product;
+                const nextProduct: CreativeProduct = {
+                  ...targetProduct,
+                  title: targetProduct.title || renderedDesign.name || 'Creative Product',
+                  files: [rasterRec, svgRec, ...(targetProduct.files || [])],
+                  supportedFormats: Array.from(
+                    new Set([...(targetProduct.supportedFormats || []), ext.toUpperCase(), 'SVG']),
+                  ),
+                  linkedCanvasDesignId: renderedDesign.id,
+                };
+                const saved = await saveCreativeProduct({
+                  ...nextProduct,
+                  deliverablesSummary: deliverablesText
+                    ? deliverablesText.split('\n').map(s => s.trim()).filter(Boolean)
+                    : targetProduct.deliverablesSummary,
+                  updatedBy: firebaseUser.uid,
+                });
+                setEditingProduct(saved);
+                setIsNewDraft(false);
+                setNotice(
+                  `Attached ${ext.toUpperCase()} + editable SVG deliverables ("${rasterRec.fileName}" & "${svgRec.fileName}") to "${saved.title}".`,
+                );
+              } catch (err) {
+                setError(err instanceof Error ? err.message : String(err));
+              }
             }}
           />
         </div>

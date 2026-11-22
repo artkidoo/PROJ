@@ -846,5 +846,67 @@ service cloud.firestore {
         allow read, write: if isPlatformAdmin();
       }
     }
+
+    function validBrandRoomAsset(assetId, data) {
+      return data.keys().hasOnly([
+          'id', 'title', 'categoryArea', 'topic', 'contentPillarId', 'contentPillarName',
+          'seriesId', 'seriesName', 'contentType', 'targetAudience', 'platform',
+          'formatId', 'formatLabel', 'dimensions', 'description', 'caption',
+          'callToAction', 'hashtags', 'tags', 'status', 'publicationDate',
+          'publishedAt', 'publishedUrl', 'assignedTeamMemberUid', 'assignedTeamMemberName',
+          'promotionObjective', 'showcaseProjectId', 'showcaseSourceType',
+          'masterTemplateId', 'canvasDesignJson', 'previewUrl', 'previewStoragePath',
+          'editableSourcePath', 'editableSourceUrl', 'exportedFiles', 'version',
+          'versionHistory', 'reuseCount', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.id == assetId &&
+        isValidId(assetId) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 160 &&
+        data.categoryArea is string && data.categoryArea.size() > 0 && data.categoryArea.size() <= 80 &&
+        data.platform is string && data.platform.size() > 0 && data.platform.size() <= 60 &&
+        data.status in ['Draft', 'Planned', 'Approved', 'Scheduled', 'Published', 'Archived'] &&
+        data.exportedFiles is list && data.exportedFiles.size() <= 50 &&
+        data.hashtags is list && data.hashtags.size() <= 30 &&
+        data.tags is list && data.tags.size() <= 30 &&
+        data.version is number && data.version >= 1 &&
+        data.reuseCount is number && data.reuseCount >= 0 &&
+        data.createdAt is string && data.updatedAt is string &&
+        data.createdBy is string && data.updatedBy is string;
+    }
+
+    // Internal KeedoHub Brand Room & Marketing Kit (Strictly Platform Admin Only)
+    match /brandRoomIdentity/{identityId} {
+      allow read, write: if isPlatformAdmin() && isValidId(identityId);
+    }
+
+    match /brandRoomPillars/{pillarId} {
+      allow get, list: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() &&
+        isValidId(pillarId) &&
+        request.resource.data.id == pillarId &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 120;
+      allow delete: if isPlatformAdmin() && isValidId(pillarId);
+    }
+
+    match /brandRoomSeries/{seriesId} {
+      allow get, list: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() &&
+        isValidId(seriesId) &&
+        request.resource.data.id == seriesId &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 120;
+      allow delete: if isPlatformAdmin() && isValidId(seriesId);
+    }
+
+    match /brandRoomAssets/{assetId} {
+      allow get, list: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() &&
+        isValidId(assetId) &&
+        validBrandRoomAsset(assetId, request.resource.data);
+      allow delete: if isPlatformAdmin() && isValidId(assetId);
+    }
   }
 }

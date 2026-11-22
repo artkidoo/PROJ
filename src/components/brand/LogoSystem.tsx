@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { ClientCategory } from '../../types';
+import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
 
 export type LogoTheme = 'light' | 'dark' | 'monochrome-black' | 'monochrome-white';
 
@@ -405,42 +406,31 @@ export function getRawSvgString(
 
 /**
  * KEEDOHUB Primary Platform Logo
- * Red and Black Professional Creative Agency Brand
+ * Red-K KH emblem paired with white KEEDOHUB wordmark
  */
 export const KeedohubLogo: React.FC<{
   height?: number;
   className?: string;
   theme?: 'dark' | 'light';
 }> = ({ height = 32, className = '', theme = 'dark' }) => {
-  const red = '#FF1E1E';
   const text = theme === 'dark' ? '#FFFFFF' : '#000000';
-  const width = height * 4.5;
 
   return (
-    <svg
-      width={width}
-      height={height}
-      viewBox="0 0 180 40"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={`select-none shrink-0 ${className}`}
-      aria-label="KEEDOHUB Platform Logo"
-    >
-      <text
-        x="0"
-        y="30"
-        fontFamily="'Plus Jakarta Sans', -apple-system, sans-serif"
-        fontSize="24"
-        fontWeight="900"
-        letterSpacing="-0.04em"
+    <div className={`inline-flex items-center gap-2.5 select-none shrink-0 ${className}`} aria-label="KEEDOHUB Platform Logo">
+      <img
+        src={keedohubBrandLogo}
+        alt="KeedoHub Logo"
+        referrerPolicy="no-referrer"
+        className="object-cover border border-[#1E1E1E] shrink-0"
+        style={{ width: height, height }}
+      />
+      <span
+        className="font-black tracking-tighter uppercase leading-none"
+        style={{ color: text, fontSize: Math.max(14, Math.round(height * 0.56)) }}
       >
-        <tspan fill={text}>KEEDO</tspan>
-        <tspan fill={red}>HUB</tspan>
-      </text>
-      
-      {/* Platform Indicator */}
-      <rect x="0" y="34" width="100%" height="2" fill={red} fillOpacity="0.2" />
-    </svg>
+        KEEDOHUB
+      </span>
+    </div>
   );
 };
 

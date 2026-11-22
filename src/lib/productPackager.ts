@@ -6,6 +6,7 @@ import { getConceptGlyphSvg, getThemeColors } from '../components/brand/LogoConc
 import { getLineArtItemById } from '../data/lineArtLibrary';
 import { getLineArtSvgString } from '../components/common/LineArtRenderer';
 import { resolveProductFamily, slugifyProductTitle } from './creativeProductAccess';
+import { drawShapeOnCanvas2D, renderShapeToSvgString } from './canvasShapeRenderer';
 
 function escapeXml(value: string): string {
   return value
@@ -20,8 +21,12 @@ function escapeXml(value: string): string {
  * Serializes any CanvasDesign (from Template Families, Master Templates, or Admin Canvas)
  * into a clean, editable SVG vector document.
  */
-export function renderCanvasDesignToSvgString(design: CanvasDesign): string {
+export function renderCanvasDesignToSvgString(
+  design: CanvasDesign,
+  options?: { shapeRenderer?: typeof renderShapeToSvgString },
+): string {
   const { width, height } = design;
+  const shapeRenderer = options?.shapeRenderer || renderShapeToSvgString;
   let svgElements = '';
 
   design.elements
@@ -74,21 +79,7 @@ export function renderCanvasDesignToSvgString(design: CanvasDesign): string {
           `;
         }
       } else if (el.type === 'shape') {
-        if (el.shapeType === 'frame') {
-          const fW = ((el.width || 90) / 100) * width;
-          const fH = ((el.height || 90) / 100) * height;
-          svgElements += `<rect x="${(width - fW) / 2}" y="${(height - fH) / 2}" width="${fW}" height="${fH}" fill="none" stroke="${el.borderColor || '#FFFFFF'}" stroke-width="${el.borderWidth || 2}" opacity="${el.opacity}" />`;
-        } else if (el.shapeType === 'rectangle') {
-          const rW = ((el.width || 50) / 100) * width;
-          const rH = Math.max(2, ((el.height || 2) / 100) * height);
-          svgElements += `<rect x="${pixelX - rW / 2}" y="${pixelY - rH / 2}" width="${rW}" height="${rH}" fill="${el.fillColor || '#FFFFFF'}" opacity="${el.opacity}" />`;
-        } else if (el.shapeType === 'line') {
-          const lW = ((el.width || 80) / 100) * width;
-          svgElements += `<line x1="${pixelX - lW / 2}" y1="${pixelY}" x2="${pixelX + lW / 2}" y2="${pixelY}" stroke="${el.borderColor || '#FFFFFF'}" stroke-width="${el.borderWidth || 2}" opacity="${el.opacity}" />`;
-        } else if (el.shapeType === 'circle') {
-          const radius = (((el.width || 20) / 100) * width) / 2;
-          svgElements += `<circle cx="${pixelX}" cy="${pixelY}" r="${radius}" fill="none" stroke="${el.borderColor || '#FFFFFF'}" stroke-width="${el.borderWidth || 2}" opacity="${el.opacity}" />`;
-        }
+        svgElements += shapeRenderer(el, width, height);
       } else if (el.type === 'logo') {
         const logoW = Math.round(width * ((el.width || 14) / 100));
         const logoH = Math.round(height * ((el.height || 14) / 100));
@@ -219,30 +210,7 @@ export async function renderCanvasDesignToRasterBlob(
         }
       }
     } else if (el.type === 'shape') {
-      ctx.strokeStyle = el.borderColor || '#FFFFFF';
-      ctx.fillStyle = el.fillColor || '#FFFFFF';
-      ctx.lineWidth = Math.max(2, Math.round((el.borderWidth || 2) * (width / 1200)));
-
-      if (el.shapeType === 'frame') {
-        const fW = ((el.width || 90) / 100) * width;
-        const fH = ((el.height || 90) / 100) * height;
-        ctx.strokeRect((width - fW) / 2, (height - fH) / 2, fW, fH);
-      } else if (el.shapeType === 'rectangle') {
-        const rW = ((el.width || 50) / 100) * width;
-        const rH = Math.max(2, ((el.height || 2) / 100) * height);
-        ctx.fillRect(posX - rW / 2, posY - rH / 2, rW, rH);
-      } else if (el.shapeType === 'line') {
-        const lW = ((el.width || 80) / 100) * width;
-        ctx.beginPath();
-        ctx.moveTo(posX - lW / 2, posY);
-        ctx.lineTo(posX + lW / 2, posY);
-        ctx.stroke();
-      } else if (el.shapeType === 'circle') {
-        const radius = (((el.width || 20) / 100) * width) / 2;
-        ctx.beginPath();
-        ctx.arc(posX, posY, radius, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      drawShapeOnCanvas2D(ctx, el, width, height);
     } else if (el.type === 'logo') {
       const logoW = Math.round(width * ((el.width || 14) / 100));
       const logoH = Math.round(height * ((el.height || 14) / 100));
@@ -463,11 +431,13 @@ export function generateStructuredDocumentPdfBlob(
     });
   }
 
-  // --- PAGE 3 FOR DOCUMENT / PRESS / IDENTITY PACKS: EDITABLE FORM SPREAD ---
+  // --- PAGE 3 FOR DOCUMENT / PRESS / IDENTITY PACKS: TAILORED STRUCTURED MASTER SPREAD ---
+  const spreadKind = detectDocumentSpreadKind(product, family);
   const needsEditableSpread =
     family === 'Business Documents' ||
     family === 'Artist Branding & Press' ||
-    family === 'Brand Identity';
+    family === 'Brand Identity' ||
+    spreadKind !== 'generic';
 
   if (needsEditableSpread) {
     pdf.addPage(isWidescreenDeck ? [297, 167] : 'a4', isWidescreenDeck ? 'landscape' : 'portrait');
@@ -476,59 +446,356 @@ export function generateStructuredDocumentPdfBlob(
 
     pdf.setDrawColor(20, 20, 20);
     pdf.setLineWidth(0.9);
-    pdf.line(margin, 28, pageWidth - margin, 28);
+    pdf.line(margin, 26, pageWidth - margin, 26);
 
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(16);
+    pdf.setFontSize(15);
     pdf.setTextColor(15, 15, 15);
-    pdf.text('[YOUR BRAND / ARTIST NAME]', margin, 20);
+    pdf.text(`[${workspaceLabel.toUpperCase()}]`, margin, 19);
 
     pdf.setFont('courier', 'bold');
     pdf.setFontSize(8);
     pdf.setTextColor(255, 30, 30);
-    pdf.text(`${(product.subcategory || family).toUpperCase()} MASTER SPREAD`, pageWidth - margin, 20, {
+    pdf.text(`${(product.subcategory || family).toUpperCase()} // MASTER TEMPLATE`, pageWidth - margin, 19, {
       align: 'right',
     });
 
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(9.5);
-    pdf.setTextColor(40, 40, 40);
-    const guideText =
-      family === 'Business Documents'
-        ? 'Commercial Document Ready Sheet: Pair this layout with the included layered SVG file to insert your client address, line-item table, tax/payment terms, and executive signature seal.'
-        : family === 'Artist Branding & Press'
-          ? 'Official Press & EPK Sheet: Replace bracketed sections in the layered SVG or submit a customization request in your Artist Workspace to tailor photography, streaming milestones, and booking details.'
-          : 'Brand Governance Master: Apply your registered wordmark, hex color swatches, typography hierarchy, and clear-space grid across all digital and print assets.';
-    const guideLines = pdf.splitTextToSize(guideText, contentWidth);
-    pdf.text(guideLines, margin, 38);
+    if (spreadKind === 'invoice') {
+      // Structured Commercial Invoice & Receipt Master
+      pdf.setFillColor(248, 248, 248);
+      pdf.setDrawColor(215, 215, 215);
+      pdf.rect(margin, 32, contentWidth * 0.56, 28, 'FD');
+      pdf.rect(margin + contentWidth * 0.6, 32, contentWidth * 0.4, 28, 'FD');
 
-    // Structured Wireframe Table Box
-    const gridY = 58;
-    pdf.setFillColor(248, 248, 248);
-    pdf.setDrawColor(210, 210, 210);
-    pdf.rect(margin, gridY, contentWidth, Math.min(72, pageHeight - gridY - 26), 'FD');
-    pdf.setFont('courier', 'bold');
-    pdf.setFontSize(8.5);
-    pdf.setTextColor(20, 20, 20);
-    pdf.text('EDITABLE CONTENT ZONES (MATCHES INCLUDED SVG ARTBOARD)', margin + 6, gridY + 10);
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(255, 30, 30);
+      pdf.text('BILL TO / CLIENT ENTITY', margin + 4, 38);
+      pdf.text('INVOICE META & STATUS', margin + contentWidth * 0.6 + 4, 38);
 
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8.5);
-    pdf.setTextColor(70, 70, 70);
-    deliverables.slice(0, 4).forEach((d, idx) => {
-      pdf.text(`[Section ${idx + 1}]  ${d}`, margin + 6, gridY + 20 + idx * 10);
-    });
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(35, 35, 35);
+      pdf.text('[Client Organization Name]', margin + 4, 45);
+      pdf.text('[Street Address · City · Tax ID / VAT]', margin + 4, 51);
+      pdf.text('[billing@client-domain.com]', margin + 4, 57);
+
+      pdf.setFont('courier', 'bold');
+      pdf.text('INV NO:   INV-2026-001', margin + contentWidth * 0.6 + 4, 45);
+      pdf.text('ISSUED:   [YYYY-MM-DD]', margin + contentWidth * 0.6 + 4, 51);
+      pdf.text('TERMS:    NET 14 DAYS · PAID RECEIPT SEAL', margin + contentWidth * 0.6 + 4, 57);
+
+      // Line-Item Table
+      let ty = 68;
+      pdf.setFillColor(18, 18, 18);
+      pdf.rect(margin, ty, contentWidth, 9, 'F');
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text('DESCRIPTION / CREATIVE DELIVERABLE', margin + 4, ty + 6);
+      pdf.text('QTY', margin + contentWidth * 0.58, ty + 6);
+      pdf.text('UNIT RATE', margin + contentWidth * 0.70, ty + 6);
+      pdf.text('TOTAL', margin + contentWidth - 4, ty + 6, { align: 'right' });
+      ty += 9;
+
+      const sampleRows = [
+        ['[Line Item 01 — Creative Direction & Master Pack]', '1', '$0,000.00', '$0,000.00'],
+        ['[Line Item 02 — Deliverable Variants & Source Files]', '1', '$0,000.00', '$0,000.00'],
+        ['[Line Item 03 — Commercial Usage & Print Setup]', '1', '$0,000.00', '$0,000.00'],
+      ];
+      sampleRows.forEach(row => {
+        pdf.setDrawColor(225, 225, 225);
+        pdf.rect(margin, ty, contentWidth, 10, 'S');
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(30, 30, 30);
+        pdf.text(row[0], margin + 4, ty + 6.5);
+        pdf.setFont('courier', 'normal');
+        pdf.text(row[1], margin + contentWidth * 0.58, ty + 6.5);
+        pdf.text(row[2], margin + contentWidth * 0.70, ty + 6.5);
+        pdf.text(row[3], margin + contentWidth - 4, ty + 6.5, { align: 'right' });
+        ty += 10;
+      });
+
+      // Subtotal / Tax / Balance Summary Box
+      const sumY = ty + 8;
+      pdf.setFillColor(246, 246, 246);
+      pdf.setDrawColor(20, 20, 20);
+      pdf.rect(margin + contentWidth * 0.54, sumY, contentWidth * 0.46, 28, 'FD');
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(40, 40, 40);
+      pdf.text('SUBTOTAL:            $0,000.00', margin + contentWidth * 0.58, sumY + 8);
+      pdf.text('TAX / VAT (0%):      $0.00', margin + contentWidth * 0.58, sumY + 15);
+      pdf.setTextColor(255, 30, 30);
+      pdf.text('TOTAL DUE / PAID:    $0,000.00', margin + contentWidth * 0.58, sumY + 23);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(70, 70, 70);
+      pdf.text('BANK REMITTANCE & WIRE INSTRUCTIONS:', margin, sumY + 8);
+      pdf.text('[Bank Name · Account / IBAN · SWIFT / Routing Code]', margin, sumY + 15);
+      pdf.text('Quote Invoice Number as payment reference.', margin, sumY + 22);
+    } else if (spreadKind === 'proposal') {
+      // Structured Commercial Proposal & Quotation Layout
+      pdf.setFillColor(248, 248, 248);
+      pdf.setDrawColor(215, 215, 215);
+      pdf.rect(margin, 32, contentWidth, 24, 'FD');
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(255, 30, 30);
+      pdf.text('EXECUTIVE SCOPE SUMMARY', margin + 4, 39);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(30, 30, 30);
+      pdf.text('[Prepared for Client Organization — Project Objective, Commercial KPIs & Timeline Overview]', margin + 4, 48);
+
+      // Phase Timeline Columns
+      const colW = (contentWidth - 8) / 3;
+      ['PHASE 01 · DISCOVERY', 'PHASE 02 · PRODUCTION', 'PHASE 03 · HANDOFF'].forEach((label, idx) => {
+        const cx = margin + idx * (colW + 4);
+        pdf.setFillColor(250, 250, 250);
+        pdf.setDrawColor(210, 210, 210);
+        pdf.rect(cx, 62, colW, 28, 'FD');
+        pdf.setFont('courier', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(15, 15, 15);
+        pdf.text(label, cx + 4, 70);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(80, 80, 80);
+        pdf.text(`[Week ${idx * 2 + 1}–${idx * 2 + 2} Milestone Scope]`, cx + 4, 79);
+      });
+
+      // Priced Quotation Table + Signature Footer
+      let pyProp = 98;
+      pdf.setFillColor(18, 18, 18);
+      pdf.rect(margin, pyProp, contentWidth, 8.5, 'F');
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text('PROPOSAL DELIVERABLE MODULE', margin + 4, pyProp + 5.8);
+      pdf.text('ESTIMATED FEE', margin + contentWidth - 4, pyProp + 5.8, { align: 'right' });
+      pyProp += 8.5;
+
+      deliverables.slice(0, 3).forEach((d, idx) => {
+        pdf.setDrawColor(220, 220, 220);
+        pdf.rect(margin, pyProp, contentWidth, 9.5, 'S');
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(25, 25, 25);
+        pdf.text(`0${idx + 1}. ${d.slice(0, 75)}`, margin + 4, pyProp + 6.2);
+        pdf.setFont('courier', 'bold');
+        pdf.text('$[0,000]', margin + contentWidth - 4, pyProp + 6.2, { align: 'right' });
+        pyProp += 9.5;
+      });
+
+      const sigY = Math.min(pageHeight - 36, pyProp + 14);
+      pdf.setDrawColor(40, 40, 40);
+      pdf.line(margin, sigY + 14, margin + contentWidth * 0.44, sigY + 14);
+      pdf.line(margin + contentWidth * 0.56, sigY + 14, pageWidth - margin, sigY + 14);
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text('CLIENT AUTHORIZED SIGNATURE & DATE', margin, sigY + 20);
+      pdf.text('PROVIDER SIGN-OFF & VALIDITY (30 DAYS)', margin + contentWidth * 0.56, sigY + 20);
+    } else if (spreadKind === 'deck') {
+      // 16:9 Pitch Deck & Presentation Slide Frame Grid
+      const frameW = (contentWidth - 8) / 2;
+      const frameH = Math.min(48, (pageHeight - 54) / 2);
+      const slides = [
+        ['SLIDE 01 · PROBLEM & OPPORTUNITY', '[Articulate core market gap & urgency metric]'],
+        ['SLIDE 02 · SOLUTION & PRODUCT', '[Core offering architecture + visual showcase]'],
+        ['SLIDE 03 · TRACTION & METRICS', '[ARR / Growth % / Retained Clients KPI Strip]'],
+        ['SLIDE 04 · ROADMAP & THE ASK', '[Milestone horizon, use of funds & contact desk]'],
+      ];
+      slides.forEach(([head, body], idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const sx = margin + col * (frameW + 8);
+        const sy = 32 + row * (frameH + 6);
+        pdf.setFillColor(idx === 0 ? 15 : 247, idx === 0 ? 15 : 247, idx === 0 ? 15 : 247);
+        pdf.setDrawColor(200, 200, 200);
+        pdf.rect(sx, sy, frameW, frameH, 'FD');
+        pdf.setFont('courier', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(255, 30, 30);
+        pdf.text(head, sx + 5, sy + 10);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(idx === 0 ? 235 : 40, idx === 0 ? 235 : 40, idx === 0 ? 235 : 40);
+        pdf.text(body, sx + 5, sy + 20);
+      });
+    } else if (spreadKind === 'epk') {
+      // Official Artist EPK / Biography / Press Release Spread
+      pdf.setFillColor(16, 16, 16);
+      pdf.rect(margin, 32, contentWidth, 24, 'F');
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(255, 30, 30);
+      pdf.text('OFFICIAL ARTIST ELECTRONIC PRESS KIT // PRESS & BOOKING ONE-SHEET', margin + 5, 40);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(13);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text('[ARTIST STAGE NAME]  —  [PRIMARY GENRE / CITY]', margin + 5, 49);
+
+      const leftW = contentWidth * 0.58;
+      pdf.setFillColor(248, 248, 248);
+      pdf.setDrawColor(215, 215, 215);
+      pdf.rect(margin, 62, leftW, 66, 'FD');
+      pdf.rect(margin + leftW + 6, 62, contentWidth - leftW - 6, 66, 'FD');
+
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(15, 15, 15);
+      pdf.text('ARTIST BIOGRAPHY & EDITORIAL NARRATIVE', margin + 5, 70);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(65, 65, 65);
+      pdf.text('[Short 50-word curator pitch + 150-word full editorial bio.', margin + 5, 80);
+      pdf.text('Pair with high-res press photography & live footage links.]', margin + 5, 87);
+      pdf.setFont('courier', 'bold');
+      pdf.setTextColor(255, 30, 30);
+      pdf.text('KEY DISCOGRAPHY & ISRC/UPC:', margin + 5, 102);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(40, 40, 40);
+      pdf.text('• [Latest Single / Album Title] — [Release Date] · [ISRC]', margin + 5, 110);
+      pdf.text('• [Focus Track / Feature Highlight] — [Streaming Total]', margin + 5, 117);
+
+      const rx = margin + leftW + 10;
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(15, 15, 15);
+      pdf.text('METRICS & BOOKING DESK', rx, 70);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(55, 55, 55);
+      pdf.text('Monthly Listeners: [000K+]', rx, 82);
+      pdf.text('Editorial Playlists: [List]', rx, 90);
+      pdf.text('Press Quotes: "[Publication]"', rx, 98);
+      pdf.text('Mgmt Email: [mgmt@domain.com]', rx, 110);
+      pdf.text('Booking Agent: [Phone / Desk]', rx, 118);
+    } else if (spreadKind === 'brand') {
+      // Brand Guidelines, Logo Clear-Space & Color Token Governance Sheet
+      pdf.setFillColor(248, 248, 248);
+      pdf.setDrawColor(215, 215, 215);
+      pdf.rect(margin, 32, contentWidth * 0.48, 50, 'FD');
+      pdf.rect(margin + contentWidth * 0.52, 32, contentWidth * 0.48, 50, 'FD');
+
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(15, 15, 15);
+      pdf.text('LOGO CLEAR-SPACE & 3MM BLEED SAFE ZONE', margin + 5, 40);
+      pdf.setDrawColor(255, 30, 30);
+      pdf.rect(margin + 14, 48, contentWidth * 0.48 - 28, 26, 'S');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.text('[PRIMARY WORDMARK LOCKUP]', margin + 20, 63);
+
+      const col2X = margin + contentWidth * 0.52 + 5;
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(8);
+      pdf.text('APPROVED COLOR TOKENS (HEX / RGB)', col2X, 40);
+      const swatches: [string, [number, number, number]][] = [
+        ['PRIMARY INK · #0A0A0A', [10, 10, 10]],
+        ['SIGNAL ACCENT · #FF1E1E', [255, 30, 30]],
+        ['PAPER CANVAS · #FAFAFA', [235, 235, 235]],
+      ];
+      swatches.forEach(([label, rgb], idx) => {
+        const sy = 47 + idx * 11;
+        pdf.setFillColor(rgb[0], rgb[1], rgb[2]);
+        pdf.rect(col2X, sy, 10, 7, 'F');
+        pdf.setFont('courier', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(35, 35, 35);
+        pdf.text(label, col2X + 14, sy + 5.2);
+      });
+
+      pdf.setFillColor(250, 250, 250);
+      pdf.setDrawColor(215, 215, 215);
+      pdf.rect(margin, 90, contentWidth, 42, 'FD');
+      pdf.setFont('courier', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(15, 15, 15);
+      pdf.text('TYPOGRAPHY SCALE & PRINT PRODUCTION CHECKLIST', margin + 5, 98);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(65, 65, 65);
+      deliverables.slice(0, 3).forEach((d, idx) => {
+        pdf.text(`• ${d}`, margin + 5, 108 + idx * 8);
+      });
+    } else {
+      // Structured Business Document (Profiles, Brochures, Onboarding, Reports, Catalogues)
+      const colW = (contentWidth - 8) / 3;
+      const bandTitles =
+        spreadKind === 'onboarding'
+          ? ['01 · WELCOME & SLA', '02 · KICKOFF CHECKLIST', '03 · ASSET HANDOFF']
+          : spreadKind === 'brochure'
+            ? ['PANEL 1 · COVER / HOOK', 'PANEL 2 · CORE OFFERING', 'PANEL 3 · CONTACT & QR']
+            : ['01 · OVERVIEW & VISION', '02 · CAPABILITIES / SKUS', '03 · CREDENTIALS & DESK'];
+
+      bandTitles.forEach((title, idx) => {
+        const bx = margin + idx * (colW + 4);
+        pdf.setFillColor(248, 248, 248);
+        pdf.setDrawColor(210, 210, 210);
+        pdf.rect(bx, 32, colW, 74, 'FD');
+        pdf.setFont('courier', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(255, 30, 30);
+        pdf.text(title, bx + 4, 41);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(55, 55, 55);
+        const zoneText = deliverables[idx] || product.summary || 'Edit section inside SVG artboard';
+        const wrapped = pdf.splitTextToSize(zoneText, colW - 8);
+        pdf.text(wrapped, bx + 4, 51);
+      });
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text(
+        'Print & Digital Master Guide: Pair this layout with the bundled editable SVG vector artboard to swap copy, tables & logos.',
+        margin,
+        120,
+      );
+    }
   }
 
   return pdf.output('blob');
 }
 
+type DocumentSpreadKind =
+  | 'invoice'
+  | 'proposal'
+  | 'deck'
+  | 'epk'
+  | 'brand'
+  | 'onboarding'
+  | 'brochure'
+  | 'profile'
+  | 'generic';
+
+function detectDocumentSpreadKind(product: CreativeProduct, family: string): DocumentSpreadKind {
+  const hay = `${product.id} ${product.subcategory} ${product.title}`.toLowerCase();
+  if (hay.includes('invoice') || hay.includes('receipt')) return 'invoice';
+  if (hay.includes('proposal') || hay.includes('quotation')) return 'proposal';
+  if (hay.includes('pitch') || hay.includes('presentation')) return 'deck';
+  if (hay.includes('onboarding') || hay.includes('welcome')) return 'onboarding';
+  if (hay.includes('brochure') || hay.includes('report')) return 'brochure';
+  if (hay.includes('company profile') || hay.includes('catalogue')) return 'profile';
+  if (family === 'Artist Branding & Press' || hay.includes('epk') || hay.includes('media kit') || hay.includes('biography') || hay.includes('press release')) return 'epk';
+  if (family === 'Brand Identity' || hay.includes('guideline') || hay.includes('logo') || hay.includes('stationery') || hay.includes('letterhead') || hay.includes('business card')) return 'brand';
+  return 'generic';
+}
+
 /**
  * Generates an editable vector SVG master template with clean named groups,
- * safe-zone guides, and bracketed editable text placeholders sized to the product.
+ * safe-zone guides, and bracketed editable text placeholders tailored to the product domain.
  */
 export function generateEditableProductSvgBlob(product: CreativeProduct): Blob {
   const family = resolveProductFamily(product);
+  const spreadKind = detectDocumentSpreadKind(product, family);
   const spec = product.dimensionSpecs[0];
   const isVertical = spec?.aspectRatio?.includes('9:16');
   const isWide = spec?.aspectRatio?.includes('16:9') || spec?.aspectRatio?.includes('21:9') || spec?.aspectRatio?.includes('3:1');
@@ -539,14 +806,51 @@ export function generateEditableProductSvgBlob(product: CreativeProduct): Blob {
   const fg = isDocument ? '#111111' : '#FFFFFF';
   const muted = isDocument ? '#555555' : '#A3A3A3';
   const border = isDocument ? '#D4D4D4' : '#262626';
+  const panelBg = isDocument ? '#FFFFFF' : '#121212';
 
-  const deliverablesMarkup = (product.deliverablesSummary || [])
-    .slice(0, 4)
-    .map(
-      (item, idx) =>
-        `<text x="${Math.round(width * 0.1)}" y="${Math.round(height * (0.58 + idx * 0.065))}" fill="${muted}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.022)}" font-weight="500">0${idx + 1}. ${escapeXml(item)}</text>`,
-    )
-    .join('\n    ');
+  let domainZonesMarkup = '';
+  if (spreadKind === 'invoice') {
+    domainZonesMarkup = `
+    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.45)}" width="${Math.round(width * 0.84)}" height="${Math.round(height * 0.06)}" fill="#111111" />
+    <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.49)}" fill="#FFFFFF" font-family="Courier, monospace" font-size="${Math.round(width * 0.017)}" font-weight="700">ITEM DESCRIPTION</text>
+    <text x="${Math.round(width * 0.58)}" y="${Math.round(height * 0.49)}" fill="#FFFFFF" font-family="Courier, monospace" font-size="${Math.round(width * 0.017)}" font-weight="700">QTY</text>
+    <text x="${Math.round(width * 0.70)}" y="${Math.round(height * 0.49)}" fill="#FFFFFF" font-family="Courier, monospace" font-size="${Math.round(width * 0.017)}" font-weight="700">RATE</text>
+    <text x="${Math.round(width * 0.82)}" y="${Math.round(height * 0.49)}" fill="#FFFFFF" font-family="Courier, monospace" font-size="${Math.round(width * 0.017)}" font-weight="700">TOTAL</text>
+    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.52)}" width="${Math.round(width * 0.84)}" height="${Math.round(height * 0.16)}" fill="${panelBg}" stroke="${border}" stroke-width="2" />
+    <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.58)}" fill="${fg}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.02)}">[01. Creative Deliverable Package]</text>
+    <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.64)}" fill="${muted}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.02)}">[02. Production &amp; Commercial Usage Rights]</text>
+    <rect x="${Math.round(width * 0.55)}" y="${Math.round(height * 0.72)}" width="${Math.round(width * 0.37)}" height="${Math.round(height * 0.11)}" fill="${panelBg}" stroke="#111111" stroke-width="2" />
+    <text x="${Math.round(width * 0.58)}" y="${Math.round(height * 0.78)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.022)}" font-weight="700">TOTAL DUE: $0,000.00</text>`;
+  } else if (spreadKind === 'proposal') {
+    domainZonesMarkup = `
+    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.45)}" width="${Math.round(width * 0.26)}" height="${Math.round(height * 0.18)}" fill="${panelBg}" stroke="${border}" stroke-width="2" />
+    <rect x="${Math.round(width * 0.37)}" y="${Math.round(height * 0.45)}" width="${Math.round(width * 0.26)}" height="${Math.round(height * 0.18)}" fill="${panelBg}" stroke="${border}" stroke-width="2" />
+    <rect x="${Math.round(width * 0.66)}" y="${Math.round(height * 0.45)}" width="${Math.round(width * 0.26)}" height="${Math.round(height * 0.18)}" fill="${panelBg}" stroke="${border}" stroke-width="2" />
+    <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.51)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">PHASE 01 SCOPE</text>
+    <text x="${Math.round(width * 0.39)}" y="${Math.round(height * 0.51)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">PHASE 02 TIMELINE</text>
+    <text x="${Math.round(width * 0.68)}" y="${Math.round(height * 0.51)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">FEE SCHEDULE</text>
+    <line x1="${Math.round(width * 0.08)}" y1="${Math.round(height * 0.78)}" x2="${Math.round(width * 0.46)}" y2="${Math.round(height * 0.78)}" stroke="${fg}" stroke-width="2" />
+    <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.82)}" fill="${muted}" font-family="Courier, monospace" font-size="${Math.round(width * 0.015)}">CLIENT ACCEPTANCE SIGNATURE &amp; DATE</text>`;
+  } else if (spreadKind === 'brand') {
+    domainZonesMarkup = `
+    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.42)}" height="${Math.round(height * 0.24)}" fill="none" stroke="#FF1E1E" stroke-dasharray="8 6" stroke-width="2" />
+    <text x="${Math.round(width * 0.12)}" y="${Math.round(height * 0.59)}" fill="${fg}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.024)}" font-weight="700">[LOGO CLEAR-SPACE ZONE]</text>
+    <rect x="${Math.round(width * 0.54)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.11)}" height="${Math.round(height * 0.11)}" fill="#0A0A0A" stroke="${border}" stroke-width="2" />
+    <rect x="${Math.round(width * 0.68)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.11)}" height="${Math.round(height * 0.11)}" fill="#FF1E1E" />
+    <rect x="${Math.round(width * 0.82)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.10)}" height="${Math.round(height * 0.11)}" fill="#FAFAFA" stroke="${border}" stroke-width="2" />
+    <text x="${Math.round(width * 0.54)}" y="${Math.round(height * 0.63)}" fill="${muted}" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}">SWATCH TOKENS: #0A0A0A · #FF1E1E · #FAFAFA</text>`;
+  } else {
+    const deliverablesMarkup = (product.deliverablesSummary || [])
+      .slice(0, 4)
+      .map(
+        (item, idx) =>
+          `<text x="${Math.round(width * 0.1)}" y="${Math.round(height * (0.56 + idx * 0.065))}" fill="${muted}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.022)}" font-weight="500">0${idx + 1}. ${escapeXml(item)}</text>`,
+      )
+      .join('\n    ');
+    domainZonesMarkup = `
+    <line x1="${Math.round(width * 0.08)}" y1="${Math.round(height * 0.46)}" x2="${Math.round(width * 0.92)}" y2="${Math.round(height * 0.46)}" stroke="${border}" stroke-width="2" />
+    ${deliverablesMarkup}`;
+  }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
   <g id="background">
@@ -562,8 +866,7 @@ export function generateEditableProductSvgBlob(product: CreativeProduct): Blob {
     <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.38)}" fill="${muted}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.024)}" font-weight="400">${escapeXml(product.subcategory || product.category)} · Edit text &amp; colors in Illustrator / Figma / Inkscape</text>
   </g>
   <g id="deliverable-zones">
-    <line x1="${Math.round(width * 0.08)}" y1="${Math.round(height * 0.46)}" x2="${Math.round(width * 0.92)}" y2="${Math.round(height * 0.46)}" stroke="${border}" stroke-width="2" />
-    ${deliverablesMarkup}
+    ${domainZonesMarkup}
   </g>
   <g id="footer-specs">
     <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.90)}" fill="${muted}" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}">KEEDOHUB CREATIVE HUB  |  VERSION ${escapeXml(product.version || 'v1.0')}  |  ${width}×${height} ARTBOARD</text>

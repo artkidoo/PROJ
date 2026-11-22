@@ -53,6 +53,7 @@ import { db, functions, storage } from '../../lib/firebase';
 import { ensureClientWorkspace, resolveClientProjectWorkspaceId } from '../../lib/clientWorkspace';
 import { defaultCategoryForAudience } from '../../lib/productionCategories';
 import { isInternalStoragePath } from '../../lib/productionPromotion';
+import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
 import {
   ClientStudio,
   ClientStudioSection,
@@ -1099,9 +1100,15 @@ export const ClientWorkspace: React.FC = () => {
   const sidebarContent = (
     <div className="flex h-full flex-col bg-[#0A0A0A] border-r border-[#1A1A1A]">
       <div className="h-16 px-5 border-b border-[#1A1A1A] flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img
+            src={keedohubBrandLogo}
+            alt="KeedoHub Logo"
+            referrerPolicy="no-referrer"
+            className="h-8 w-8 object-cover border border-[#222222] shrink-0"
+          />
           <span className="text-base font-black tracking-tighter text-white uppercase">
-            KEEDO<span className="text-[#FF1E1E]">HUB</span>
+            KEEDOHUB
           </span>
           <span className="text-neutral-700">/</span>
           <span className="text-[11px] font-mono uppercase tracking-wider text-neutral-300 truncate">

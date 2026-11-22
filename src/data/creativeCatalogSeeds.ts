@@ -187,7 +187,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Streaming Pack',
-    linkedTemplateId: 'tpl-pol-01',
+    linkedTemplateId: 'tpl-pl-01',
     version: 'v2.2',
     supportedFormats: ['PNG', 'JPG', 'SVG', 'ZIP'],
     deliverablesSummary: [
@@ -249,7 +249,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Streaming Pack',
-    linkedTemplateId: 'tpl-pr-01',
+    linkedTemplateId: 'tpl-pre-01',
     version: 'v2.0',
     supportedFormats: ['PNG', 'JPG', 'SVG', 'PDF'],
     deliverablesSummary: [
@@ -380,7 +380,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Social Media Designs',
-    linkedTemplateId: 'tpl-pr-02',
+    linkedTemplateId: 'tpl-pre-03',
     version: 'v2.0',
     supportedFormats: ['PNG', 'JPG', 'SVG', 'ZIP'],
     deliverablesSummary: [
@@ -1139,6 +1139,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Business Cards',
+    linkedTemplateId: 'tpl-ca-04',
     version: 'v2.5',
     supportedFormats: ['PDF', 'SVG', 'ZIP'],
     deliverablesSummary: [
@@ -1198,6 +1199,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Other Creative Work',
+    linkedTemplateId: 'tpl-ca-01',
     version: 'v2.2',
     supportedFormats: ['PDF', 'SVG', 'ZIP'],
     deliverablesSummary: [
@@ -1228,6 +1230,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Other Creative Work',
+    linkedTemplateId: 'tpl-ca-02',
     version: 'v2.0',
     supportedFormats: ['PDF', 'SVG', 'ZIP'],
     deliverablesSummary: [
@@ -1293,6 +1296,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Flyers & Posters',
+    linkedTemplateId: 'tpl-bl-03',
     version: 'v2.0',
     supportedFormats: ['PDF', 'PNG', 'SVG', 'ZIP'],
     deliverablesSummary: [
@@ -1323,6 +1327,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Other Creative Work',
+    linkedTemplateId: 'tpl-bp-04',
     version: 'v2.1',
     supportedFormats: ['PDF', 'PNG', 'SVG', 'ZIP'],
     deliverablesSummary: [
@@ -1352,7 +1357,7 @@ export const CREATIVE_CATALOG_SEEDS: CreativeCatalogSeed[] = [
     accessType: 'RequestRequired',
     assignedWorkspaceIds: [],
     linkedServiceCategory: 'Social Media Designs',
-    linkedTemplateId: 'tpl-cp-01',
+    linkedTemplateId: 'tpl-bp-03',
     version: 'v2.2',
     supportedFormats: ['PNG', 'JPG', 'SVG', 'PSD', 'ZIP'],
     deliverablesSummary: [

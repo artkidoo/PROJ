@@ -256,6 +256,63 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "productId"]
+    },
+    "BrandRoomIdentity": {
+      "title": "KeedoHub Brand Identity",
+      "description": "Admin-only official KeedoHub logos, colours, typography, patterns, guidelines, and messaging",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "officialDescription": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "companyName"]
+    },
+    "BrandRoomPillar": {
+      "title": "Marketing Content Pillar",
+      "description": "Admin-only strategic content pillar for KeedoHub marketing operations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "audience": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "BrandRoomSeries": {
+      "title": "Marketing Content Series",
+      "description": "Admin-only recurring editorial or social marketing series",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "pillarId": { "type": "string" },
+        "cadence": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "pillarId"]
+    },
+    "BrandRoomAsset": {
+      "title": "Brand Room Marketing Asset",
+      "description": "Admin-only marketing design master, exported deliverables, and calendar/publishing record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "categoryArea": { "type": "string" },
+        "platform": { "type": "string" },
+        "formatId": { "type": "string" },
+        "status": { "type": "string" },
+        "contentPillarId": { "type": "string" },
+        "publicationDate": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "categoryArea", "platform", "status"]
     }
   },
   "firestore": {
@@ -274,6 +331,22 @@
     "/creativeProducts/{productId}/internalSpecs/{specId}": {
       "schema": { "$ref": "#/entities/CreativeProductInternalSpec" },
       "description": "Admin-only internal Canvas JSON specs and confidential production source metadata"
+    },
+    "/brandRoomIdentity/{identityId}": {
+      "schema": { "$ref": "#/entities/BrandRoomIdentity" },
+      "description": "Admin-only internal KeedoHub brand identity governance and official brand asset references"
+    },
+    "/brandRoomPillars/{pillarId}": {
+      "schema": { "$ref": "#/entities/BrandRoomPillar" },
+      "description": "Admin-only KeedoHub marketing content pillars"
+    },
+    "/brandRoomSeries/{seriesId}": {
+      "schema": { "$ref": "#/entities/BrandRoomSeries" },
+      "description": "Admin-only KeedoHub marketing content series"
+    },
+    "/brandRoomAssets/{assetId}": {
+      "schema": { "$ref": "#/entities/BrandRoomAsset" },
+      "description": "Admin-only KeedoHub marketing design masters, exported files, calendar items, and publishing logs"
     },
     "/workspaces/{workspaceId}": {
       "schema": { "$ref": "#/entities/Workspace" },

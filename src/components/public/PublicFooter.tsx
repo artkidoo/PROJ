@@ -4,6 +4,7 @@
 import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { PublicRoute } from './PublicHeader';
+import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
 
 interface PublicFooterProps {
   navigate: (route: PublicRoute, param?: string) => void;
@@ -20,9 +21,15 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ navigate }) => {
       <div className="max-w-[1440px] mx-auto space-y-12">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-10 text-xs text-neutral-400">
           <div className="space-y-4 lg:col-span-1">
-            <button type="button" onClick={() => go('home')} className="text-left focus:outline-none">
+            <button type="button" onClick={() => go('home')} className="inline-flex items-center gap-2.5 text-left focus:outline-none">
+              <img
+                src={keedohubBrandLogo}
+                alt="KeedoHub Logo"
+                referrerPolicy="no-referrer"
+                className="h-10 w-10 object-cover border border-[#1E1E1E] shrink-0"
+              />
               <span className="text-lg font-black text-white tracking-tighter uppercase">
-                KEEDO<span className="text-[#FF1E1E]">HUB</span>
+                KEEDOHUB
               </span>
             </button>
             <p className="text-neutral-400 leading-relaxed text-xs max-w-xs">

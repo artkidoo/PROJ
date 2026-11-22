@@ -148,7 +148,81 @@ async function run() {
   assert.equal(reqSummary.state, 'request-required');
   assert.equal(reqSummary.canDownload, false);
 
-  // 7. Verify firestore.rules allowlist includes productFamily & responsive ClientCreativeHub has no horizontal carousel
+  // 7. Verify 100% of seeds resolve linkedTemplateId in MASTER_CREATIVE_TEMPLATES or TEMPLATE_FAMILIES
+  const masterTemplateIds = new Set(MASTER_CREATIVE_TEMPLATES.map(t => t.id));
+  const familyTemplateIds = new Set(TEMPLATE_FAMILIES.map(f => f.id));
+  for (const seed of CREATIVE_CATALOG_SEEDS) {
+    assert.ok(seed.linkedTemplateId, `Seed ${seed.id} must define linkedTemplateId`);
+    assert.ok(
+      masterTemplateIds.has(seed.linkedTemplateId) || familyTemplateIds.has(seed.linkedTemplateId),
+      `Seed ${seed.id} linkedTemplateId "${seed.linkedTemplateId}" does not resolve to any template`,
+    );
+  }
+
+  // 8. Verify SVG serializer fidelity (multiline tspan, rectangle fill+stroke, rotation, opacity)
+  const fidelityDesign = {
+    ...famDesign,
+    elements: [
+      {
+        id: 'rect-1',
+        type: 'shape' as const,
+        name: 'Badge Rect',
+        x: 50,
+        y: 50,
+        width: 40,
+        height: 20,
+        rotation: 15,
+        opacity: 0.75,
+        zIndex: 1,
+        visible: true,
+        shapeType: 'rectangle' as const,
+        fillColor: '#FF1E1E',
+        borderColor: '#FFFFFF',
+        borderWidth: 3,
+      },
+      {
+        id: 'text-1',
+        type: 'text' as const,
+        name: 'Multi Line',
+        x: 50,
+        y: 30,
+        rotation: 0,
+        opacity: 0.85,
+        zIndex: 2,
+        visible: true,
+        text: 'LINE ONE\nLINE TWO & CO',
+        fontFamily: 'sans' as const,
+        fontSize: 40,
+        fontWeight: '700' as const,
+        textAlign: 'center' as const,
+        color: '#FFFFFF',
+      },
+    ],
+  };
+  const fidelitySvg = renderCanvasDesignToSvgString(fidelityDesign);
+  assert.ok(fidelitySvg.includes('<tspan'), 'Multiline Canvas text must serialize into SVG <tspan> nodes');
+  assert.ok(fidelitySvg.includes('LINE TWO &amp; CO'), 'SVG text must escape XML entities cleanly');
+  assert.ok(fidelitySvg.includes('opacity="0.85"'), 'SVG text must preserve element opacity');
+  assert.ok(fidelitySvg.includes('stroke="#FFFFFF"') && fidelitySvg.includes('fill="#FF1E1E"'), 'Rectangle shape must preserve both fill and border stroke');
+  assert.ok(fidelitySvg.includes('rotate(15 '), 'Shape rotation must be serialized into SVG transform');
+
+  // 9. Verify domain-tailored Invoice, Proposal, Brand & EPK SVG/PDF generation
+  const invoiceSeed = CREATIVE_CATALOG_SEEDS.find(s => s.id === 'prod-invoices-receipts-suite')!;
+  const invoiceProduct = { ...sampleSeed, ...invoiceSeed };
+  const invoiceSvgText = await generateEditableProductSvgBlob(invoiceProduct).text();
+  assert.ok(invoiceSvgText.includes('ITEM DESCRIPTION') && invoiceSvgText.includes('TOTAL DUE:'), 'Invoice SVG must contain commercial invoice table zones');
+  const invoicePdfBlob = generateStructuredDocumentPdfBlob(invoiceProduct, 'Acme Studio');
+  assert.ok(invoicePdfBlob.size > 2000 && (await invoicePdfBlob.slice(0, 5).text()) === '%PDF-', 'Invoice PDF must build valid multi-page document');
+
+  const proposalSeed = CREATIVE_CATALOG_SEEDS.find(s => s.id === 'prod-proposals-quotations-suite')!;
+  const proposalSvgText = await generateEditableProductSvgBlob({ ...sampleSeed, ...proposalSeed }).text();
+  assert.ok(proposalSvgText.includes('PHASE 01 SCOPE') && proposalSvgText.includes('CLIENT ACCEPTANCE SIGNATURE'), 'Proposal SVG must include phased timeline and acceptance blocks');
+
+  const brandSeed = CREATIVE_CATALOG_SEEDS.find(s => s.id === 'prod-brand-guidelines-manual')!;
+  const brandSvgText = await generateEditableProductSvgBlob({ ...sampleSeed, ...brandSeed }).text();
+  assert.ok(brandSvgText.includes('[LOGO CLEAR-SPACE ZONE]') && brandSvgText.includes('SWATCH TOKENS:'), 'Brand identity SVG must include clear-space & swatch tokens');
+
+  // 10. Verify rules, UI security boundaries, and recovery cleanup
   const rootDir = process.cwd();
   const rulesSrc = fs.readFileSync(path.join(rootDir, 'firestore.rules'), 'utf8');
   assert.ok(rulesSrc.includes("'productFamily'"), 'firestore.rules validCreativeProduct must allowlist productFamily');
@@ -156,6 +230,21 @@ async function run() {
   const clientHubSrc = fs.readFileSync(path.join(rootDir, 'src/components/client/ClientCreativeHub.tsx'), 'utf8');
   assert.ok(!clientHubSrc.includes('DesignCanvasEditor'), 'ClientCreativeHub must never import DesignCanvasEditor');
   assert.ok(!clientHubSrc.includes('snap-x'), 'ClientCreativeHub must not use horizontal snap carousels');
+
+  assert.equal(
+    fs.existsSync(path.join(rootDir, 'src/components/client/CreativeAssetStudio.tsx')),
+    false,
+    'Dead client CreativeAssetStudio canvas stub must stay removed',
+  );
+
+  const adminProductsSrc = fs.readFileSync(path.join(rootDir, 'src/components/admin/AdminCreativeProducts.tsx'), 'utf8');
+  assert.ok(!adminProductsSrc.includes('window.confirm'), 'AdminCreativeProducts must not use browser window.confirm');
+
+  const canvasEditorSrc = fs.readFileSync(path.join(rootDir, 'src/components/studio/DesignCanvasEditor.tsx'), 'utf8');
+  assert.ok(
+    canvasEditorSrc.includes('renderCanvasDesignToSvgString(design'),
+    'DesignCanvasEditor must delegate SVG export to shared renderCanvasDesignToSvgString',
+  );
 
   console.log(`ALL PHASE 7 CATALOG, PACKAGER & CLIENT HUB UNIT TESTS PASSED (${CREATIVE_CATALOG_SEEDS.length} seeds verified)`);
 }

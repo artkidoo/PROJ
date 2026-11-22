@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
+  Megaphone,
   Menu,
   Package,
   Receipt,
@@ -46,10 +47,13 @@ import { AuditHistoryManagement } from './AuditHistoryManagement';
 import { CorporateDocuments } from '../modules/CorporateDocuments';
 import { PlatformSettingsManagement } from './PlatformSettingsManagement';
 import { AdminCreativeProducts } from './AdminCreativeProducts';
+import { BrandRoom } from './brand-room/BrandRoom';
 import type { CanvasDesign } from '../../types/designStudio';
+import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
 
 export type AdminHQSection =
   | 'hq-overview'
+  | 'brand-room'
   | 'clients-accounts'
   | 'workspaces'
   | 'services-packages'
@@ -65,8 +69,6 @@ export type AdminHQSection =
   | 'admin-management'
   | 'security-access'
   | 'audit-history'
-|   | 'platform-settings'
-  |   | 'brand-room';
   | 'platform-settings';
 
 interface NavItem {
@@ -87,6 +89,7 @@ const ADMIN_HQ_NAV: NavGroup[] = [
     group: 'Dashboard',
     items: [
       { id: 'hq-overview', label: 'HQ Overview', icon: LayoutDashboard, implemented: true },
+      { id: 'brand-room', label: 'Brand Room & Marketing Kit', icon: Megaphone, implemented: true },
     ],
   },
   {
@@ -137,6 +140,11 @@ const SECTION_DESCRIPTIONS: Record<AdminHQSection, { title: string; group: strin
     title: 'HQ Overview',
     group: 'Dashboard',
     subtitle: 'Live platform metrics, production queues, and recent administrative activity.',
+  },
+  'brand-room': {
+    title: 'Brand Room — All-In-One Marketing Kit',
+    group: 'Dashboard',
+    subtitle: 'Internal KeedoHub creative marketing studio, brand identity vault, multi-platform social & print formats, content strategy, calendar, publishing queue, and live analytics.',
   },
   'clients-accounts': {
     title: 'Clients & Accounts',
@@ -612,6 +620,9 @@ export const AdminHQ: React.FC = () => {
       case 'platform-settings':
         return <PlatformSettingsManagement />;
 
+      case 'brand-room':
+        return <BrandRoom />;
+
       default:
         return <AdminHQOverview onNavigate={handleOverviewNavigate} />;
     }
@@ -622,8 +633,14 @@ export const AdminHQ: React.FC = () => {
       {/* Brand Identity */}
       <div className="h-16 px-5 border-b border-[#1A1A1A] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
+          <img
+            src={keedohubBrandLogo}
+            alt="KeedoHub Logo"
+            referrerPolicy="no-referrer"
+            className="h-8 w-8 object-cover border border-[#222222] shrink-0"
+          />
           <span className="text-base font-black tracking-tighter text-white uppercase">
-            KEEDO<span className="text-[#FF1E1E]">HUB</span>
+            KEEDOHUB
           </span>
           <span className="text-neutral-600">/</span>
           <span className="text-[11px] font-mono uppercase tracking-widest text-neutral-300 truncate">

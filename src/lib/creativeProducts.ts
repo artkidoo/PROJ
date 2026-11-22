@@ -285,7 +285,26 @@ export async function updateCreativeProductStatus(
   status: CreativeProduct['status'],
   updatedBy: string,
 ): Promise<void> {
-  await updateDoc(doc(db, 'creativeProducts', productId), {
+  const productRef = doc(db, 'creativeProducts', productId);
+  if (status === 'Published') {
+    const existing = await getDoc(productRef);
+    if (!existing.exists()) {
+      throw new Error('Creative product record could not be found.');
+    }
+    const data = existing.data() as Partial<CreativeProduct>;
+    const includedPackageIds = sanitizeIdList(data.includedPackageIds || []);
+    const assignedWorkspaceIds = sanitizeIdList(data.assignedWorkspaceIds || []);
+    if (
+      data.accessType === 'IncludedInPackage' &&
+      includedPackageIds.length === 0 &&
+      assignedWorkspaceIds.length === 0
+    ) {
+      throw new Error(
+        'Published IncludedInPackage products require at least one valid linked Service Package ID or explicit workspace assignment. Use Free access mode for open audience resources.',
+      );
+    }
+  }
+  await updateDoc(productRef, {
     status,
     updatedBy,
     updatedAt: new Date().toISOString(),
@@ -293,5 +312,10 @@ export async function updateCreativeProductStatus(
 }
 
 export async function deleteCreativeProductRecord(productId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'creativeProducts', productId, 'internalSpecs', 'master'));
+  } catch {
+    // Ignore if internalSpecs subdoc does not exist
+  }
   await deleteDoc(doc(db, 'creativeProducts', productId));
 }

@@ -80,10 +80,16 @@ import {
 } from '../../data/lineArtLibrary';
 import { LineArtRenderer, getLineArtSvgString } from '../common/LineArtRenderer';
 import artistShowcasePortrait from '../../assets/images/artist_showcase_portrait_1792791744296.jpg';
+import {
+  drawShapeOnCanvas2D,
+  getShapePreviewStyle,
+  renderShapeToSvgString,
+} from '../../lib/canvasShapeRenderer';
+import { renderCanvasDesignToSvgString } from '../../lib/productPackager';
 
 interface DesignCanvasEditorProps {
   initialDesign: CanvasDesign;
-  onSaveDesign?: (design: CanvasDesign) => void;
+  onSaveDesign?: (design: CanvasDesign) => Promise<void> | void;
   onSaveAsDeliverable?: (blob: Blob, design: CanvasDesign, format: string) => Promise<void> | void;
   onSaveAsWorkingAsset?: (blob: Blob, design: CanvasDesign) => Promise<void> | void;
   saveAssetLabel?: string;
@@ -144,6 +150,7 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
   // Editor UI tabs
   const [activeTab, setActiveTab] = useState<'inspector' | 'layers' | 'illustrations' | 'elements' | 'textures' | 'presets' | 'export' | null>('illustrations');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'error'>('success');
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
 
@@ -188,9 +195,10 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
     }
   };
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToastType(type);
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), type === 'error' ? 5000 : 3000);
   };
 
   const selectedElement = design.elements.find(el => el.id === selectedElementId) || null;
@@ -514,102 +522,41 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
     setIsExporting(true);
     const { width, height } = design;
 
-    if (format === 'svg') {
-      let svgElements = '';
-      design.elements
-        .filter(el => el.visible)
-        .sort((a, b) => a.zIndex - b.zIndex)
-        .forEach(el => {
-          const pixelX = (el.x / 100) * width;
-          const pixelY = (el.y / 100) * height;
-
-          if (el.type === 'text') {
-            const fontStack = el.fontFamily === 'serif' ? 'Georgia, serif' :
-                             el.fontFamily === 'mono' ? 'Courier, monospace' :
-                             el.fontFamily === 'display' ? 'Impact, sans-serif' : 'Helvetica, Arial, sans-serif';
-            const scaledSize = Math.round((el.fontSize || 36) * (width / 1200));
-            svgElements += `
-              <text x="${pixelX}" y="${pixelY}" fill="${el.color || '#FFFFFF'}" font-family="${fontStack}" font-size="${scaledSize}" font-weight="${el.fontWeight || '700'}" text-anchor="${el.textAlign === 'center' ? 'middle' : el.textAlign === 'right' ? 'end' : 'start'}" letter-spacing="${el.letterSpacing || 0}" transform="rotate(${el.rotation || 0} ${pixelX} ${pixelY})">
-                ${(el.text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-              </text>
-            `;
-          } else if (el.type === 'image' && el.src) {
-            const imgW = ((el.width || 60) / 100) * width;
-            const imgH = ((el.height || 50) / 100) * height;
-            const imgX = pixelX - imgW / 2;
-            const imgY = pixelY - imgH / 2;
-            svgElements += `<image href="${el.src}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}" preserveAspectRatio="${el.objectFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice'}" transform="rotate(${el.rotation || 0} ${pixelX} ${pixelY})" />`;
-          } else if (el.type === 'illustration') {
-            const item = getLineArtItemById(el.illustrationId || 'mic_studio_condenser');
-            if (item) {
-              const illW = ((el.width || 30) / 100) * width;
-              const illH = ((el.height || 30) / 100) * height;
-              const rawSvg = getLineArtSvgString(item, el.strokeColor || '#FFFFFF', el.strokeWidth, el.isFilled);
-              svgElements += `
-                <g transform="translate(${pixelX - illW/2}, ${pixelY - illH/2}) rotate(${el.rotation || 0} ${illW/2} ${illH/2}) scale(${illW/100}, ${illH/100})" opacity="${el.opacity}">
-                  ${rawSvg}
-                </g>
-              `;
-            }
-          } else if (el.type === 'shape') {
-            if (el.shapeType === 'frame') {
-              const fW = ((el.width || 90) / 100) * width;
-              const fH = ((el.height || 90) / 100) * height;
-              svgElements += `<rect x="${(width - fW) / 2}" y="${(height - fH) / 2}" width="${fW}" height="${fH}" fill="none" stroke="${el.borderColor || '#FFFFFF'}" stroke-width="${el.borderWidth || 2}" />`;
-            } else if (el.shapeType === 'line') {
-              const lW = ((el.width || 80) / 100) * width;
-              svgElements += `<line x1="${pixelX - lW / 2}" y1="${pixelY}" x2="${pixelX + lW / 2}" y2="${pixelY}" stroke="${el.borderColor || '#FFFFFF'}" stroke-width="${el.borderWidth || 2}" />`;
-            } else if (el.shapeType === 'circle') {
-              const radius = (((el.width || 20) / 100) * width) / 2;
-              svgElements += `<circle cx="${pixelX}" cy="${pixelY}" r="${radius}" fill="none" stroke="${el.borderColor || '#FFFFFF'}" stroke-width="${el.borderWidth || 2}" />`;
-            }
-          } else if (el.type === 'logo') {
-            const logoW = Math.round(width * ((el.width || 14) / 100));
-            const logoH = Math.round(height * ((el.height || 14) / 100));
-            const conceptId = el.logoConceptId || 'classic';
-            const { fg, bg, sub, accent } = getThemeColors(el.logoTheme === 'black' ? 'monochrome-black' : (el.logoTheme === 'gold' ? 'gold-accent' : 'monochrome-white'));
-            const glyph = getConceptGlyphSvg(conceptId, fg, bg, sub, accent);
-            svgElements += `
-              <g transform="translate(${pixelX - logoW/2}, ${pixelY - logoH/2}) scale(${logoW/100}, ${logoH/100})" opacity="${el.opacity}">
-                ${glyph}
-              </g>
-            `;
-          }
+    try {
+      if (format === 'svg') {
+        const fullSvg = renderCanvasDesignToSvgString(design, {
+          shapeRenderer: renderShapeToSvgString,
         });
 
-      const fullSvg = `
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
-          <rect width="${width}" height="${height}" fill="${design.backgroundColor}" />
-          ${svgElements}
-        </svg>
-      `.trim();
+        const blob = new Blob([fullSvg], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `keedohub_${design.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.svg`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('SVG vector exported with full vector & line-art layers');
+        return;
+      }
 
-      const blob = new Blob([fullSvg], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
+      const blob = await renderDesignToBlob(format);
+      if (!blob) {
+        showToast(`Failed to export ${format.toUpperCase()} artwork`, 'error');
+        return;
+      }
+
+      const dataUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `lyrical_ent_${design.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.svg`;
+      a.href = dataUrl;
+      a.download = `keedohub_${design.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${width}x${height}.${format}`;
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(dataUrl);
+      showToast(`High-Resolution ${format.toUpperCase()} (${width} × ${height}) exported`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : `Failed to export ${format.toUpperCase()}`, 'error');
+    } finally {
       setIsExporting(false);
-      showToast('SVG vector exported with full line-art paths');
-      return;
     }
-
-    const blob = await renderDesignToBlob(format);
-    if (!blob) {
-      setIsExporting(false);
-      return;
-    }
-
-    const dataUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `keedohub_${design.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${width}x${height}.${format}`;
-    a.click();
-    URL.revokeObjectURL(dataUrl);
-    setIsExporting(false);
-    showToast(`High-Resolution ${format.toUpperCase()} (${width} × ${height}) exported`);
   };
 
   const renderDesignToBlob = async (format: 'png' | 'jpeg'): Promise<Blob | null> => {
@@ -707,25 +654,7 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
           } catch {}
         }
       } else if (el.type === 'shape') {
-        ctx.strokeStyle = el.borderColor || '#FFFFFF';
-        ctx.lineWidth = Math.max(2, Math.round((el.borderWidth || 2) * (width / 1200)));
-
-        if (el.shapeType === 'frame') {
-          const fW = ((el.width || 90) / 100) * width;
-          const fH = ((el.height || 90) / 100) * height;
-          ctx.strokeRect((width - fW) / 2, (height - fH) / 2, fW, fH);
-        } else if (el.shapeType === 'line') {
-          const lW = ((el.width || 80) / 100) * width;
-          ctx.beginPath();
-          ctx.moveTo(posX - lW / 2, posY);
-          ctx.lineTo(posX + lW / 2, posY);
-          ctx.stroke();
-        } else if (el.shapeType === 'circle') {
-          const radius = (((el.width || 20) / 100) * width) / 2;
-          ctx.beginPath();
-          ctx.arc(posX, posY, radius, 0, Math.PI * 2);
-          ctx.stroke();
-        }
+        drawShapeOnCanvas2D(ctx, el, width, height);
       } else if (el.type === 'logo') {
         const logoW = Math.round(width * ((el.width || 14) / 100));
         const logoH = Math.round(height * ((el.height || 14) / 100));
@@ -774,12 +703,13 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
     setIsExporting(true);
     try {
       const blob = await renderDesignToBlob('png');
-      if (blob) {
-        await onSaveAsDeliverable(blob, design, 'png');
-        showToast(`Staged "${design.name}" as project deliverable (Internal Draft)`);
+      if (!blob) {
+        throw new Error('Failed to render artwork preview for deliverable.');
       }
-    } catch {
-      showToast('Error staging deliverable to project');
+      await onSaveAsDeliverable(blob, design, 'png');
+      showToast(`Staged "${design.name}" as project deliverable (Internal Draft)`);
+    } catch (err) {
+      showToast(err instanceof Error ? `Staging failed: ${err.message}` : 'Error staging deliverable to project', 'error');
     } finally {
       setIsExporting(false);
     }
@@ -790,33 +720,45 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
     setIsExporting(true);
     try {
       const blob = await renderDesignToBlob('png');
-      if (blob) {
-        await onSaveAsWorkingAsset(blob, design);
-        showToast(saveAssetLabel ? `Saved "${design.name}" to workspace library` : `Saved "${design.name}" to working assets`);
+      if (!blob) {
+        throw new Error('Failed to render artwork before upload.');
       }
-    } catch {
-      showToast('Error saving asset to library');
+      await onSaveAsWorkingAsset(blob, design);
+      showToast(saveAssetLabel ? `Saved "${design.name}" to workspace library` : `Saved "${design.name}" to working assets`);
+    } catch (err) {
+      showToast(err instanceof Error ? `Save failed: ${err.message}` : 'Error saving asset to library', 'error');
     } finally {
       setIsExporting(false);
     }
   };
 
-  // Safe Persistence with Quota Exception Handling
-  const handleSaveToLocalStorage = () => {
-    if (onSaveDesign) onSaveDesign(design);
+  // Safe Persistence with Quota & Remote Save Exception Handling
+  const handleSaveToLocalStorage = async () => {
+    setIsExporting(true);
     try {
-      const savedRaw = localStorage.getItem('lyrical_ent_saved_designs');
-      const savedList: CanvasDesign[] = savedRaw ? JSON.parse(savedRaw) : [];
-      const filtered = savedList.filter(d => d.id !== design.id);
-      filtered.unshift(design);
-      localStorage.setItem('lyrical_ent_saved_designs', JSON.stringify(filtered));
-      showToast(onSaveDesign ? `Saved "${design.name}"` : `Saved "${design.name}" to local workspace`);
-    } catch (err: any) {
-      if (err?.name === 'QuotaExceededError' || err?.code === 22) {
-        showToast(onSaveDesign ? `Saved "${design.name}" to cloud (local quota full)` : 'Storage quota exceeded. Consider exporting the design or clearing old drafts.');
-      } else {
-        showToast(onSaveDesign ? `Saved "${design.name}"` : 'Error saving design to localStorage');
+      if (onSaveDesign) {
+        await onSaveDesign(design);
       }
+      try {
+        const savedRaw = localStorage.getItem('lyrical_ent_saved_designs');
+        const savedList: CanvasDesign[] = savedRaw ? JSON.parse(savedRaw) : [];
+        const filtered = savedList.filter(d => d.id !== design.id);
+        filtered.unshift(design);
+        localStorage.setItem('lyrical_ent_saved_designs', JSON.stringify(filtered));
+        showToast(onSaveDesign ? `Saved "${design.name}"` : `Saved "${design.name}" to local workspace`);
+      } catch (storageErr: any) {
+        if (onSaveDesign) {
+          showToast(`Saved "${design.name}" to cloud (local backup skipped)`);
+        } else if (storageErr?.name === 'QuotaExceededError' || storageErr?.code === 22) {
+          showToast('Storage quota exceeded. Consider exporting the design or clearing old drafts.', 'error');
+        } else {
+          showToast('Error saving design to localStorage', 'error');
+        }
+      }
+    } catch (remoteErr) {
+      showToast(remoteErr instanceof Error ? `Save failed: ${remoteErr.message}` : 'Error saving design', 'error');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -902,8 +844,19 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
     <div className="w-full max-w-full overflow-hidden flex flex-col h-[calc(100vh-140px)] min-h-[660px] bg-[#090909] border border-[#202020] rounded-xl shadow-2xl">
       {/* Toast */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#161616] border border-white/20 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-2.5 font-mono text-xs animate-in fade-in slide-in-from-bottom-2">
-          <CheckCircle2 size={15} />
+        <div
+          role={toastType === 'error' ? 'alert' : 'status'}
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg shadow-2xl flex items-center gap-2.5 font-mono text-xs animate-in fade-in slide-in-from-bottom-2 border ${
+            toastType === 'error'
+              ? 'bg-[#260808] border-red-500/70 text-red-100'
+              : 'bg-[#161616] border-white/20 text-white'
+          }`}
+        >
+          {toastType === 'error' ? (
+            <ShieldAlert size={15} className="text-[#FF1E1E] shrink-0" />
+          ) : (
+            <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+          )}
           <span>{toastMessage}</span>
         </div>
       )}
@@ -997,8 +950,9 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
 
           {/* Save Button */}
           <button
-            onClick={handleSaveToLocalStorage}
-            className="px-3 py-1.5 bg-[#1A1A1A] border border-[#2E2E2E] text-white hover:bg-[#252525] rounded font-mono text-xs flex items-center gap-1.5 shadow-sm"
+            onClick={() => void handleSaveToLocalStorage()}
+            disabled={isExporting}
+            className="px-3 py-1.5 bg-[#1A1A1A] border border-[#2E2E2E] text-white hover:bg-[#252525] rounded font-mono text-xs flex items-center gap-1.5 shadow-sm disabled:opacity-50"
           >
             <Sparkles size={12} />
             <span className="hidden sm:inline">Save</span>
@@ -1178,12 +1132,9 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
 
                     {/* Render Shape Element */}
                     {el.type === 'shape' && (
-                      <div 
+                      <div
                         className="w-full h-full pointer-events-none"
-                        style={{
-                          border: `${el.borderWidth || 2}px solid ${el.borderColor || '#FFFFFF'}`,
-                          borderRadius: el.shapeType === 'circle' ? '9999px' : '0px'
-                        }}
+                        style={getShapePreviewStyle(el)}
                       />
                     )}
 
@@ -1550,6 +1501,42 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
                               key={c}
                               onClick={() => updateSelectedElement({ color: c })}
                               className={`w-5 h-5 rounded-full border ${selectedElement.color === c ? 'ring-2 ring-white scale-110' : 'border-white/20'}`}
+                              style={{ backgroundColor: c }}
+                              title={c}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SHAPE ELEMENT CONTROLS */}
+                  {selectedElement.type === 'shape' && (
+                    <div className="space-y-3 pt-2 border-t border-[#1C1C1C]">
+                      <div>
+                        <label className="block text-[10px] text-neutral-400 mb-1">FILL COLOR</label>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {['#FF1E1E', '#FFFFFF', '#080808', '#141414', '#A3A3A3', '#D4AF37'].map(c => (
+                            <button
+                              key={`fill-${c}`}
+                              type="button"
+                              onClick={() => updateSelectedElement({ fillColor: c })}
+                              className={`w-5 h-5 rounded-full border ${selectedElement.fillColor === c ? 'ring-2 ring-white scale-110' : 'border-white/20'}`}
+                              style={{ backgroundColor: c }}
+                              title={c}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-neutral-400 mb-1">BORDER / STROKE COLOR</label>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {['#FFFFFF', '#FF1E1E', '#2E2E2E', '#A3A3A3', '#000000'].map(c => (
+                            <button
+                              key={`border-${c}`}
+                              type="button"
+                              onClick={() => updateSelectedElement({ borderColor: c })}
+                              className={`w-5 h-5 rounded-full border ${selectedElement.borderColor === c ? 'ring-2 ring-white scale-110' : 'border-white/20'}`}
                               style={{ backgroundColor: c }}
                               title={c}
                             />
