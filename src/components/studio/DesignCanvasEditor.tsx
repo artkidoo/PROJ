@@ -603,10 +603,17 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
         ctx.fillStyle = el.color || '#FFFFFF';
         ctx.textAlign = el.textAlign || 'center';
 
+        const anchorX =
+          el.width && el.textAlign === 'left'
+            ? ((el.x - el.width / 2) / 100) * width
+            : el.width && el.textAlign === 'right'
+              ? ((el.x + el.width / 2) / 100) * width
+              : posX;
+
         const lines = (el.text || '').split('\n');
         const lineHeight = scaledSize * (el.lineHeight || 1.15);
         lines.forEach((l, idx) => {
-          ctx.fillText(l, posX, posY + idx * lineHeight);
+          ctx.fillText(l, anchorX, posY + idx * lineHeight);
         });
       } else if (el.type === 'image' && el.src) {
         try {
@@ -618,18 +625,44 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
             img.src = el.src!;
           });
 
-          const imgW = ((el.width || 60) / 100) * width;
-          const imgH = ((el.height || 50) / 100) * height;
-          const imgX = posX - imgW / 2;
-          const imgY = posY - imgH / 2;
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            const imgW = ((el.width || 60) / 100) * width;
+            const imgH = ((el.height || 50) / 100) * height;
+            const imgX = posX - imgW / 2;
+            const imgY = posY - imgH / 2;
 
-          if (el.filter === 'noir' || el.filter === 'grayscale') {
-            ctx.filter = 'grayscale(100%) contrast(120%)';
-          } else if (el.filter === 'contrast') {
-            ctx.filter = 'contrast(140%)';
+            if (el.filter === 'noir' || el.filter === 'grayscale') {
+              ctx.filter = 'grayscale(100%) contrast(120%)';
+            } else if (el.filter === 'contrast') {
+              ctx.filter = 'contrast(140%)';
+            }
+            const imgRatio = img.naturalWidth / img.naturalHeight;
+            const boxRatio = imgW / Math.max(1, imgH);
+            if (el.objectFit === 'contain') {
+              let drawW = imgW;
+              let drawH = imgH;
+              if (imgRatio > boxRatio) {
+                drawH = imgW / imgRatio;
+              } else {
+                drawW = imgH * imgRatio;
+              }
+              ctx.drawImage(img, imgX + (imgW - drawW) / 2, imgY + (imgH - drawH) / 2, drawW, drawH);
+            } else {
+              let sx = 0;
+              let sy = 0;
+              let sw = img.naturalWidth;
+              let sh = img.naturalHeight;
+              if (imgRatio > boxRatio) {
+                sw = img.naturalHeight * boxRatio;
+                sx = (img.naturalWidth - sw) / 2;
+              } else {
+                sh = img.naturalWidth / boxRatio;
+                sy = (img.naturalHeight - sh) / 2;
+              }
+              ctx.drawImage(img, sx, sy, sw, sh, imgX, imgY, imgW, imgH);
+            }
+            ctx.filter = 'none';
           }
-          ctx.drawImage(img, imgX, imgY, imgW, imgH);
-          ctx.filter = 'none';
         } catch {
           // Gracefully continue
         }
@@ -1084,7 +1117,7 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
                     {/* Render Text Element */}
                     {el.type === 'text' && (
                       <div
-                        className={`leading-tight select-none ${
+                        className={`whitespace-pre-line select-none ${
                           el.fontFamily === 'serif' ? 'font-serif' :
                           el.fontFamily === 'mono' ? 'font-mono' :
                           el.fontFamily === 'display' ? 'font-black tracking-normal' : 'font-sans'
@@ -1092,6 +1125,7 @@ export const DesignCanvasEditor: React.FC<DesignCanvasEditorProps> = ({
                         style={{
                           fontSize: `${Math.max(10, Math.round((el.fontSize || 36) * 0.35))}px`,
                           fontWeight: el.fontWeight || '700',
+                          lineHeight: el.lineHeight || 1.15,
                           textAlign: el.textAlign || 'center',
                           letterSpacing: `${el.letterSpacing || 0}px`,
                           color: el.color || '#FFFFFF',

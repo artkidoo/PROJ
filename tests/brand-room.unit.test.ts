@@ -76,7 +76,7 @@ async function run() {
   }
   assert.equal(MARKETING_CONTENT_TYPES.length, 19);
   assert.equal(DEFAULT_CONTENT_PILLARS.length, 15);
-  assert.equal(DEFAULT_CONTENT_SERIES.length, 10);
+  assert.equal(DEFAULT_CONTENT_SERIES.length, 11);
   assert.equal(ARTIST_MARKETING_TOPICS.length, 11);
   assert.equal(BRAND_BUSINESS_MARKETING_TOPICS.length, 12);
   assert.equal(ADVERTISING_TOPICS.length, 9);
@@ -641,7 +641,101 @@ async function run() {
     );
   }
 
-  console.log('ALL BRAND ROOM UNIT, CANVAS BUG FIX & LOGO INTEGRATION TESTS PASSED.');
+  // 10. Collection 001 — Out-of-This-World Marketing Creative Production Verification
+  console.log('[TEST 10] Collection 001 (12 artworks): headlines, plates, distinct layouts, SVG & multi-format adaptation');
+  const {
+    COLLECTION_001_MULTI_FORMAT_IDS,
+    COLLECTION_001_SPECS,
+    MARKETING_COLLECTION_001_NAME,
+    MARKETING_COLLECTION_001_SERIES_ID,
+  } = await import('../src/data/marketingCollection001');
+
+  assert.equal(COLLECTION_001_SPECS.length, 12);
+  assert.ok(
+    DEFAULT_CONTENT_SERIES.some(
+      s => s.id === MARKETING_COLLECTION_001_SERIES_ID && s.name === MARKETING_COLLECTION_001_NAME,
+    ),
+    'Collection 001 series must be registered in DEFAULT_CONTENT_SERIES',
+  );
+
+  const expectedHeadlines: Record<string, string> = {
+    '01': 'WELCOME TO A DIFFERENT KIND OF CREATIVE WORLD.',
+    '02': 'IDEAS ARE EVERYWHERE. EXECUTION CHANGES EVERYTHING.',
+    '03': "WE'RE BUILDING A CREATIVE ECOSYSTEM.",
+    '04': 'YOUR ART DESERVES A BIGGER WORLD.',
+    '05': 'MAKE YOUR BRAND IMPOSSIBLE TO IGNORE.',
+    '06': 'YOUR BUSINESS HAS A STORY. MAKE IT VISIBLE.',
+    '07': 'FROM CONCEPT TO CREATION.',
+    '08': 'CREATIVE TOOLS. REAL POSSIBILITIES.',
+    '09': 'GOOD DESIGN GETS ATTENTION. GREAT EXECUTION EARNS TRUST.',
+    '10': 'STOP DESIGNING LIKE EVERYONE ELSE.',
+    '11': "DON'T JUST MAKE CONTENT. MAKE SOMETHING THAT MATTERS.",
+    '12': 'THE FUTURE IS CREATED. NOT COPIED.',
+  };
+
+  const uniquePlates = new Set<string>();
+  const uniqueArchetypes = new Set<string>();
+  const portraitFmt = getFormatSpecById('ig-feed-portrait');
+
+  for (const spec of COLLECTION_001_SPECS) {
+    assert.equal(spec.headlineExact, expectedHeadlines[spec.number]);
+    uniquePlates.add(spec.plateImage);
+    uniqueArchetypes.add(spec.compositionArchetype);
+
+    const master = spec.buildPortraitMaster(portraitFmt);
+    assert.equal(master.width, 1080);
+    assert.equal(master.height, 1350);
+    assert.equal(master.templateFamily, MARKETING_COLLECTION_001_NAME);
+    assert.ok(
+      master.elements.some(el => el.type === 'image' && el.id.endsWith('-logo')),
+      `Collection 001 piece ${spec.number} must include the official Red-K brand logo`,
+    );
+
+    // Check full headline words exist across text layers cleanly
+    const combinedText = master.elements
+      .filter(el => el.type === 'text' && el.text)
+      .map(el => el.text!.replace(/\s+/g, ' ').trim())
+      .join(' ');
+    for (const token of spec.headlineExact.split(/\s+/)) {
+      assert.ok(
+        combinedText.includes(token),
+        `Piece ${spec.number} missing headline word "${token}" inside CanvasDesign text layers`,
+      );
+    }
+
+    // Verify real editable SVG output at 1080x1350
+    const svg = renderCanvasDesignToSvgString(master);
+    assert.ok(svg.startsWith('<svg') && svg.includes('width="1080"') && svg.includes('height="1350"'));
+    assert.ok(svg.includes('#FF1E1E'), `Piece ${spec.number} SVG must feature KeedoHub Signal Red accent`);
+
+    // Verify all 7 multi-format safe-zone adaptations keep text safely bounded
+    for (const fmtId of COLLECTION_001_MULTI_FORMAT_IDS) {
+      const targetFmt = getFormatSpecById(fmtId);
+      const adapted = adaptCanvasDesignToFormat(master, targetFmt);
+      assert.equal(adapted.width, targetFmt.width);
+      assert.equal(adapted.height, targetFmt.height);
+      const minX = targetFmt.safeAreaSidePct;
+      const maxX = 100 - targetFmt.safeAreaSidePct;
+      const minY = targetFmt.safeAreaTopPct;
+      const maxY = 100 - targetFmt.safeAreaBottomPct;
+      for (const el of adapted.elements) {
+        if (el.type === 'text') {
+          assert.ok(el.x >= minX && el.x <= maxX, `${spec.number} text ${el.id} X out of safe zone in ${fmtId}`);
+          assert.ok(el.y >= minY && el.y <= maxY, `${spec.number} text ${el.id} Y out of safe zone in ${fmtId}`);
+        }
+      }
+    }
+  }
+
+  assert.equal(uniquePlates.size, 12, 'All 12 Collection 001 artworks must use 12 distinct generated visual plates');
+  assert.equal(uniqueArchetypes.size, 12, 'All 12 Collection 001 artworks must use 12 distinct composition archetypes');
+
+  // Verify every generated Collection 001 JPEG plate exists cleanly on disk
+  const assetDir = path.join(root, 'src/assets/images');
+  const plateFiles = fs.readdirSync(assetDir).filter(f => f.startsWith('kh_') && f.endsWith('.jpg'));
+  assert.equal(plateFiles.length, 12, 'All 12 generated kh_*.jpg campaign plates must exist in src/assets/images');
+
+  console.log('ALL BRAND ROOM UNIT, CANVAS BUG FIX, COLLECTION 001 & LOGO INTEGRATION TESTS PASSED.');
   process.exit(0);
 }
 

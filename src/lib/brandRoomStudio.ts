@@ -19,6 +19,11 @@ import lyricalStudioHero from '../assets/images/lyrical_ent_studio_hero_17927917
 import motionVisualizerStage from '../assets/images/motion_visualizer_stage_1795183779858.jpg';
 import creativeDirectorStudio from '../assets/images/creative_director_studio_1795183778524.jpg';
 import keedohubBrandLogo from '../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import {
+  buildCollection001MasterTemplates,
+  MARKETING_COLLECTION_001_NAME,
+  MARKETING_COLLECTION_001_SERIES_ID,
+} from '../data/marketingCollection001';
 
 export const MARKETING_PLATFORMS: MarketingPlatform[] = [
   'Instagram',
@@ -410,6 +415,20 @@ export const MARKETING_PLATFORM_FORMATS: MarketingFormatSpec[] = [
     safeAreaBottomPct: 14,
     safeAreaSidePct: 10,
     cropRule: 'Wide strip banner; shift key wordmark & tagline right of bottom-left company logo overlap.',
+    recommendedFormats: ['PNG', 'JPG', 'SVG'],
+  },
+  {
+    id: 'li-portrait',
+    platform: 'LinkedIn',
+    label: 'LinkedIn Portrait Post (4:5)',
+    width: 1080,
+    height: 1350,
+    aspectLabel: '4:5',
+    canvasAspectRatio: '4:5 Portrait',
+    safeAreaTopPct: 8,
+    safeAreaBottomPct: 9,
+    safeAreaSidePct: 7,
+    cropRule: 'High-impact mobile portrait editorial frame for B2B thought leadership & creative showcases.',
     recommendedFormats: ['PNG', 'JPG', 'SVG'],
   },
   {
@@ -1092,6 +1111,28 @@ export const DEFAULT_CONTENT_SERIES: ContentSeries[] = [
     updatedAt: SEED_TIME,
     createdBy: 'system',
   },
+  {
+    id: MARKETING_COLLECTION_001_SERIES_ID,
+    name: MARKETING_COLLECTION_001_NAME,
+    pillarId: 'pillar-brand-awareness',
+    pillarName: 'Brand Awareness',
+    cadence: 'Campaign Drop',
+    description:
+      'Flagship 12-part experimental campaign library spanning Brand Identity & Awareness, What We Do, Creative Services & Products, and Brand Culture.',
+    recommendedFormats: [
+      'Instagram Feed Portrait (4:5)',
+      'Instagram Square Post (1:1)',
+      'Instagram Story (9:16)',
+      'Facebook Feed Portrait (4:5)',
+      'LinkedIn Portrait Post (4:5)',
+      'TikTok Vertical Video (9:16)',
+      'Homepage Hero Banner (1920×1080)',
+    ],
+    isSystemDefault: true,
+    createdAt: SEED_TIME,
+    updatedAt: SEED_TIME,
+    createdBy: 'system',
+  },
 ];
 
 export const DEFAULT_BRAND_COLORS: BrandColorSwatch[] = [
@@ -1237,13 +1278,17 @@ export function adaptCanvasDesignToFormat(
   const targetRatio = targetFormat.width / Math.max(1, targetFormat.height);
   const aspectShift = Math.abs(sourceRatio - targetRatio);
   const isWideStrip = targetRatio >= 2.2;
+  const isWidescreen = targetRatio >= 1.5 && !isWideStrip;
   const isTallStory = targetRatio <= 0.65;
 
   const adaptedElements: CanvasElement[] = source.elements.map(el => {
     const isFullBackdrop =
-      el.type === 'image' && (el.width || 0) >= 92 && (el.height || 0) >= 92;
+      (el.type === 'image' || (el.type === 'shape' && el.shapeType === 'rectangle')) &&
+      (el.width || 0) >= 92 &&
+      (el.height || 0) >= 92;
     const isOuterFrame =
-      el.type === 'shape' && el.shapeType === 'frame' && (el.width || 0) >= 85;
+      (el.type === 'shape' && el.shapeType === 'frame' && (el.width || 0) >= 85) ||
+      (el.type === 'illustration' && (el.width || 0) >= 85 && (el.height || 0) >= 80);
 
     if (isFullBackdrop) {
       return {
@@ -1252,7 +1297,7 @@ export function adaptCanvasDesignToFormat(
         y: 50,
         width: 100,
         height: 100,
-        objectFit: 'cover',
+        ...(el.type === 'image' ? { objectFit: 'cover' as const } : {}),
       };
     }
 
@@ -1266,7 +1311,33 @@ export function adaptCanvasDesignToFormat(
       };
     }
 
-    // Re-map vertical coordinates into safe area envelope
+    // Preserve full-bleed horizontal scrim/banner ribbons and full-height split rails
+    const isFullWidthRibbon =
+      el.type === 'shape' && el.shapeType === 'rectangle' && (el.width || 0) >= 96;
+    const isFullHeightColumn =
+      (el.type === 'shape' || el.type === 'image') && (el.height || 0) >= 96 && (el.width || 0) < 92;
+
+    if (isFullWidthRibbon) {
+      const ribbonY = minY + (el.y / 100) * safeHeightPct;
+      const ribbonH = isTallStory ? Math.max(8, Math.round((el.height || 12) * 0.8)) : el.height;
+      return {
+        ...el,
+        x: 50,
+        y: Math.round(Math.min(95, Math.max(5, ribbonY)) * 10) / 10,
+        width: 100,
+        ...(ribbonH !== undefined ? { height: ribbonH } : {}),
+      };
+    }
+
+    if (isFullHeightColumn) {
+      return {
+        ...el,
+        y: 50,
+        height: 100,
+      };
+    }
+
+    // Re-map coordinates into platform safe-area envelope
     let nextY = minY + (el.y / 100) * safeHeightPct;
     let nextX = minX + (el.x / 100) * safeWidthPct;
 
@@ -1279,14 +1350,30 @@ export function adaptCanvasDesignToFormat(
 
     let nextFontSize = el.fontSize;
     if (el.type === 'text' && el.fontSize) {
-      const stripScale = isWideStrip ? 0.68 : isTallStory ? 0.92 : aspectShift > 0.5 ? 0.85 : 1;
+      const stripScale = isWideStrip
+        ? 0.56
+        : isWidescreen && sourceRatio <= 1.05
+          ? 0.58
+          : isTallStory
+            ? 0.9
+            : aspectShift > 0.45
+              ? 0.84
+              : 1;
       nextFontSize = Math.max(11, Math.min(110, Math.round(el.fontSize * stripScale)));
     }
 
     let nextWidth = el.width;
     let nextHeight = el.height;
-    if (el.type === 'logo' || el.type === 'illustration') {
-      const iconScale = isWideStrip ? 0.55 : isTallStory ? 0.9 : 1;
+    const isBrandLogoSeal =
+      el.type === 'image' &&
+      (el.id.endsWith('-logo') || el.id.endsWith('-logo-pad') || el.name.toLowerCase().includes('logo'));
+
+    if (isBrandLogoSeal && nextWidth) {
+      const sealScale = isWideStrip ? 0.55 : isWidescreen ? 0.65 : isTallStory ? 0.92 : 1;
+      nextWidth = Math.max(6, Math.round(nextWidth * sealScale * 10) / 10);
+      nextHeight = Math.min(26, Math.round(nextWidth * targetRatio * 10) / 10);
+    } else if (el.type === 'logo' || el.type === 'illustration') {
+      const iconScale = isWideStrip ? 0.55 : isWidescreen ? 0.75 : isTallStory ? 0.9 : 1;
       if (nextWidth) nextWidth = Math.max(8, Math.round(nextWidth * iconScale));
       if (nextHeight) nextHeight = Math.max(8, Math.round(nextHeight * iconScale));
     } else if (el.type === 'text' && nextWidth) {
@@ -1546,6 +1633,7 @@ function buildKeedoDesign(params: {
 }
 
 export const MARKETING_MASTER_TEMPLATES: MarketingMasterTemplate[] = [
+  ...buildCollection001MasterTemplates(adaptCanvasDesignToFormat),
   {
     id: 'mkt-tpl-meet-keedohub',
     title: 'Meet KeedoHub: The Creative Ecosystem',

@@ -34,6 +34,7 @@ import {
 } from '../../../lib/brandRoomStudio';
 import { exportAndSaveCanvasToBrandRoom } from '../../../lib/brandRoomService';
 import { BrandRoomCanvasPreview } from './BrandRoomCanvasPreview';
+import { Collection001GallerySection } from './Collection001GallerySection';
 
 interface MarketingStudioPanelProps {
   assets: MarketingAsset[];
@@ -184,6 +185,8 @@ export const MarketingStudioPanel: React.FC<MarketingStudioPanelProps> = ({
     setTopic(tpl.topic);
     setAudience(tpl.targetAudience);
     setPillarId(tpl.pillarId);
+    const matchedSeries = series.find(s => s.name === tpl.seriesName);
+    setSeriesId(matchedSeries?.id || '');
     setCaption(tpl.defaultCaption);
     setCallToAction(tpl.defaultCallToAction);
     setHashtagsText(tpl.defaultHashtags.join(' '));
@@ -679,8 +682,10 @@ export const MarketingStudioPanel: React.FC<MarketingStudioPanelProps> = ({
                 'ig-square',
                 'ig-story',
                 'ig-reels',
+                'fb-feed-portrait',
                 'fb-promo-ad',
-                'tt-video-cover',
+                'tt-vertical-video',
+                'li-portrait',
                 'li-landscape',
                 'li-document-carousel',
                 'yt-thumbnail',
@@ -818,6 +823,14 @@ export const MarketingStudioPanel: React.FC<MarketingStudioPanelProps> = ({
           </div>
         </section>
       )}
+      {/* KEEDOHUB — CREATIVE UNIVERSE / MARKETING COLLECTION 001 */}
+      <Collection001GallerySection
+        assets={assets}
+        pillars={pillars}
+        series={series}
+        adminUid={adminUid}
+        onOpenCanvasEditor={onOpenCanvasEditor}
+      />
     </div>
   );
 };

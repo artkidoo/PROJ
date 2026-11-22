@@ -47,16 +47,22 @@ export function renderCanvasDesignToSvgString(
                 : 'Helvetica, Arial, sans-serif';
         const scaledSize = Math.round((el.fontSize || 36) * (width / 1200));
         const anchor = el.textAlign === 'center' ? 'middle' : el.textAlign === 'right' ? 'end' : 'start';
+        const anchorX =
+          el.width && el.textAlign === 'left'
+            ? ((el.x - el.width / 2) / 100) * width
+            : el.width && el.textAlign === 'right'
+              ? ((el.x + el.width / 2) / 100) * width
+              : pixelX;
         const lines = (el.text || '').split('\n');
         const lineHeight = scaledSize * (el.lineHeight || 1.15);
         const textNodes = lines
           .map(
             (line, i) =>
-              `<tspan x="${pixelX}" y="${pixelY + i * lineHeight}">${escapeXml(line)}</tspan>`,
+              `<tspan x="${anchorX}" y="${pixelY + i * lineHeight}">${escapeXml(line)}</tspan>`,
           )
           .join('');
         svgElements += `
-          <text x="${pixelX}" y="${pixelY}" fill="${el.color || '#FFFFFF'}" font-family="${fontStack}" font-size="${scaledSize}" font-weight="${el.fontWeight || '700'}" text-anchor="${anchor}" letter-spacing="${el.letterSpacing || 0}" opacity="${el.opacity}" transform="rotate(${el.rotation || 0} ${pixelX} ${pixelY})">
+          <text x="${anchorX}" y="${pixelY}" fill="${el.color || '#FFFFFF'}" font-family="${fontStack}" font-size="${scaledSize}" font-weight="${el.fontWeight || '700'}" text-anchor="${anchor}" letter-spacing="${el.letterSpacing || 0}" opacity="${el.opacity}" transform="rotate(${el.rotation || 0} ${pixelX} ${pixelY})">
             ${textNodes}
           </text>
         `;
@@ -157,10 +163,17 @@ export async function renderCanvasDesignToRasterBlob(
       ctx.fillStyle = el.color || '#FFFFFF';
       ctx.textAlign = el.textAlign || 'center';
 
+      const anchorX =
+        el.width && el.textAlign === 'left'
+          ? ((el.x - el.width / 2) / 100) * width
+          : el.width && el.textAlign === 'right'
+            ? ((el.x + el.width / 2) / 100) * width
+            : posX;
+
       const lines = (el.text || '').split('\n');
       const lineHeight = scaledSize * (el.lineHeight || 1.15);
       lines.forEach((line, idx) => {
-        ctx.fillText(line, posX, posY + idx * lineHeight);
+        ctx.fillText(line, anchorX, posY + idx * lineHeight);
       });
     } else if (el.type === 'image' && el.src) {
       try {
@@ -171,7 +184,7 @@ export async function renderCanvasDesignToRasterBlob(
           img.onerror = () => resolve();
           img.src = el.src!;
         });
-        if (img.naturalWidth > 0) {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
           const imgW = ((el.width || 60) / 100) * width;
           const imgH = ((el.height || 50) / 100) * height;
           const imgX = posX - imgW / 2;
@@ -181,7 +194,37 @@ export async function renderCanvasDesignToRasterBlob(
           } else if (el.filter === 'contrast') {
             ctx.filter = 'contrast(140%)';
           }
-          ctx.drawImage(img, imgX, imgY, imgW, imgH);
+          const imgRatio = img.naturalWidth / img.naturalHeight;
+          const boxRatio = imgW / Math.max(1, imgH);
+          if (el.objectFit === 'contain') {
+            let drawW = imgW;
+            let drawH = imgH;
+            if (imgRatio > boxRatio) {
+              drawH = imgW / imgRatio;
+            } else {
+              drawW = imgH * imgRatio;
+            }
+            ctx.drawImage(
+              img,
+              imgX + (imgW - drawW) / 2,
+              imgY + (imgH - drawH) / 2,
+              drawW,
+              drawH,
+            );
+          } else {
+            let sx = 0;
+            let sy = 0;
+            let sw = img.naturalWidth;
+            let sh = img.naturalHeight;
+            if (imgRatio > boxRatio) {
+              sw = img.naturalHeight * boxRatio;
+              sx = (img.naturalWidth - sw) / 2;
+            } else {
+              sh = img.naturalWidth / boxRatio;
+              sy = (img.naturalHeight - sh) / 2;
+            }
+            ctx.drawImage(img, sx, sy, sw, sh, imgX, imgY, imgW, imgH);
+          }
           ctx.filter = 'none';
         }
       } catch {
