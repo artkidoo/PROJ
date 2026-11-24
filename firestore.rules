@@ -320,14 +320,21 @@ service cloud.firestore {
         isOwner(userId) &&
         request.resource.data.uid == userId &&
         (!request.resource.data.keys().hasAny(['role', 'isAdmin', 'isPlatformAdmin'])) &&
-        request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'createdAt', 'updatedAt'])
+        request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'createdAt', 'updatedAt']) &&
+        (!request.resource.data.keys().hasAny(['accountType']) ||
+          request.resource.data.accountType in ['Artist', 'Brand'])
       );
 
-      // Prevent users from modifying their own privileged roles, admin status, or immutable identity fields
+      // Prevent users from modifying their own privileged roles, admin status, or immutable identity fields,
+      // and lock accountType after onboarding completes so clients cannot switch OS experiences themselves.
       allow update: if isPlatformAdmin() || (
         isOwner(userId) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isPlatformAdmin', 'uid', 'email', 'createdAt'])) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'updatedAt'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'accountType', 'organizationName', 'onboardingComplete', 'updatedAt']) &&
+        (!(resource.data.keys().hasAny(['onboardingComplete']) && resource.data.onboardingComplete == true) ||
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['accountType'])) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['accountType']) ||
+          request.resource.data.accountType in ['Artist', 'Brand'])
       );
 
       allow delete: if isPlatformAdmin();
@@ -358,9 +365,9 @@ service cloud.firestore {
         request.resource.data.name is string &&
         request.resource.data.name.size() > 0 &&
         request.resource.data.name.size() <= 100 &&
-        request.resource.data.type in ['Artist', 'Brand', 'Business', 'Label', 'Enterprise', 'Agency', 'Personal'] &&
+        request.resource.data.type in ['Artist', 'Brand'] &&
         (!request.resource.data.keys().hasAny(['clientCategory']) ||
-          request.resource.data.clientCategory in ['artist', 'brand', 'business', 'label']) &&
+          request.resource.data.clientCategory in ['artist', 'brand']) &&
         request.resource.data.status in ['Active', 'Onboarding'] &&
         (!request.resource.data.keys().hasAny(['description']) ||
           (request.resource.data.description is string && request.resource.data.description.size() <= 1000)) &&
@@ -394,12 +401,70 @@ service cloud.firestore {
         allow create, update, delete: if isWorkspaceOwner(workspaceId);
       }
 
+    function isCommercialDocumentType(docType) {
+      return docType is string &&
+        docType.trim().lower() in [
+          'invoice',
+          'receipt',
+          'proposal',
+          'quotation',
+          'partnership_proposal',
+          'sponsorship_proposal',
+          'commercial_contract'
+        ];
+    }
+
+    function hasCommercialFinanceFields(data) {
+      return data.keys().hasAny([
+        'totalAmount',
+        'totalPaid',
+        'balanceDue',
+        'payments',
+        'subtotal',
+        'taxRate',
+        'taxAmount',
+        'discountAmount',
+        'clientAction',
+        'clientResponse',
+        'issuedByAdmin',
+        'issuedByUid'
+      ]);
+    }
+
+    function isValidNonCommercialWorkspaceDocument(workspaceId, documentId, data) {
+      return isValidId(documentId) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 160 &&
+        data.type is string && data.type.size() > 0 && data.type.size() <= 64 &&
+        !isCommercialDocumentType(data.type) &&
+        !hasCommercialFinanceFields(data) &&
+        (!data.keys().hasAny(['workspaceId']) || data.workspaceId == workspaceId) &&
+        (!data.keys().hasAny(['library']) || data.library in ['artist', 'brand']) &&
+        (!data.keys().hasAny(['status']) ||
+          data.status in ['Draft', 'Under Review', 'Approved', 'Issued', 'Archived', 'Cancelled']) &&
+        (!data.keys().hasAny(['bodyContent']) ||
+          (data.bodyContent is string && data.bodyContent.size() <= 20000));
+    }
+
       // Workspace Owned Subcollections (Active Membership Required)
       match /artists/{artistId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /releases/{releaseId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /campaigns/{campaignId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /contentItems/{contentId} { allow read, write: if isWorkspaceMember(workspaceId); }
-      match /documents/{documentId} { allow read, write: if isWorkspaceMember(workspaceId); }
+      match /documents/{documentId} {
+        allow read: if isPlatformAdmin() || isWorkspaceMember(workspaceId);
+        allow create: if isPlatformAdmin() ||
+          (isWorkspaceMember(workspaceId) &&
+            isValidNonCommercialWorkspaceDocument(workspaceId, documentId, request.resource.data));
+        allow update: if isPlatformAdmin() ||
+          (isWorkspaceMember(workspaceId) &&
+            !isCommercialDocumentType(resource.data.type) &&
+            (!resource.data.keys().hasAny(['issuedByAdmin']) || resource.data.issuedByAdmin != true) &&
+            isValidNonCommercialWorkspaceDocument(workspaceId, documentId, request.resource.data));
+        allow delete: if isPlatformAdmin() ||
+          (isWorkspaceMember(workspaceId) &&
+            !isCommercialDocumentType(resource.data.type) &&
+            (!resource.data.keys().hasAny(['issuedByAdmin']) || resource.data.issuedByAdmin != true));
+      }
       match /brandAssets/{assetId} {
         allow get: if isPlatformAdmin() ||
           (isWorkspaceMember(workspaceId) && !isLegacyInternalBrandAsset(resource.data));
@@ -446,7 +511,7 @@ service cloud.firestore {
         request.resource.data.email.size() <= 254 &&
         (!request.resource.data.keys().hasAny(['photoURL']) ||
           (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 2048)) &&
-        request.resource.data.accountType in ['Artist', 'Brand', 'Company'] &&
+        request.resource.data.accountType in ['Artist', 'Brand'] &&
         request.resource.data.organizationName is string &&
         request.resource.data.organizationName.size() > 0 &&
         request.resource.data.organizationName.size() <= 100 &&
@@ -473,14 +538,16 @@ service cloud.firestore {
           'onboardingComplete', 'workspaceId', 'updatedAt'
         ]) &&
         request.resource.data.onboardingComplete == true &&
+        (!(resource.data.keys().hasAny(['onboardingComplete']) && resource.data.onboardingComplete == true) ||
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['accountType'])) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['workspaceId']) ||
           (request.resource.data.workspaceId is string && ownsWorkspaceAfter(request.resource.data.workspaceId))) &&
         (!request.resource.data.keys().hasAny(['displayName']) ||
           (request.resource.data.displayName is string &&
             request.resource.data.displayName.size() > 0 &&
             request.resource.data.displayName.size() <= 100)) &&
-        (!request.resource.data.keys().hasAny(['accountType']) ||
-          request.resource.data.accountType in ['Artist', 'Brand', 'Company']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['accountType']) ||
+          request.resource.data.accountType in ['Artist', 'Brand']) &&
         (!request.resource.data.keys().hasAny(['organizationName']) ||
           (request.resource.data.organizationName is string &&
             request.resource.data.organizationName.size() > 0 &&
@@ -507,7 +574,7 @@ service cloud.firestore {
             request.resource.data.displayName.size() > 0 &&
             request.resource.data.displayName.size() <= 100)) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['accountType']) ||
-          request.resource.data.accountType in ['Artist', 'Brand', 'Company']) &&
+          request.resource.data.accountType in ['Artist', 'Brand']) &&
         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['organizationName']) ||
           (request.resource.data.organizationName is string &&
             request.resource.data.organizationName.size() > 0 &&
@@ -719,18 +786,28 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    function isArtistAccountType(rawType) {
+      return rawType is string && rawType.trim().lower() == 'artist';
+    }
+
+    function isBrandAccountType(rawType) {
+      return rawType is string &&
+        rawType.trim().lower() in [
+          'brand', 'company', 'business', 'label', 'agency',
+          'enterprise', 'personal', 'startup', 'corporation', 'commercial'
+        ];
+    }
+
     function clientMatchesProductAudience(audience) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.onboardingComplete == true &&
         (
           audience == 'Shared' ||
-          (get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Artist' &&
+          (isArtistAccountType(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType) &&
             audience == 'Artist') ||
-          (get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Brand' &&
-            audience in ['Brand', 'Brand & Business']) ||
-          (get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Company' &&
-            audience in ['Business', 'Brand & Business'])
+          (isBrandAccountType(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.accountType) &&
+            audience in ['Brand', 'Business', 'Brand & Business'])
         );
     }
 
@@ -907,6 +984,43 @@ service cloud.firestore {
         isValidId(assetId) &&
         validBrandRoomAsset(assetId, request.resource.data);
       allow delete: if isPlatformAdmin() && isValidId(assetId);
+    }
+
+    // Server-Governed Commercial Billing & Proposals (Phase 2)
+    // Clients can only read non-draft records scoped to their own open workspace.
+    // All creations, edits, manual payments, and client proposal responses MUST go through Cloud Functions.
+    match /invoices/{invoiceId} {
+      allow get, list: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.clientUid == request.auth.uid &&
+        resource.data.workspaceId is string &&
+        isWorkspaceOpen(resource.data.workspaceId) &&
+        resource.data.status in ['Issued', 'Partially Paid', 'Paid', 'Overdue', 'Void']
+      );
+      allow get: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.workspaceId is string &&
+        isWorkspaceMember(resource.data.workspaceId) &&
+        resource.data.status in ['Issued', 'Partially Paid', 'Paid', 'Overdue', 'Void']
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /proposals/{proposalId} {
+      allow get, list: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.clientUid == request.auth.uid &&
+        resource.data.workspaceId is string &&
+        isWorkspaceOpen(resource.data.workspaceId) &&
+        resource.data.status in ['Issued', 'Sent', 'Under Review', 'Revision Requested', 'Approved', 'Declined', 'Expired']
+      );
+      allow get: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.workspaceId is string &&
+        isWorkspaceMember(resource.data.workspaceId) &&
+        resource.data.status in ['Issued', 'Sent', 'Under Review', 'Revision Requested', 'Approved', 'Declined', 'Expired']
+      );
+      allow create, update, delete: if false;
     }
   }
 }

@@ -118,7 +118,7 @@ export const TermsPage: React.FC<{ navigate: (r: PublicRoute, p?: string) => voi
     <Clause
       index="02"
       heading="Client Workspace Access"
-      body="Each client account receives a single private workspace organized for Artist OS, Brand OS, or Company operations. Account credentials and shared access belong strictly to the authorized account holder and invited collaborators."
+      body="Each client account receives a single private workspace organized for Artist OS or Brand OS operations. Account credentials and shared access belong strictly to the authorized account holder and invited collaborators."
     />
     <Clause
       index="03"
@@ -154,7 +154,7 @@ export const PrivacyPage: React.FC<{ navigate: (r: PublicRoute, p?: string) => v
     <Clause
       index="03"
       heading="Authentication & Third-Party Providers"
-      body="Authentication is processed through Firebase Authentication (Email/Password and Google Sign-In). We store only essential identity metadata required to provision and secure your Artist, Brand, or Company workspace."
+      body="Authentication is processed through Firebase Authentication (Email/Password and Google Sign-In). We store only essential identity metadata required to provision and secure your Artist or Brand workspace."
     />
     <Clause
       index="04"

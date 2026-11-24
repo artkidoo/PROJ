@@ -1,6 +1,13 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
+import {
+  computePaymentApplication,
+  FinanceValidationError,
+  validateAndComputeInvoicePayload,
+  validateAndComputeProposalPayload,
+  validateClientProposalResponse,
+} from './financeValidation';
 
 const DATABASE_ID = 'ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38';
 
@@ -129,8 +136,8 @@ export const adminUpdateClientProfile = functions.https.onCall(async (data, cont
     if (data[field] !== undefined) updates[field] = requireText(data[field], field, 100);
   }
   if (data.accountType !== undefined) {
-    if (!['Artist', 'Brand', 'Company'].includes(data.accountType)) {
-      throw new functions.https.HttpsError('invalid-argument', 'accountType is invalid.');
+    if (!['Artist', 'Brand'].includes(data.accountType)) {
+      throw new functions.https.HttpsError('invalid-argument', 'accountType must be Artist or Brand.');
     }
     updates.accountType = data.accountType;
   }
@@ -368,7 +375,14 @@ export const adminCreateClientWorkspace = functions.https.onCall(async (data, co
     await client.ref.update({ workspaceId: workspace.id, updatedAt: new Date().toISOString() });
     return { success: true, workspaceId: workspace.id, alreadyExists: true };
   }
-  const type = data.workspaceType === 'Brand' ? 'Brand' : data.workspaceType === 'Business' ? 'Business' : 'Artist';
+  const rawWorkspaceType = typeof data.workspaceType === 'string' ? data.workspaceType.trim().toLowerCase() : '';
+  const type = rawWorkspaceType === 'artist'
+    ? 'Artist'
+    : ['brand', 'business', 'company', 'label', 'agency', 'enterprise', 'personal', 'startup', 'corporation', 'commercial'].includes(rawWorkspaceType)
+      ? 'Brand'
+      : client.get('accountType') === 'Artist'
+        ? 'Artist'
+        : 'Brand';
   const category = type.toLowerCase();
   const accentColor = typeof data.accentColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.accentColor)
     ? data.accentColor
@@ -1486,3 +1500,420 @@ export const productionDeadlineReminders = functions.pubsub.schedule('every 24 h
   await Promise.all(work);
   return null;
 });
+
+function rethrowFinanceError(err: unknown): never {
+  if (err instanceof FinanceValidationError) {
+    throw new functions.https.HttpsError(err.code, err.message);
+  }
+  if (err instanceof functions.https.HttpsError) {
+    throw err;
+  }
+  throw new functions.https.HttpsError(
+    'internal',
+    err instanceof Error ? err.message : 'Unexpected finance validation error.',
+  );
+}
+
+export const adminSaveInvoice = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  }
+  await assertActiveAdmin(context.auth.uid);
+
+  const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const workspaceId = requireText(payload.workspaceId, 'Workspace ID', 128);
+  if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Workspace ID is invalid.');
+  }
+
+  const workspaceSnap = await db.collection('workspaces').doc(workspaceId).get();
+  if (!workspaceSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Target workspace not found.');
+  }
+  const clientUid = String(workspaceSnap.get('ownerId') || '');
+  if (!clientUid) {
+    throw new functions.https.HttpsError('failed-precondition', 'Target workspace does not have an assigned client owner.');
+  }
+
+  const requestedId = typeof payload.id === 'string' && payload.id.trim() ? payload.id.trim() : '';
+  if (requestedId && (!/^[a-zA-Z0-9_-]+$/.test(requestedId) || requestedId.length > 128)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invoice ID is invalid.');
+  }
+
+  const invoiceRef = requestedId
+    ? db.collection('invoices').doc(requestedId)
+    : db.collection('invoices').doc();
+  const existingSnap = await invoiceRef.get();
+  const existingData = existingSnap.exists ? (existingSnap.data() as Record<string, unknown>) : null;
+  const now = new Date().toISOString();
+
+  let validated: ReturnType<typeof validateAndComputeInvoicePayload>;
+  try {
+    validated = validateAndComputeInvoicePayload({
+      input: payload,
+      existing: existingData,
+      nowIso: now,
+    });
+  } catch (err) {
+    rethrowFinanceError(err);
+  }
+
+  const adminName = String(context.auth.token.name || context.auth.token.email || 'KeedoHub Admin');
+  const issuedAt =
+    typeof existingData?.issuedAt === 'string' && existingData.issuedAt
+      ? existingData.issuedAt
+      : validated.status !== 'Draft'
+        ? now
+        : '';
+
+  const invoiceDoc = {
+    id: invoiceRef.id,
+    workspaceId,
+    clientUid,
+    ...validated,
+    issuedByAdmin: true as const,
+    issuedByUid: existingData?.issuedByUid || context.auth.uid,
+    issuedByName: existingData?.issuedByName || adminName,
+    ...(issuedAt ? { issuedAt } : {}),
+    ...(validated.status === 'Void' ? { voidedAt: existingData?.voidedAt || now } : {}),
+    createdAt: typeof existingData?.createdAt === 'string' && existingData.createdAt ? existingData.createdAt : now,
+    updatedAt: now,
+  };
+
+  await invoiceRef.set(invoiceDoc, { merge: false });
+
+  await db.collection('adminAuditLogs').add({
+    actorUid: context.auth.uid,
+    actorName: adminName,
+    action: existingSnap.exists ? 'update_invoice' : 'create_invoice',
+    target: `invoices/${invoiceRef.id}`,
+    targetUid: clientUid,
+    details: JSON.stringify({
+      workspaceId,
+      referenceNo: validated.referenceNo,
+      status: validated.status,
+      currency: validated.currency,
+      totalAmount: validated.totalAmount,
+      balanceDue: validated.balanceDue,
+    }),
+    createdAt: now,
+  });
+
+  if (validated.status !== 'Draft' && validated.status !== 'Void') {
+    await notifyUser(
+      clientUid,
+      `invoice_${invoiceRef.id}_${validated.status}_${now}`,
+      existingSnap.exists ? `Invoice ${validated.referenceNo} updated` : `New invoice ${validated.referenceNo}`,
+      `${validated.title} (${validated.currency} ${validated.totalAmount.toFixed(2)}) — ${validated.status}.`,
+      'invoice',
+      validated.projectId || undefined,
+      invoiceRef.id,
+      validated.dueDate || undefined,
+    );
+  }
+
+  return { success: true, invoice: invoiceDoc };
+});
+
+export const adminRecordManualPayment = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  }
+  await assertActiveAdmin(context.auth.uid);
+
+  const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const invoiceId = requireText(payload.invoiceId, 'Invoice ID', 128);
+  if (!/^[a-zA-Z0-9_-]+$/.test(invoiceId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invoice ID is invalid.');
+  }
+
+  const now = new Date().toISOString();
+  const recordedByName = String(context.auth.token.name || context.auth.token.email || 'KeedoHub Admin');
+  const invoiceRef = db.collection('invoices').doc(invoiceId);
+
+  let summary: {
+    paymentRecord: ReturnType<typeof computePaymentApplication>['paymentRecord'];
+    totalPaid: number;
+    balanceDue: number;
+    nextStatus: string;
+    clientUid: string;
+    referenceNo: string;
+    currency: string;
+    projectId: string;
+  };
+
+  try {
+    summary = await db.runTransaction(async tx => {
+      const snap = await tx.get(invoiceRef);
+      if (!snap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Invoice not found.');
+      }
+      const invoiceData = snap.data() || {};
+      const application = computePaymentApplication({
+        invoice: {
+          status: String(invoiceData.status || ''),
+          totalAmount: Number(invoiceData.totalAmount || 0),
+          totalPaid: Number(invoiceData.totalPaid || 0),
+          balanceDue: Number(invoiceData.balanceDue || 0),
+          payments: Array.isArray(invoiceData.payments) ? invoiceData.payments : [],
+          referenceNo: String(invoiceData.referenceNo || invoiceId),
+        },
+        amount: payload.amount,
+        method: payload.method,
+        date: payload.date,
+        reference: payload.reference,
+        notes: payload.notes,
+        recordedByName,
+        recordedByUid: context.auth!.uid,
+        nowIso: now,
+      });
+
+      const updates: Record<string, unknown> = {
+        payments: application.payments,
+        totalPaid: application.totalPaid,
+        balanceDue: application.balanceDue,
+        status: application.nextStatus,
+        updatedAt: now,
+      };
+      if (application.nextStatus === 'Paid') {
+        updates.paidAt = now;
+      }
+
+      tx.update(invoiceRef, updates);
+
+      return {
+        paymentRecord: application.paymentRecord,
+        totalPaid: application.totalPaid,
+        balanceDue: application.balanceDue,
+        nextStatus: application.nextStatus,
+        clientUid: String(invoiceData.clientUid || ''),
+        referenceNo: String(invoiceData.referenceNo || invoiceId),
+        currency: String(invoiceData.currency || 'USD'),
+        projectId: String(invoiceData.projectId || ''),
+      };
+    });
+  } catch (err) {
+    rethrowFinanceError(err);
+  }
+
+  await db.collection('adminAuditLogs').add({
+    actorUid: context.auth.uid,
+    actorName: recordedByName,
+    action: 'record_manual_payment',
+    target: `invoices/${invoiceId}`,
+    targetUid: summary.clientUid,
+    details: JSON.stringify({
+      receiptNumber: summary.paymentRecord.receiptNumber,
+      amount: summary.paymentRecord.amount,
+      currency: summary.currency,
+      method: summary.paymentRecord.method,
+      balanceDue: summary.balanceDue,
+      status: summary.nextStatus,
+    }),
+    createdAt: now,
+  });
+
+  if (summary.clientUid) {
+    await notifyUser(
+      summary.clientUid,
+      `invoice_payment_${invoiceId}_${summary.paymentRecord.id}`,
+      summary.nextStatus === 'Paid'
+        ? `Receipt ${summary.paymentRecord.receiptNumber} — Invoice Paid`
+        : `Payment recorded on ${summary.referenceNo}`,
+      `${summary.currency} ${summary.paymentRecord.amount.toFixed(2)} received via ${summary.paymentRecord.method}. Remaining balance: ${summary.currency} ${summary.balanceDue.toFixed(2)}.`,
+      'invoice',
+      summary.projectId || undefined,
+      invoiceId,
+    );
+  }
+
+  return {
+    success: true,
+    ...summary,
+  };
+});
+
+export const adminSaveProposal = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  }
+  await assertActiveAdmin(context.auth.uid);
+
+  const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const workspaceId = requireText(payload.workspaceId, 'Workspace ID', 128);
+  if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Workspace ID is invalid.');
+  }
+
+  const workspaceSnap = await db.collection('workspaces').doc(workspaceId).get();
+  if (!workspaceSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Target workspace not found.');
+  }
+  const clientUid = String(workspaceSnap.get('ownerId') || '');
+  if (!clientUid) {
+    throw new functions.https.HttpsError('failed-precondition', 'Target workspace does not have an assigned client owner.');
+  }
+
+  const requestedId = typeof payload.id === 'string' && payload.id.trim() ? payload.id.trim() : '';
+  if (requestedId && (!/^[a-zA-Z0-9_-]+$/.test(requestedId) || requestedId.length > 128)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Proposal ID is invalid.');
+  }
+
+  const proposalRef = requestedId
+    ? db.collection('proposals').doc(requestedId)
+    : db.collection('proposals').doc();
+  const existingSnap = await proposalRef.get();
+  const existingData = existingSnap.exists ? (existingSnap.data() as Record<string, unknown>) : null;
+  const now = new Date().toISOString();
+  const adminName = String(context.auth.token.name || context.auth.token.email || 'KeedoHub Admin');
+
+  let validated: ReturnType<typeof validateAndComputeProposalPayload>;
+  try {
+    validated = validateAndComputeProposalPayload({
+      input: payload,
+      existing: existingData,
+      actorUid: context.auth.uid,
+      actorName: adminName,
+      nowIso: now,
+    });
+  } catch (err) {
+    rethrowFinanceError(err);
+  }
+
+  const issuedAt =
+    typeof existingData?.issuedAt === 'string' && existingData.issuedAt
+      ? existingData.issuedAt
+      : validated.status !== 'Draft'
+        ? now
+        : '';
+
+  const proposalDoc = {
+    id: proposalRef.id,
+    workspaceId,
+    clientUid,
+    ...validated,
+    issuedByAdmin: true as const,
+    issuedByUid: existingData?.issuedByUid || context.auth.uid,
+    issuedByName: existingData?.issuedByName || adminName,
+    ...(issuedAt ? { issuedAt } : {}),
+    createdAt: typeof existingData?.createdAt === 'string' && existingData.createdAt ? existingData.createdAt : now,
+    updatedAt: now,
+  };
+
+  await proposalRef.set(proposalDoc, { merge: false });
+
+  await db.collection('adminAuditLogs').add({
+    actorUid: context.auth.uid,
+    actorName: adminName,
+    action: existingSnap.exists ? 'update_proposal' : 'create_proposal',
+    target: `proposals/${proposalRef.id}`,
+    targetUid: clientUid,
+    details: JSON.stringify({
+      workspaceId,
+      referenceNo: validated.referenceNo,
+      type: validated.type,
+      status: validated.status,
+      currency: validated.currency,
+      totalAmount: validated.totalAmount,
+    }),
+    createdAt: now,
+  });
+
+  if (['Issued', 'Sent', 'Under Review'].includes(validated.status)) {
+    await notifyUser(
+      clientUid,
+      `proposal_${proposalRef.id}_${validated.status}_${now}`,
+      existingSnap.exists ? `Proposal ${validated.referenceNo} updated` : `New proposal ${validated.referenceNo}`,
+      `${validated.title} is ready for your review and response.`,
+      'proposal',
+      validated.projectId || undefined,
+      proposalRef.id,
+      validated.validUntil || undefined,
+    );
+  }
+
+  return { success: true, proposal: proposalDoc };
+});
+
+export const clientRespondProposal = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in before responding to a proposal.');
+  }
+
+  const uid = context.auth.uid;
+  const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const proposalId = requireText(payload.proposalId, 'Proposal ID', 128);
+  const workspaceId = requireText(payload.workspaceId, 'Workspace ID', 128);
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(proposalId) || !/^[a-zA-Z0-9_-]+$/.test(workspaceId)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Proposal or workspace ID is invalid.');
+  }
+
+  const [profileSnap, proposalSnap, workspaceSnap, membershipSnap] = await Promise.all([
+    db.collection('clientProfiles').doc(uid).get(),
+    db.collection('proposals').doc(proposalId).get(),
+    db.collection('workspaces').doc(workspaceId).get(),
+    db.collection('workspaces').doc(workspaceId).collection('memberships').doc(uid).get(),
+  ]);
+
+  if (!profileSnap.exists || profileSnap.get('onboardingComplete') !== true || isSuspendedProfileStatus(profileSnap.get('status'))) {
+    throw new functions.https.HttpsError('permission-denied', 'An active client profile is required for this action.');
+  }
+  if (!proposalSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Proposal not found.');
+  }
+  if (!workspaceSnap.exists || !['Active', 'Onboarding'].includes(String(workspaceSnap.get('status') || 'Active'))) {
+    throw new functions.https.HttpsError('permission-denied', 'Workspace is not active.');
+  }
+
+  const proposalData = proposalSnap.data() || {};
+  if (proposalData.workspaceId !== workspaceId) {
+    throw new functions.https.HttpsError('permission-denied', 'Proposal does not belong to this workspace.');
+  }
+
+  const isOwner = workspaceSnap.get('ownerId') === uid || proposalData.clientUid === uid;
+  const isActiveMember = membershipSnap.exists && membershipSnap.get('status') === 'Active';
+  if (!isOwner && !isActiveMember) {
+    throw new functions.https.HttpsError('permission-denied', 'You do not have permission to respond to this proposal.');
+  }
+
+  const now = new Date().toISOString();
+  const actorName = String(profileSnap.get('displayName') || context.auth.token.name || 'Client');
+
+  let validated: ReturnType<typeof validateClientProposalResponse>;
+  try {
+    validated = validateClientProposalResponse({
+      proposal: proposalData,
+      response: payload.response,
+      comment: payload.comment,
+      uid,
+      actorName,
+      nowIso: now,
+    });
+  } catch (err) {
+    rethrowFinanceError(err);
+  }
+
+  await proposalSnap.ref.update({
+    status: validated.nextStatus,
+    clientResponse: validated.clientResponse,
+    revisionHistory: validated.revisionHistory,
+    updatedAt: now,
+  });
+
+  await notifyAdmins(
+    `proposal_response_${proposalId}_${now}`,
+    `Proposal ${validated.nextStatus}: ${String(proposalData.referenceNo || proposalId)}`,
+    `${actorName} marked "${String(proposalData.title || proposalId)}" as ${validated.nextStatus}.${validated.clientResponse.comment ? ` Note: ${validated.clientResponse.comment}` : ''}`,
+    'proposal',
+    typeof proposalData.projectId === 'string' ? proposalData.projectId : undefined,
+    proposalId,
+  );
+
+  return {
+    success: true,
+    status: validated.nextStatus,
+    clientResponse: validated.clientResponse,
+  };
+});
+

@@ -12,6 +12,7 @@ import { httpsCallable } from 'firebase/functions';
 import { deleteObject, ref, uploadBytes } from 'firebase/storage';
 import { functions, storage } from '../../lib/firebase';
 import { UNIFIED_PRODUCTION_CATEGORIES, defaultCategoryForAudience } from '../../lib/productionCategories';
+import { normalizeAccountType } from '../../lib/accountNormalization';
 
 const ALLOWED_ATTACHMENT_MIME = /^(image\/(jpeg|png|svg\+xml|webp|gif|avif)|audio\/(mpeg|wav|x-wav|aac|flac|mp4|m4a|ogg)|video\/(mp4|webm|quicktime)|application\/(pdf|json|xml|zip|x-zip-compressed|font-woff)|font\/(ttf|otf|woff|woff2)|text\/(plain|xml))$/;
 
@@ -31,10 +32,8 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
   const { activeWorkspace, firebaseUser } = useApp();
   const resolvedWorkspaceId = (workspaceId !== undefined ? workspaceId : activeWorkspace?.id || '').trim();
 
-  const isArtist = activeWorkspace?.clientCategory === 'artist' || activeWorkspace?.type === 'Artist' || activeWorkspace?.type === 'Personal';
-  const isBrand = activeWorkspace?.clientCategory === 'brand' || activeWorkspace?.type === 'Brand' || activeWorkspace?.type === 'Agency';
-  const isBusiness = activeWorkspace?.clientCategory === 'business' || activeWorkspace?.type === 'Business' || activeWorkspace?.type === 'Enterprise';
-  const brandAccent = activeWorkspace?.brand?.accentColor || (isArtist ? '#D97706' : isBrand ? '#2563EB' : isBusiness ? '#10B981' : '#FF1E1E');
+  const isArtist = normalizeAccountType(activeWorkspace?.clientCategory || activeWorkspace?.type) === 'Artist';
+  const brandAccent = activeWorkspace?.brand?.accentColor || (isArtist ? '#D97706' : '#2563EB');
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<string>(
@@ -48,11 +47,9 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
   });
   const [notes, setNotes] = useState('');
   const [deliverableSpecs, setDeliverableSpecs] = useState(
-    isArtist 
-      ? '3000x3000px 300DPI TIFF / 9:16 Vertical Video (1080x1920) / Lossless WAV' 
-      : isBusiness 
-      ? 'Official Corporate PDF / Vector Scalable SVG / High-DPI Stationery Package' 
-      : 'Vector Scalable SVG / 16:9 Landscape 4K Presentation / Brand Assets'
+    isArtist
+      ? '3000x3000px 300DPI TIFF / 9:16 Vertical Video (1080x1920) / Lossless WAV'
+      : 'Vector Scalable SVG / Brand Manual & Collateral PDF / Social & Motion Formats'
   );
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [submitted, setSubmitted] = useState(false);
@@ -215,7 +212,7 @@ export const ClientRequestModal: React.FC<ClientRequestModalProps> = ({
                 Submit Creative Request
               </h3>
               <p className="text-[11px] font-mono text-neutral-400">
-                {activeWorkspace?.name || 'Workspace'} · {isArtist ? 'Artist Production' : isBrand ? 'Brand Production' : 'Studio'}
+                {activeWorkspace?.name || 'Workspace'} · {isArtist ? 'Artist Production' : 'Brand Production'}
               </p>
             </div>
           </div>

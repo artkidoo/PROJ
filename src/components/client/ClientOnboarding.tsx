@@ -9,7 +9,7 @@ export interface ClientProfile {
   displayName: string;
   email: string;
   photoURL?: string;
-  accountType: 'Artist' | 'Brand' | 'Company';
+  accountType: 'Artist' | 'Brand';
   organizationName: string;
   onboardingComplete: boolean;
   status?: 'Active' | 'Suspended';
@@ -24,7 +24,7 @@ interface ClientOnboardingProps {
 export const ClientOnboarding: React.FC<ClientOnboardingProps> = ({ onComplete }) => {
   const { firebaseUser } = useApp();
   const [displayName, setDisplayName] = useState(firebaseUser?.displayName || '');
-  const [accountType, setAccountType] = useState<'Artist' | 'Brand' | 'Company'>('Artist');
+  const [accountType, setAccountType] = useState<'Artist' | 'Brand'>('Artist');
   const [organizationName, setOrganizationName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,15 +107,15 @@ export const ClientOnboarding: React.FC<ClientOnboardingProps> = ({ onComplete }
           </div>
           <div>
             <label className="block text-[10px] font-mono tracking-widest uppercase text-neutral-500 mb-2">Account Type *</label>
-            <div className="grid grid-cols-3 gap-3">
-              {(['Artist', 'Brand', 'Company'] as const).map((type) => (
+            <div className="grid grid-cols-2 gap-3">
+              {(['Artist', 'Brand'] as const).map((type) => (
                 <button key={type} type="button" onClick={() => setAccountType(type)} className={`px-4 py-3 rounded text-sm font-medium transition-colors border ${accountType === type ? 'bg-[#FF1E1E] text-white border-[#FF1E1E]' : 'bg-[#0C0C0C] text-neutral-400 border-[#222] hover:border-[#FF1E1E]/50'}`}>{type}</button>
               ))}
             </div>
           </div>
           <div>
             <label className="block text-[10px] font-mono tracking-widest uppercase text-neutral-500 mb-2">
-              {accountType === 'Artist' ? 'Artist Name' : accountType === 'Company' ? 'Company Name' : 'Brand Name'} *
+              {accountType === 'Artist' ? 'Artist Name' : 'Brand Name'} *
             </label>
             <input type="text" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} className="w-full bg-[#0C0C0C] border border-[#222] text-white px-4 py-3 rounded text-sm focus:border-[#FF1E1E] focus:outline-none transition-colors" placeholder={`Your ${accountType.toLowerCase()} name`} required />
           </div>

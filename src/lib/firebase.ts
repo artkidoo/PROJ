@@ -80,7 +80,11 @@ export interface FirestoreErrorInfo {
   };
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+export function logFirestoreError(
+  error: unknown,
+  operationType: OperationType,
+  path: string | null,
+): FirestoreErrorInfo {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -90,9 +94,14 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
       isAnonymous: auth.currentUser?.isAnonymous,
     },
     operationType,
-    path
+    path,
   };
   console.error('Firestore Error:', JSON.stringify(errInfo));
+  return errInfo;
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo = logFirestoreError(error, operationType, path);
   throw new Error(JSON.stringify(errInfo));
 }
 

@@ -2,254 +2,66 @@ import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Clapperboard,
-  FileCheck2,
-  FileText,
-  FolderKanban,
   Globe,
-  History,
-  Inbox,
-  Layers,
   LayoutDashboard,
-  Lock,
   LogOut,
   Megaphone,
   Menu,
-  Package,
+  Music,
   Receipt,
   Settings,
   ShieldAlert,
-  ShieldCheck,
   Sparkles,
-  Users,
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import {
+  ADMIN_HQ_SECTIONS,
+  formatAdminHQHash,
+  getAdminSectionConfig,
+  normalizeAdminSubTab,
+  parseAdminHQHash,
+  type AdminHQSection,
+  type CreativeProductsSegment,
+  type FinanceTab,
+  type PlatformSettingsTab,
+  type SharedOpsTab,
+} from '../../lib/adminHQNavigation';
+import {
   AdminHQOverview,
-  AdminHQOverviewNavigateOptions,
-  AdminHQOverviewTarget,
+  type AdminHQOverviewNavigateOptions,
+  type AdminHQOverviewTarget,
 } from './AdminHQOverview';
 import {
-  AdminProduction,
-  AdminProductionNavigateOptions,
-  AdminProductionSection,
+  type AdminProductionNavigateOptions,
+  type AdminProductionSection,
 } from './AdminProduction';
-import { AdminDesignLibrary, DesignLibraryTab } from './AdminDesignLibrary';
-import { ClientsDirectory } from './ClientsDirectory';
-import { ServicesPackagesManagement } from './ServicesPackagesManagement';
-import { WorkspacesManagement } from './WorkspacesManagement';
-import { AdminInvoicesManagement } from './AdminInvoicesManagement';
-import { AdminProposalsManagement } from './AdminProposalsManagement';
-import { AdminManagement } from './AdminManagement';
-import { SecurityAccessManagement } from './SecurityAccessManagement';
-import { AuditHistoryManagement } from './AuditHistoryManagement';
-import { CorporateDocuments } from '../modules/CorporateDocuments';
-import { PlatformSettingsManagement } from './PlatformSettingsManagement';
+import { type DesignLibraryTab } from './AdminDesignLibrary';
+import { AdminDepartmentConsole } from './AdminDepartmentConsole';
+import { AdminSharedOperations } from './AdminSharedOperations';
 import { AdminCreativeProducts } from './AdminCreativeProducts';
+import { AdminFinanceConsole } from './AdminFinanceConsole';
+import { AdminPlatformSettingsConsole } from './AdminPlatformSettingsConsole';
 import { BrandRoom } from './brand-room/BrandRoom';
 import type { CanvasDesign } from '../../types/designStudio';
 import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
 
-export type AdminHQSection =
-  | 'hq-overview'
-  | 'brand-room'
-  | 'clients-accounts'
-  | 'workspaces'
-  | 'services-packages'
-  | 'production-studio'
-  | 'projects'
-  | 'deliverables-reviews'
-  | 'creative-requests'
-  | 'creative-products'
-  | 'design-library'
-  | 'invoices-payments'
-  | 'proposals'
-  | 'business-documents'
-  | 'admin-management'
-  | 'security-access'
-  | 'audit-history'
-  | 'platform-settings';
-
-interface NavItem {
-  id: AdminHQSection;
-  label: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  implemented: boolean;
-}
-
-interface NavGroup {
-  group: string;
-  items: NavItem[];
-}
-
-// Admin HQ is structured into 6 primary areas. Each area owns its section pages.
-const ADMIN_HQ_NAV: NavGroup[] = [
-  {
-    group: 'Dashboard',
-    items: [
-      { id: 'hq-overview', label: 'HQ Overview', icon: LayoutDashboard, implemented: true },
-      { id: 'brand-room', label: 'Brand Room & Marketing Kit', icon: Megaphone, implemented: true },
-    ],
-  },
-  {
-    group: 'Clients',
-    items: [
-      { id: 'clients-accounts', label: 'Clients & Accounts', icon: Users, implemented: true },
-      { id: 'workspaces', label: 'Workspaces', icon: Building2, implemented: true },
-      { id: 'services-packages', label: 'Services & Packages', icon: Package, implemented: true },
-    ],
-  },
-  {
-    group: 'Production',
-    items: [
-      { id: 'production-studio', label: 'Production Studio', icon: Clapperboard, implemented: true },
-      { id: 'projects', label: 'Projects', icon: FolderKanban, implemented: true },
-      { id: 'deliverables-reviews', label: 'Deliverables & Reviews', icon: FileCheck2, implemented: true },
-      { id: 'creative-requests', label: 'Creative Requests', icon: Inbox, implemented: true },
-    ],
-  },
-  {
-    group: 'Creative Library',
-    items: [
-      { id: 'creative-products', label: 'Creative Products', icon: Sparkles, implemented: true },
-      { id: 'design-library', label: 'Design & Templates', icon: Layers, implemented: true },
-    ],
-  },
-  {
-    group: 'Business',
-    items: [
-      { id: 'invoices-payments', label: 'Invoices & Payments', icon: Receipt, implemented: true },
-      { id: 'proposals', label: 'Proposals', icon: FileText, implemented: true },
-      { id: 'business-documents', label: 'Business Documents', icon: FileText, implemented: true },
-    ],
-  },
-  {
-    group: 'Settings',
-    items: [
-      { id: 'admin-management', label: 'Administrator Management', icon: ShieldCheck, implemented: true },
-      { id: 'security-access', label: 'Security & Access', icon: Lock, implemented: true },
-      { id: 'audit-history', label: 'Audit History', icon: History, implemented: true },
-      { id: 'platform-settings', label: 'Platform Settings', icon: Settings, implemented: true },
-    ],
-  },
-];
-
-const SECTION_DESCRIPTIONS: Record<AdminHQSection, { title: string; group: string; subtitle: string }> = {
-  'hq-overview': {
-    title: 'HQ Overview',
-    group: 'Dashboard',
-    subtitle: 'Live platform metrics, production queues, and recent administrative activity.',
-  },
-  'brand-room': {
-    title: 'Brand Room — All-In-One Marketing Kit',
-    group: 'Dashboard',
-    subtitle: 'Internal KeedoHub creative marketing studio, brand identity vault, multi-platform social & print formats, content strategy, calendar, publishing queue, and live analytics.',
-  },
-  'clients-accounts': {
-    title: 'Clients & Accounts',
-    group: 'Clients',
-    subtitle: 'Registered client profiles, onboarding status, profile updates, and account suspension controls.',
-  },
-  workspaces: {
-    title: 'Workspaces',
-    group: 'Clients',
-    subtitle: 'Unified Artist and Brand workspaces, ownership and membership inspection, lifecycle statuses, and contracted services.',
-  },
-  'services-packages': {
-    title: 'Services & Packages',
-    group: 'Clients',
-    subtitle: 'Service catalog packages, tiers, turnaround timelines, and active availability.',
-  },
-  'production-studio': {
-    title: 'Production Studio',
-    group: 'Production',
-    subtitle: 'Full creative production environment covering requests, deliverables, tasks, and notes.',
-  },
-  projects: {
-    title: 'Projects',
-    group: 'Production',
-    subtitle: 'Production project directory, assignments, tasks, internal notes, and stage progression.',
-  },
-  'deliverables-reviews': {
-    title: 'Deliverables & Reviews',
-    group: 'Production',
-    subtitle: 'Cross-project deliverable review queue and client revision requests.',
-  },
-  'creative-requests': {
-    title: 'Creative Requests',
-    group: 'Production',
-    subtitle: 'Incoming client creative briefs and public service enquiries awaiting review.',
-  },
-  'creative-products': {
-    title: 'Creative Products',
-    group: 'Creative Library',
-    subtitle: 'Create, organize, preview, upload real deliverables (PNG/JPG/PDF/PSD/SVG/ZIP/MP4), assign workspaces, and publish Artist & Brand Creative Hub packs.',
-  },
-  'design-library': {
-    title: 'Design & Templates',
-    group: 'Creative Library',
-    subtitle: 'Internal template catalog, structured design specifications, and workspace assets ready to stage into project deliverables.',
-  },
-  'invoices-payments': {
-    title: 'Invoices & Payments',
-    group: 'Business',
-    subtitle: 'Client billing records, payment statuses, and workspace invoice management.',
-  },
-  proposals: {
-    title: 'Proposals',
-    group: 'Business',
-    subtitle: 'Commercial proposals, scope quotations, and client acceptance tracking.',
-  },
-  'business-documents': {
-    title: 'Business Documents',
-    group: 'Business',
-    subtitle: 'Internal corporate agreements, contracts, and executive document vault.',
-  },
-  'admin-management': {
-    title: 'Administrator Management',
-    group: 'Settings',
-    subtitle: 'Manage platform administrator role grants and revocations via audited Cloud Functions.',
-  },
-  'security-access': {
-    title: 'Security & Access',
-    group: 'Settings',
-    subtitle: 'Role-based access control architecture and active Firestore enforcement summary.',
-  },
-  'audit-history': {
-    title: 'Audit History',
-    group: 'Settings',
-    subtitle: 'Server-recorded administrative audit trail across roles, clients, services, and requests.',
-  },
-  'platform-settings': {
-    title: 'Platform Settings',
-    group: 'Settings',
-    subtitle: 'Protected platform defaults, operational toggles, and internal webhook configuration.',
-  },
+const SECTION_ICONS: Record<
+  AdminHQSection,
+  React.ComponentType<{ size?: number; className?: string }>
+> = {
+  'hq-overview': LayoutDashboard,
+  'artist-department': Music,
+  'brand-department': Building2,
+  'shared-operations': Clapperboard,
+  'creative-products': Sparkles,
+  finance: Receipt,
+  'brand-room': Megaphone,
+  'platform-settings': Settings,
 };
 
-const DeferredPhaseNotice: React.FC<{
-  title: string;
-  details: string;
-  onReturnOverview: () => void;
-}> = ({ title, details, onReturnOverview }) => (
-  <section className="border border-[#1E1E1E] bg-[#0C0C0C] p-6 sm:p-8 max-w-2xl">
-    <p className="text-[11px] font-mono uppercase tracking-widest text-neutral-400">
-      Scheduled for later phase
-    </p>
-    <h2 className="mt-2 text-lg font-bold text-white">{title}</h2>
-    <p className="mt-2 text-sm text-neutral-400 leading-relaxed">{details}</p>
-    <div className="mt-5">
-      <button
-        type="button"
-        onClick={onReturnOverview}
-        className="border border-[#2E2E2E] bg-[#141414] px-4 py-2 text-xs font-semibold text-white hover:border-[#FF1E1E] transition-colors"
-      >
-        Return to HQ Overview
-      </button>
-    </div>
-  </section>
-);
+export type { AdminHQSection };
 
 export const AdminHQ: React.FC = () => {
   const {
@@ -260,21 +72,58 @@ export const AdminHQ: React.FC = () => {
     exitToPublic,
   } = useApp();
 
-  const [activeSection, setActiveSection] = useState<AdminHQSection>('hq-overview');
+  const initialRoute =
+    typeof window !== 'undefined'
+      ? parseAdminHQHash(window.location.hash)
+      : { section: 'hq-overview' as AdminHQSection };
+
+  const [activeSection, setActiveSection] = useState<AdminHQSection>(initialRoute.section);
+  const [activeSubTab, setActiveSubTab] = useState<string>(
+    initialRoute.subTab || getAdminSectionConfig(initialRoute.section).defaultSubTab || '',
+  );
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [selectedProjectTab, setSelectedProjectTab] = useState<'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity'>('overview');
+  const [selectedProjectTab, setSelectedProjectTab] = useState<
+    'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity'
+  >('overview');
   const [projectClientFilter, setProjectClientFilter] = useState('');
   const [projectWorkspaceFilter, setProjectWorkspaceFilter] = useState('');
   const [projectStageFilter, setProjectStageFilter] = useState('All');
   const [projectOverdueOnly, setProjectOverdueOnly] = useState(false);
   const [selectedClientUid, setSelectedClientUid] = useState('');
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
+  const [selectedProposalId, setSelectedProposalId] = useState('');
   const [selectedServicePackageId, setSelectedServicePackageId] = useState('');
   const [designLibraryWorkspaceId, setDesignLibraryWorkspaceId] = useState('');
   const [designLibraryProjectId, setDesignLibraryProjectId] = useState('');
   const [designLibraryTab, setDesignLibraryTab] = useState<DesignLibraryTab>('designs');
   const [pendingProductCanvasDraft, setPendingProductCanvasDraft] = useState<CanvasDesign | null>(null);
+
+  // Sync Admin HQ section & sub-tab to URL hash for direct navigation and browser refresh persistence
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const nextHash = formatAdminHQHash(activeSection, activeSubTab);
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, '', nextHash);
+    }
+  }, [activeSection, activeSubTab]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onHashChange = () => {
+      const raw = window.location.hash;
+      if (!raw.startsWith('#/admin') && !raw.startsWith('#admin')) return;
+      const parsed = parseAdminHQHash(raw);
+      setActiveSection(parsed.section);
+      setActiveSubTab(
+        parsed.subTab || getAdminSectionConfig(parsed.section).defaultSubTab || '',
+      );
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -316,61 +165,80 @@ export const AdminHQ: React.FC = () => {
     'Platform Admin';
   const adminEmail = firebaseUser.email || '';
 
-  const selectSection = (section: AdminHQSection) => {
+  const clearProjectFilters = () => {
+    setProjectClientFilter('');
+    setProjectWorkspaceFilter('');
+    setProjectStageFilter('All');
+    setProjectOverdueOnly(false);
+  };
+
+  const navigateTo = (section: AdminHQSection, subTab?: string) => {
+    const normalizedSub = normalizeAdminSubTab(section, subTab) || '';
     setActiveSection(section);
-    if (section !== 'projects') {
-      setProjectClientFilter('');
-      setProjectWorkspaceFilter('');
-      setProjectStageFilter('All');
-      setProjectOverdueOnly(false);
-    }
-    if (section !== 'design-library') {
-      setDesignLibraryWorkspaceId('');
-      setDesignLibraryProjectId('');
-      setDesignLibraryTab('designs');
-    }
-    setSelectedProjectId('');
-    setSelectedProjectTab('overview');
+    setActiveSubTab(normalizedSub);
     setMobileMenuOpen(false);
   };
 
-  const handleOpenDesignLibrary = (options?: {
-    workspaceId?: string;
-    projectId?: string;
-    tab?: DesignLibraryTab;
-  }) => {
+  const selectSection = (section: AdminHQSection) => {
+    clearProjectFilters();
+    setDesignLibraryWorkspaceId('');
+    setDesignLibraryProjectId('');
+    setDesignLibraryTab('designs');
+    setSelectedProjectId('');
+    setSelectedProjectTab('overview');
+    navigateTo(section);
+  };
+
+  const handleExitToPublic = () => {
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.hash.startsWith('#/admin') || window.location.hash.startsWith('#admin'))
+    ) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    exitToPublic();
+  };
+
+  const handleOpenDesignLibrary = (
+    options?: {
+      workspaceId?: string;
+      projectId?: string;
+      tab?: DesignLibraryTab;
+    },
+    departmentFallback: 'Artist' | 'Brand' = 'Brand',
+  ) => {
     setDesignLibraryWorkspaceId(options?.workspaceId || '');
     setDesignLibraryProjectId(options?.projectId || '');
     setDesignLibraryTab(options?.tab || 'designs');
-    setActiveSection('design-library');
-    setMobileMenuOpen(false);
+    const targetSection: AdminHQSection =
+      departmentFallback === 'Artist' ? 'artist-department' : 'brand-department';
+    const targetSub =
+      departmentFallback === 'Artist' ? 'templates-documents' : 'templates-collateral';
+    navigateTo(targetSection, targetSub);
   };
 
   const handleOverviewNavigate = (
     target: AdminHQOverviewTarget,
     projectId?: string,
-    options?: AdminHQOverviewNavigateOptions
+    options?: AdminHQOverviewNavigateOptions,
   ) => {
     setSelectedProjectId(projectId || '');
     setSelectedProjectTab(
-      options?.tab || (target === 'deliverables-reviews' ? 'deliverables' : 'overview')
+      options?.tab || (options?.subTab === 'qa-reviews' ? 'deliverables' : 'overview'),
     );
     setProjectClientFilter('');
     setProjectWorkspaceFilter('');
     setProjectStageFilter(options?.stageFilter || 'All');
     setProjectOverdueOnly(Boolean(options?.overdueOnly));
-    setActiveSection(target);
+    navigateTo(target, options?.subTab);
   };
 
   const handleProductionNavigate = (
     targetSection: AdminProductionSection,
-    options?: AdminProductionNavigateOptions
+    options?: AdminProductionNavigateOptions,
   ) => {
     if (options?.clearFilters) {
-      setProjectClientFilter('');
-      setProjectWorkspaceFilter('');
-      setProjectStageFilter('All');
-      setProjectOverdueOnly(false);
+      clearProjectFilters();
     }
     if (options?.stageFilter !== undefined) {
       setProjectStageFilter(options.stageFilter);
@@ -391,172 +259,124 @@ export const AdminHQ: React.FC = () => {
       setSelectedProjectTab('overview');
     }
 
-    const sectionMap: Record<AdminProductionSection, AdminHQSection> = {
-      studio: 'production-studio',
-      projects: 'projects',
-      reviews: 'deliverables-reviews',
-      requests: 'creative-requests',
+    const subMap: Record<AdminProductionSection, SharedOpsTab> = {
+      requests: 'requests-enquiries',
+      studio: 'master-studio',
+      projects: 'master-studio',
+      reviews: 'qa-reviews',
     };
-    setActiveSection(sectionMap[targetSection]);
+    navigateTo('shared-operations', subMap[targetSection]);
   };
 
-  const meta = SECTION_DESCRIPTIONS[activeSection];
+  const meta = getAdminSectionConfig(activeSection);
 
   const renderSection = () => {
     switch (activeSection) {
       case 'hq-overview':
         return <AdminHQOverview onNavigate={handleOverviewNavigate} />;
 
-      case 'clients-accounts':
+      case 'artist-department':
         return (
-          <div className="space-y-4">
-            <p className="text-xs text-neutral-400">
-              Select a client row to open account details, workspace association, audit history, and actions, or jump directly to their production projects.
-            </p>
-            <ClientsDirectory
-              initialSelectedUid={selectedClientUid}
-              onSelectedClientChange={uid => setSelectedClientUid(uid || '')}
-              onOpenWorkspace={(workspaceId, clientUid) => {
-                setSelectedClientUid(clientUid);
-                setSelectedWorkspaceId(workspaceId);
-                setActiveSection('workspaces');
-              }}
-              onViewClientProjects={uid => {
-                setSelectedClientUid(uid);
-                setProjectClientFilter(uid);
-                setProjectWorkspaceFilter('');
-                setSelectedProjectId('');
-                setActiveSection('projects');
-              }}
-            />
-          </div>
-        );
-
-      case 'workspaces':
-        return (
-          <WorkspacesManagement
-            initialSelectedWorkspaceId={selectedWorkspaceId}
-            onSelectedWorkspaceChange={workspaceId => setSelectedWorkspaceId(workspaceId || '')}
-            onOpenClient={(clientUid, workspaceId) => {
-              setSelectedWorkspaceId(workspaceId);
-              setSelectedClientUid(clientUid);
-              setActiveSection('clients-accounts');
-            }}
-            onViewWorkspaceProjects={workspaceId => {
-              setSelectedWorkspaceId(workspaceId);
-              setProjectWorkspaceFilter(workspaceId);
-              setProjectClientFilter('');
-              setSelectedProjectId('');
-              setActiveSection('projects');
+          <AdminDepartmentConsole
+            department="Artist"
+            subTab={activeSubTab}
+            onSubTabChange={tab => setActiveSubTab(tab)}
+            selectedClientUid={selectedClientUid}
+            onSelectedClientChange={setSelectedClientUid}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onSelectedWorkspaceChange={setSelectedWorkspaceId}
+            selectedProjectId={selectedProjectId}
+            selectedProjectTab={selectedProjectTab}
+            projectClientFilter={projectClientFilter}
+            projectWorkspaceFilter={projectWorkspaceFilter}
+            projectStageFilter={projectStageFilter}
+            projectOverdueOnly={projectOverdueOnly}
+            onClearProjectFilters={clearProjectFilters}
+            onOpenProject={(projectId, opts) => {
+              setSelectedProjectId(projectId);
+              if (opts?.tab) setSelectedProjectTab(opts.tab);
+              if (opts?.clientUid !== undefined) setProjectClientFilter(opts.clientUid);
+              if (opts?.workspaceId !== undefined) setProjectWorkspaceFilter(opts.workspaceId);
             }}
             onOpenServicePackage={packageId => {
               setSelectedServicePackageId(packageId);
-              setActiveSection('services-packages');
+              navigateTo('shared-operations', 'services-packages');
             }}
-            onOpenDesignLibrary={workspaceId =>
-              handleOpenDesignLibrary({ workspaceId, tab: 'assets' })
-            }
+            onNavigateProduction={handleProductionNavigate}
+            onCreateCreativeProductFromDesign={design => {
+              setPendingProductCanvasDraft(design);
+              navigateTo('creative-products', 'artist');
+            }}
+            designLibraryWorkspaceId={designLibraryWorkspaceId}
+            designLibraryProjectId={designLibraryProjectId}
+            designLibraryTab={designLibraryTab}
+            onConfigureDesignLibrary={opts => handleOpenDesignLibrary(opts, 'Artist')}
           />
         );
 
-      case 'services-packages':
+      case 'brand-department':
         return (
-          <ServicesPackagesManagement
-            initialSelectedPackageId={selectedServicePackageId}
-            onSelectedPackageChange={packageId => setSelectedServicePackageId(packageId || '')}
-            onOpenWorkspace={workspaceId => {
-              setSelectedWorkspaceId(workspaceId);
-              setActiveSection('workspaces');
+          <AdminDepartmentConsole
+            department="Brand"
+            subTab={activeSubTab}
+            onSubTabChange={tab => setActiveSubTab(tab)}
+            selectedClientUid={selectedClientUid}
+            onSelectedClientChange={setSelectedClientUid}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onSelectedWorkspaceChange={setSelectedWorkspaceId}
+            selectedProjectId={selectedProjectId}
+            selectedProjectTab={selectedProjectTab}
+            projectClientFilter={projectClientFilter}
+            projectWorkspaceFilter={projectWorkspaceFilter}
+            projectStageFilter={projectStageFilter}
+            projectOverdueOnly={projectOverdueOnly}
+            onClearProjectFilters={clearProjectFilters}
+            onOpenProject={(projectId, opts) => {
+              setSelectedProjectId(projectId);
+              if (opts?.tab) setSelectedProjectTab(opts.tab);
+              if (opts?.clientUid !== undefined) setProjectClientFilter(opts.clientUid);
+              if (opts?.workspaceId !== undefined) setProjectWorkspaceFilter(opts.workspaceId);
             }}
+            onOpenServicePackage={packageId => {
+              setSelectedServicePackageId(packageId);
+              navigateTo('shared-operations', 'services-packages');
+            }}
+            onNavigateProduction={handleProductionNavigate}
+            onCreateCreativeProductFromDesign={design => {
+              setPendingProductCanvasDraft(design);
+              navigateTo('creative-products', 'brand');
+            }}
+            designLibraryWorkspaceId={designLibraryWorkspaceId}
+            designLibraryProjectId={designLibraryProjectId}
+            designLibraryTab={designLibraryTab}
+            onConfigureDesignLibrary={opts => handleOpenDesignLibrary(opts, 'Brand')}
           />
         );
 
-      case 'production-studio':
+      case 'shared-operations':
         return (
-          <AdminProduction
-            section="studio"
-            embeddedMode
-            initialTab={selectedProjectTab}
-            onNavigateSection={handleProductionNavigate}
+          <AdminSharedOperations
+            subTab={(activeSubTab as SharedOpsTab) || 'requests-enquiries'}
+            onSubTabChange={tab => setActiveSubTab(tab)}
+            selectedProjectId={selectedProjectId}
+            selectedProjectTab={selectedProjectTab}
+            projectClientFilter={projectClientFilter}
+            projectWorkspaceFilter={projectWorkspaceFilter}
+            projectStageFilter={projectStageFilter}
+            projectOverdueOnly={projectOverdueOnly}
+            onClearProjectFilters={clearProjectFilters}
+            onNavigateProduction={handleProductionNavigate}
             onOpenClient={clientUid => {
               setSelectedClientUid(clientUid);
-              setActiveSection('clients-accounts');
+              navigateTo('brand-department', 'accounts-workspaces');
             }}
             onOpenWorkspace={workspaceId => {
               setSelectedWorkspaceId(workspaceId);
-              setActiveSection('workspaces');
+              navigateTo('brand-department', 'accounts-workspaces');
             }}
-            onOpenDesignLibrary={handleOpenDesignLibrary}
-          />
-        );
-
-      case 'projects':
-        return (
-          <AdminProduction
-            section="projects"
-            embeddedMode
-            initialProjectId={selectedProjectId}
-            initialTab={selectedProjectTab}
-            filterClientUid={projectClientFilter}
-            filterWorkspaceId={projectWorkspaceFilter}
-            initialStageFilter={projectStageFilter}
-            initialOverdueOnly={projectOverdueOnly}
-            onClearFilter={() => {
-              setProjectClientFilter('');
-              setProjectWorkspaceFilter('');
-              setProjectStageFilter('All');
-              setProjectOverdueOnly(false);
-            }}
-            onNavigateSection={handleProductionNavigate}
-            onOpenClient={clientUid => {
-              setSelectedClientUid(clientUid);
-              setActiveSection('clients-accounts');
-            }}
-            onOpenWorkspace={workspaceId => {
-              setSelectedWorkspaceId(workspaceId);
-              setActiveSection('workspaces');
-            }}
-            onOpenDesignLibrary={handleOpenDesignLibrary}
-          />
-        );
-
-      case 'deliverables-reviews':
-        return (
-          <AdminProduction
-            section="reviews"
-            embeddedMode
-            initialProjectId={selectedProjectId}
-            initialTab={selectedProjectTab}
-            onNavigateSection={handleProductionNavigate}
-            onOpenClient={clientUid => {
-              setSelectedClientUid(clientUid);
-              setActiveSection('clients-accounts');
-            }}
-            onOpenWorkspace={workspaceId => {
-              setSelectedWorkspaceId(workspaceId);
-              setActiveSection('workspaces');
-            }}
-            onOpenDesignLibrary={handleOpenDesignLibrary}
-          />
-        );
-
-      case 'creative-requests':
-        return (
-          <AdminProduction
-            section="requests"
-            embeddedMode
-            initialProjectId={selectedProjectId}
-            initialTab={selectedProjectTab}
-            onNavigateSection={handleProductionNavigate}
-            onOpenClient={clientUid => {
-              setSelectedClientUid(clientUid);
-              setActiveSection('clients-accounts');
-            }}
-            onOpenWorkspace={workspaceId => {
-              setSelectedWorkspaceId(workspaceId);
-              setActiveSection('workspaces');
-            }}
-            onOpenDesignLibrary={handleOpenDesignLibrary}
+            onOpenDesignLibrary={opts => handleOpenDesignLibrary(opts, 'Brand')}
+            selectedServicePackageId={selectedServicePackageId}
+            onSelectedServicePackageChange={setSelectedServicePackageId}
           />
         );
 
@@ -565,63 +385,37 @@ export const AdminHQ: React.FC = () => {
           <AdminCreativeProducts
             initialCanvasDraft={pendingProductCanvasDraft}
             onConsumeInitialCanvasDraft={() => setPendingProductCanvasDraft(null)}
+            initialSegment={(activeSubTab as CreativeProductsSegment) || 'all'}
+            onSegmentChange={segment => setActiveSubTab(segment)}
           />
         );
 
-      case 'design-library':
+      case 'finance':
         return (
-          <AdminDesignLibrary
-            initialWorkspaceId={designLibraryWorkspaceId}
-            initialProjectId={designLibraryProjectId}
-            initialTab={designLibraryTab}
-            onOpenProject={(projectId, tab) => {
-              setSelectedProjectId(projectId);
-              setSelectedProjectTab(tab || 'deliverables');
-              setActiveSection('projects');
-            }}
+          <AdminFinanceConsole
+            subTab={(activeSubTab as FinanceTab) || 'overview'}
+            onSubTabChange={tab => setActiveSubTab(tab)}
+            selectedInvoiceId={selectedInvoiceId}
+            onSelectedInvoiceChange={setSelectedInvoiceId}
+            selectedProposalId={selectedProposalId}
+            onSelectedProposalChange={setSelectedProposalId}
             onOpenWorkspace={workspaceId => {
               setSelectedWorkspaceId(workspaceId);
-              setActiveSection('workspaces');
-            }}
-            onCreateCreativeProductFromDesign={design => {
-              setPendingProductCanvasDraft(design);
-              setActiveSection('creative-products');
+              navigateTo('brand-department', 'accounts-workspaces');
             }}
           />
         );
-
-      case 'invoices-payments':
-        return (
-          <AdminInvoicesManagement
-            onOpenWorkspace={workspaceId => {
-              setSelectedWorkspaceId(workspaceId);
-              setActiveSection('workspaces');
-            }}
-          />
-        );
-
-      case 'proposals':
-        return (
-          <AdminProposalsManagement />
-        );
-
-      case 'business-documents':
-        return <CorporateDocuments />;
-
-      case 'admin-management':
-        return <AdminManagement />;
-
-      case 'security-access':
-        return <SecurityAccessManagement />;
-
-      case 'audit-history':
-        return <AuditHistoryManagement />;
-
-      case 'platform-settings':
-        return <PlatformSettingsManagement />;
 
       case 'brand-room':
         return <BrandRoom />;
+
+      case 'platform-settings':
+        return (
+          <AdminPlatformSettingsConsole
+            subTab={(activeSubTab as PlatformSettingsTab) || 'administrators'}
+            onSubTabChange={tab => setActiveSubTab(tab)}
+          />
+        );
 
       default:
         return <AdminHQOverview onNavigate={handleOverviewNavigate} />;
@@ -657,47 +451,38 @@ export const AdminHQ: React.FC = () => {
         </button>
       </div>
 
-      {/* Navigation Groups */}
-      <nav aria-label="Admin HQ navigation" className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-        {ADMIN_HQ_NAV.map(group => (
-          <div key={group.group}>
-            <div className="px-2.5 mb-1.5 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-              {group.group}
-            </div>
-            <ul className="space-y-0.5">
-              {group.items.map(item => {
-                const Icon = item.icon;
-                const isActive = activeSection === item.id;
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => selectSection(item.id)}
-                      className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 text-xs font-medium transition-colors text-left border-l-2 ${
-                        isActive
-                          ? 'border-[#FF1E1E] bg-[#141414] text-white'
-                          : 'border-transparent text-neutral-400 hover:text-white hover:bg-[#111111]'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5 min-w-0">
-                        <Icon
-                          size={15}
-                          className={isActive ? 'text-[#FF1E1E] shrink-0' : 'text-neutral-500 shrink-0'}
-                        />
-                        <span className="truncate">{item.label}</span>
-                      </span>
-                      {!item.implemented && (
-                        <span className="text-[9px] font-mono uppercase text-neutral-500 shrink-0">
-                          Planned
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+      {/* Exact 8 Primary Sections Navigation */}
+      <nav aria-label="Admin HQ navigation" className="flex-1 overflow-y-auto px-3 py-4">
+        <div className="px-2.5 mb-2 text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+          Control Center · 8 Pillars
+        </div>
+        <ul className="space-y-1">
+          {ADMIN_HQ_SECTIONS.map(item => {
+            const Icon = SECTION_ICONS[item.id];
+            const isActive = activeSection === item.id;
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => selectSection(item.id)}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold transition-colors text-left border-l-2 ${
+                    isActive
+                      ? 'border-[#FF1E1E] bg-[#141414] text-white'
+                      : 'border-transparent text-neutral-400 hover:text-white hover:bg-[#111111]'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <Icon
+                      size={15}
+                      className={isActive ? 'text-[#FF1E1E] shrink-0' : 'text-neutral-500 shrink-0'}
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       </nav>
 
       {/* Active Admin Session Summary */}
@@ -711,7 +496,7 @@ export const AdminHQ: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => exitToPublic()}
+            onClick={handleExitToPublic}
             className="flex-1 flex items-center justify-center gap-1.5 border border-[#242424] bg-[#121212] px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 hover:text-white hover:border-[#3A3A3A]"
           >
             <Globe size={12} className="text-[#FF1E1E]" />
@@ -769,11 +554,15 @@ export const AdminHQ: React.FC = () => {
                 Admin HQ
               </span>
               <span className="text-neutral-600 hidden sm:inline">/</span>
-              <span className="font-mono uppercase tracking-wider text-neutral-400 hidden md:inline">
-                {meta.group}
-              </span>
-              <span className="text-neutral-600 hidden md:inline">/</span>
-              <h1 className="text-sm font-bold text-white truncate">{meta.title}</h1>
+              <h1 className="text-sm font-bold text-white truncate">{meta.label}</h1>
+              {activeSubTab && (
+                <>
+                  <span className="text-neutral-600 hidden md:inline">/</span>
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 hidden md:inline truncate">
+                    {activeSubTab.replace(/-/g, ' ')}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -783,12 +572,18 @@ export const AdminHQ: React.FC = () => {
               onSelectNotification={notification => {
                 setSelectedProjectId(notification.projectId || '');
                 const kind = (notification.type || '').toLowerCase();
-                if (kind === 'request' || kind === 'enquiry') {
-                  setActiveSection('creative-requests');
+                if (kind.includes('proposal')) {
+                  if (notification.entityId) setSelectedProposalId(notification.entityId);
+                  navigateTo('finance', 'proposals');
+                } else if (kind.includes('invoice')) {
+                  if (notification.entityId) setSelectedInvoiceId(notification.entityId);
+                  navigateTo('finance', 'invoices');
+                } else if (kind === 'request' || kind === 'enquiry') {
+                  navigateTo('shared-operations', 'requests-enquiries');
                 } else if (kind === 'deliverable' || kind === 'review' || kind === 'revision') {
-                  setActiveSection('deliverables-reviews');
+                  navigateTo('shared-operations', 'qa-reviews');
                 } else {
-                  setActiveSection('projects');
+                  navigateTo('shared-operations', 'master-studio');
                 }
               }}
             />
@@ -799,7 +594,7 @@ export const AdminHQ: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => exitToPublic()}
+              onClick={handleExitToPublic}
               className="hidden sm:inline-flex items-center gap-1.5 border border-[#242424] bg-[#101010] px-3 py-1.5 text-xs text-neutral-300 hover:text-white hover:border-[#3A3A3A]"
             >
               <Globe size={13} className="text-[#FF1E1E]" />
@@ -819,11 +614,11 @@ export const AdminHQ: React.FC = () => {
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto space-y-6">
           <div className="border-b border-[#1A1A1A] pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
             <div>
-              <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                {meta.group}
+              <p className="text-[10px] font-mono uppercase tracking-widest text-[#FF1E1E]">
+                KEEDOHUB ADMIN HQ
               </p>
               <h2 className="mt-1 text-xl sm:text-2xl font-black tracking-tight text-white">
-                {meta.title}
+                {meta.label}
               </h2>
               <p className="mt-1 text-xs sm:text-sm text-neutral-400">{meta.subtitle}</p>
             </div>

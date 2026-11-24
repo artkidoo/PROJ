@@ -12,6 +12,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
+import { httpsCallable } from 'firebase/functions';
 import {
   ArrowDownToLine,
   Check,
@@ -36,22 +37,31 @@ import {
   BrandAsset,
   BrandGuidelinesData,
   BrandWorkspaceProfile,
+  ClientProfile,
   ClientProject,
   CorporateDocument,
-  DocumentItem,
   DocumentType,
-  PaymentRecord,
+  InvoiceRecord,
   ProductionDeliverable,
+  ProposalRecord,
   Workspace,
 } from '../../types';
-import { db, storage } from '../../lib/firebase';
+import { normalizeAccountType } from '../../lib/accountNormalization';
+import { db, functions, storage } from '../../lib/firebase';
+import { deriveClientInvoiceStatus, formatMoney } from '../../lib/financeDocuments';
 import { isInternalStoragePath } from '../../lib/productionPromotion';
 import {
   buildBrandProductionPrefill,
   buildReleaseProductionPrefill,
   ProductionRequestPrefill,
 } from '../../lib/clientOS';
-import { generateBrandGuidelinesPdf, generateCorporateDocumentPdf } from '../../utils/pdfGenerator';
+import {
+  generateBrandGuidelinesPdf,
+  generateCommercialInvoicePdf,
+  generateCommercialProposalPdf,
+} from '../../utils/pdfGenerator';
+import { ArtistDocumentLibrary } from './ArtistDocumentLibrary';
+import { BrandDocumentLibrary } from './BrandDocumentLibrary';
 
 export type ClientStudioSection =
   | 'artist-profile'
@@ -144,26 +154,24 @@ export interface StudioAsset {
 
 export interface StudioDocument {
   id: string;
+  workspaceId?: string;
+  library?: 'artist' | 'brand';
   type: DocumentType;
   title: string;
   referenceNo: string;
   date: string;
   validityDate?: string;
   recipientName: string;
-  recipientOrg: string;
-  recipientEmail: string;
+  recipientOrg?: string;
+  recipientEmail?: string;
   projectId?: string;
-  subject: string;
+  authorName?: string;
+  authorRole?: string;
+  subject?: string;
   bodyContent: string;
-  items?: DocumentItem[];
-  totalAmount?: number;
-  totalPaid?: number;
-  balanceDue?: number;
-  payments?: PaymentRecord[];
-  paymentTerms?: string;
+  notes?: string;
   status: StudioDocumentStatus;
-  clientAction?: 'Accepted' | 'Declined';
-  clientActionDate?: string;
+  issuedByAdmin?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -192,10 +200,13 @@ export interface ClientStudioExternalData {
 interface ClientStudioProps {
   section: ClientStudioSection;
   workspace: Workspace;
+  clientProfile?: ClientProfile | null;
   uid: string;
   accountName: string;
   projects: ClientProject[];
   deliverables?: ProductionDeliverable[];
+  invoices?: InvoiceRecord[];
+  proposals?: ProposalRecord[];
   primaryWorkspaceId?: string;
   externalData?: ClientStudioExternalData;
   onNavigateSection?: (section: ClientStudioSection | 'creative-hub' | 'projects' | 'deliverables' | 'requests') => void;
@@ -250,7 +261,7 @@ function messageFromError(error: unknown): string {
 }
 
 function isArtistWorkspace(workspace: Workspace): boolean {
-  return workspace.clientCategory === 'artist' || workspace.type === 'Artist' || workspace.type === 'Personal';
+  return normalizeAccountType(workspace.clientCategory || workspace.type) === 'Artist';
 }
 
 function fileSizeLabel(size: number): string {
@@ -282,22 +293,16 @@ function fileTypeFromMime(mimeType: string): BrandAsset['fileType'] {
   return 'TEXT';
 }
 
-function downloadText(fileName: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 export const ClientStudio: React.FC<ClientStudioProps> = ({
   section,
   workspace,
+  clientProfile = null,
   uid,
   accountName,
   projects,
   deliverables = [],
+  invoices = [],
+  proposals = [],
   primaryWorkspaceId,
   externalData,
   onNavigateSection,
@@ -365,25 +370,11 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     body: '',
   });
 
-  // Business documents sub-view
-  const [docSubTab, setDocSubTab] = useState<'all' | 'proposals' | 'invoices' | 'corporate'>('all');
-  const [previewDocument, setPreviewDocument] = useState<StudioDocument | null>(null);
-  const [documentEditingId, setDocumentEditingId] = useState('');
-  const [documentForm, setDocumentForm] = useState({
-    type: 'invoice' as DocumentType,
-    title: '',
-    referenceNo: '',
-    date: new Date().toISOString().slice(0, 10),
-    recipientName: '',
-    recipientOrg: '',
-    recipientEmail: '',
-    projectId: '',
-    subject: '',
-    bodyContent: '',
-    totalAmount: 0,
-    paymentTerms: 'Net 30 days',
-    status: 'Draft' as StudioDocumentStatus,
-  });
+  // Billing & Proposal response state
+  const [previewInvoice, setPreviewInvoice] = useState<InvoiceRecord | null>(null);
+  const [previewProposal, setPreviewProposal] = useState<ProposalRecord | null>(null);
+  const [proposalReplyById, setProposalReplyById] = useState<Record<string, string>>({});
+  const [respondingProposalId, setRespondingProposalId] = useState('');
 
   // Asset Library filters & upload form
   const [assetCategory, setAssetCategory] = useState(isArtistWorkspace(workspace) ? 'Artwork' : 'Logo');
@@ -826,75 +817,6 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     }
   };
 
-  const editDocument = (item: StudioDocument) => {
-    setDocumentEditingId(item.id);
-    setDocumentForm({
-      type: item.type,
-      title: item.title,
-      referenceNo: item.referenceNo,
-      date: item.date,
-      recipientName: item.recipientName,
-      recipientOrg: item.recipientOrg || '',
-      recipientEmail: item.recipientEmail || '',
-      projectId: item.projectId || '',
-      subject: item.subject || '',
-      bodyContent: item.bodyContent,
-      totalAmount: item.totalAmount || 0,
-      paymentTerms: item.paymentTerms || 'Net 30 days',
-      status: item.status,
-    });
-  };
-
-  const resetDocumentForm = () => {
-    setDocumentEditingId('');
-    setDocumentForm({
-      type: 'invoice',
-      title: '',
-      referenceNo: '',
-      date: new Date().toISOString().slice(0, 10),
-      recipientName: '',
-      recipientOrg: '',
-      recipientEmail: '',
-      projectId: '',
-      subject: '',
-      bodyContent: '',
-      totalAmount: 0,
-      paymentTerms: 'Net 30 days',
-      status: 'Draft',
-    });
-  };
-
-  const saveDocument = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!documentForm.title.trim() || !documentForm.recipientName.trim()) return;
-    setSaving(true);
-    setError('');
-    setNotice('');
-    const now = new Date().toISOString();
-    const payload = {
-      ...documentForm,
-      title: documentForm.title.trim(),
-      workspaceId: workspace.id,
-      authorName: accountName,
-      authorRole: 'Workspace Owner',
-      updatedAt: now,
-    };
-    try {
-      if (documentEditingId) {
-        await updateDoc(doc(db, 'workspaces', workspace.id, 'documents', documentEditingId), payload);
-        showNotice('Document saved.');
-      } else {
-        await addDoc(collection(db, 'workspaces', workspace.id, 'documents'), { ...payload, createdAt: now });
-        showNotice('Document created.');
-      }
-      resetDocumentForm();
-    } catch (saveError) {
-      setError(messageFromError(saveError));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const uploadAsset = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1016,12 +938,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   const imageAssets = useMemo(() => assets.filter(asset => asset.mimeType?.startsWith('image/')), [assets]);
 
   const isArtist = isArtistWorkspace(workspace);
-  const isCompany = workspace.clientCategory === 'business' || workspace.type === 'Business' || workspace.type === 'Enterprise';
-  const isBrand =
-    workspace.clientCategory === 'brand' ||
-    workspace.type === 'Brand' ||
-    workspace.type === 'Agency' ||
-    isCompany;
+  const isBrand = !isArtist;
 
   const copyTextValue = async (text: string, marker: string, kind: 'token' | 'content') => {
     try {
@@ -1097,19 +1014,30 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     }
   };
 
-  const handleClientProposalAction = async (docId: string, action: 'Accepted' | 'Declined') => {
+  const respondToProposal = async (
+    proposal: ProposalRecord,
+    action: 'Approved' | 'Revision Requested' | 'Declined',
+  ) => {
+    const comment = (proposalReplyById[proposal.id] || '').trim();
+    if (action === 'Revision Requested' && !comment) {
+      setError('Add revision details before requesting changes to a proposal.');
+      return;
+    }
+    setRespondingProposalId(proposal.id);
     setError('');
     setNotice('');
     try {
-      await updateDoc(doc(db, 'workspaces', workspace.id, 'documents', docId), {
-        clientAction: action,
-        clientActionDate: new Date().toISOString(),
-        status: action === 'Accepted' ? 'Accepted' : 'Declined',
-        updatedAt: new Date().toISOString(),
+      await httpsCallable(functions, 'clientRespondProposal')({
+        proposalId: proposal.id,
+        action,
+        comment,
       });
-      showNotice(`Proposal ${action.toLowerCase()}.`);
+      setProposalReplyById(prev => ({ ...prev, [proposal.id]: '' }));
+      showNotice(`Recorded "${action}" response for ${proposal.referenceNo}.`);
     } catch (err) {
       setError(messageFromError(err));
+    } finally {
+      setRespondingProposalId('');
     }
   };
 
@@ -1362,7 +1290,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
             )}
             <div className="min-w-0">
               <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">
-                {isCompany ? 'Business OS · Tokens' : 'Brand OS · Tokens'}
+                Brand OS · Tokens
               </p>
               <h2 className="text-lg font-bold text-white truncate">{workspaceName || workspace.name}</h2>
               <p className="text-xs text-neutral-400 truncate">
@@ -1473,7 +1401,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
       <form onSubmit={saveBrandProfile} className={`${panelClass} space-y-5`}>
         <div>
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">
-            {isCompany ? 'Business OS · Identity' : 'Brand OS · Identity'}
+            Brand OS · Identity
           </p>
           <h3 className="mt-1 text-xl font-bold text-white">Brand Guidelines &amp; Identity</h3>
           <p className="mt-1 text-sm text-neutral-400">
@@ -2838,57 +2766,89 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   };
 
   const renderInvoices = () => {
-    const invoices = documents.filter(d => d.type === 'invoice');
-    const totalInvoiced = invoices.reduce((acc, i) => acc + (i.totalAmount || 0), 0);
-    const totalPaid = invoices.reduce((acc, i) => acc + (i.totalPaid || 0), 0);
-    const balanceDue = invoices.reduce(
-      (acc, i) => acc + (i.balanceDue !== undefined ? i.balanceDue : (i.totalAmount || 0) - (i.totalPaid || 0)),
-      0,
-    );
+    const activeInvoices = invoices.filter(i => i.status !== 'Void');
+    const summaryByCurrency = activeInvoices.reduce<
+      Record<string, { invoiced: number; paid: number; due: number }>
+    >((acc, inv) => {
+      const cur = inv.currency || 'USD';
+      if (!acc[cur]) acc[cur] = { invoiced: 0, paid: 0, due: 0 };
+      acc[cur].invoiced += inv.totalAmount || 0;
+      acc[cur].paid += inv.totalPaid || 0;
+      acc[cur].due += inv.balanceDue ?? Math.max(0, (inv.totalAmount || 0) - (inv.totalPaid || 0));
+      return acc;
+    }, {});
+    const currencyEntries = Object.entries(summaryByCurrency);
 
     return (
       <div className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className={panelClass}>
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-neutral-500">Total Invoiced</p>
-            <p className="mt-2 text-2xl font-bold text-white font-mono tabular-nums">
-              ${totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
+            <div className="mt-2 space-y-1 font-mono tabular-nums">
+              {currencyEntries.length === 0 ? (
+                <p className="text-2xl font-bold text-white">$0.00</p>
+              ) : (
+                currencyEntries.map(([cur, vals]) => (
+                  <p key={cur} className="text-xl font-bold text-white">
+                    {formatMoney(vals.invoiced, cur)}
+                  </p>
+                ))
+              )}
+            </div>
           </div>
           <div className={panelClass}>
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-400">Total Settled</p>
-            <p className="mt-2 text-2xl font-bold text-emerald-400 font-mono tabular-nums">
-              ${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-400">Total Paid</p>
+            <div className="mt-2 space-y-1 font-mono tabular-nums">
+              {currencyEntries.length === 0 ? (
+                <p className="text-2xl font-bold text-emerald-400">$0.00</p>
+              ) : (
+                currencyEntries.map(([cur, vals]) => (
+                  <p key={cur} className="text-xl font-bold text-emerald-400">
+                    {formatMoney(vals.paid, cur)}
+                  </p>
+                ))
+              )}
+            </div>
           </div>
           <div className={panelClass}>
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">Balance Due</p>
-            <p className="mt-2 text-2xl font-bold text-blue-400 font-mono tabular-nums">
-              ${balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
+            <div className="mt-2 space-y-1 font-mono tabular-nums">
+              {currencyEntries.length === 0 ? (
+                <p className="text-2xl font-bold text-blue-400">$0.00</p>
+              ) : (
+                currencyEntries.map(([cur, vals]) => (
+                  <p key={cur} className="text-xl font-bold text-blue-400">
+                    {formatMoney(vals.due, cur)}
+                  </p>
+                ))
+              )}
+            </div>
           </div>
         </div>
 
         <section className={panelClass}>
-          <div className="mb-5">
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">Workspace Billing</p>
-            <h3 className="mt-1 text-xl font-bold text-white">Invoices &amp; Settlement History</h3>
+          <div className="mb-5 border-b border-[#1A1A1A] pb-4">
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">
+              Billing &amp; Agreements · Read-Only
+            </p>
+            <h3 className="mt-1 text-xl font-bold text-white">Invoices &amp; Payment Receipts</h3>
             <p className="mt-1 text-sm text-neutral-400">
-              Review commercial invoices, verify recorded settlements and download official PDF statements.
+              Official commercial billing issued by KeedoHub. Review itemized charges, recorded payment receipts, and download A4 PDF statements.
             </p>
           </div>
 
           {invoices.length === 0 ? (
-            <p className="rounded border border-dashed border-[#333] p-6 text-center text-sm text-neutral-500">
-              No invoices have been issued to this workspace yet.
+            <p className="rounded border border-dashed border-[#333] p-8 text-center text-sm text-neutral-500">
+              No commercial invoices have been issued to this workspace yet.
             </p>
           ) : (
             <div className="space-y-4">
               {invoices.map(inv => {
-                const paid = inv.totalPaid || 0;
+                const currency = inv.currency || 'USD';
                 const total = inv.totalAmount || 0;
-                const balance = inv.balanceDue !== undefined ? inv.balanceDue : Math.max(0, total - paid);
-                const isPaid = inv.status === 'Paid' || balance <= 0;
+                const balance = inv.balanceDue ?? Math.max(0, total - (inv.totalPaid || 0));
+                const effectiveStatus = deriveClientInvoiceStatus(inv);
+                const linkedProject = inv.projectId ? projectById.get(inv.projectId) : undefined;
 
                 return (
                   <article key={inv.id} className="rounded-lg border border-[#252525] bg-[#111] p-5 space-y-4">
@@ -2898,59 +2858,91 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                           <h4 className="text-base font-bold text-white">{inv.title}</h4>
                           <span
                             className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                              isPaid
+                              effectiveStatus === 'Paid'
                                 ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
-                                : inv.status === 'Partially Paid'
+                                : effectiveStatus === 'Partially Paid'
                                   ? 'bg-blue-950/60 text-blue-300 border border-blue-500/30'
-                                  : inv.status === 'Overdue'
+                                  : effectiveStatus === 'Overdue'
                                     ? 'bg-red-950/60 text-red-300 border border-red-500/30'
-                                    : 'bg-amber-950/60 text-amber-300 border border-amber-500/30'
+                                    : effectiveStatus === 'Void'
+                                      ? 'bg-neutral-900 text-neutral-400 border border-neutral-700'
+                                      : 'bg-amber-950/60 text-amber-300 border border-amber-500/30'
                             }`}
                           >
-                            {inv.status}
+                            {effectiveStatus}
                           </span>
                         </div>
                         <p className="mt-1 text-xs font-mono text-neutral-400 tabular-nums">
-                          Ref: {inv.referenceNo} · Issued: {inv.date}
-                          {inv.validityDate ? ` · Due: ${inv.validityDate}` : ''}
+                          Ref: {inv.referenceNo} · Issued: {inv.issueDate}
+                          {inv.dueDate ? ` · Due: ${inv.dueDate}` : ''}
+                          {linkedProject ? ` · Project: ${linkedProject.title}` : ''}
                         </p>
                       </div>
                       <div className="text-right font-mono tabular-nums">
-                        <p className="text-lg font-bold text-white">${total.toFixed(2)}</p>
+                        <p className="text-lg font-bold text-white">{formatMoney(total, currency)}</p>
                         <p className="text-xs text-neutral-400">
-                          Balance due: <strong className="text-blue-400">${balance.toFixed(2)}</strong>
+                          Balance due: <strong className="text-blue-400">{formatMoney(balance, currency)}</strong>
                         </p>
                       </div>
                     </div>
 
                     {inv.items && inv.items.length > 0 && (
-                      <div className="rounded border border-[#222] bg-[#0A0A0A] p-3 text-xs space-y-1">
-                        <p className="font-semibold text-neutral-300 uppercase tracking-wider text-[10px] mb-2">Line Items</p>
+                      <div className="rounded border border-[#222] bg-[#0A0A0A] p-3 text-xs space-y-1.5">
+                        <p className="font-semibold text-neutral-300 uppercase tracking-wider text-[10px] mb-2">
+                          Itemized Breakdown
+                        </p>
                         {inv.items.map((item, idx) => (
-                          <div key={idx} className="flex justify-between text-neutral-400">
+                          <div key={idx} className="flex justify-between gap-3 text-neutral-400">
                             <span>
-                              {item.quantity}x {item.description} (${(item.unitPrice || 0).toFixed(2)} ea)
+                              {item.quantity}x {item.description} ({formatMoney(item.unitPrice || 0, currency)} ea)
                             </span>
-                            <span className="font-mono text-white tabular-nums">${(item.total || 0).toFixed(2)}</span>
+                            <span className="font-mono text-white tabular-nums shrink-0">
+                              {formatMoney(item.total || 0, currency)}
+                            </span>
                           </div>
                         ))}
+                        {(inv.taxAmount > 0 || inv.discountAmount > 0) && (
+                          <div className="border-t border-[#1D1D1D] pt-1.5 mt-1.5 space-y-1 text-[11px] font-mono tabular-nums text-neutral-400">
+                            <div className="flex justify-between">
+                              <span>Subtotal</span>
+                              <span>{formatMoney(inv.subtotal || 0, currency)}</span>
+                            </div>
+                            {inv.discountAmount > 0 && (
+                              <div className="flex justify-between">
+                                <span>Discount</span>
+                                <span>-{formatMoney(inv.discountAmount, currency)}</span>
+                              </div>
+                            )}
+                            {inv.taxAmount > 0 && (
+                              <div className="flex justify-between">
+                                <span>Tax ({inv.taxRate || 0}%)</span>
+                                <span>{formatMoney(inv.taxAmount, currency)}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
                     {inv.payments && inv.payments.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-[10px] font-mono uppercase tracking-[0.16em] text-neutral-500">Recorded Payments</p>
+                        <p className="text-[10px] font-mono uppercase tracking-[0.16em] text-neutral-500">
+                          Payment Receipts ({inv.payments.length})
+                        </p>
                         <div className="space-y-1.5">
                           {inv.payments.map((p, idx) => (
                             <div
-                              key={idx}
-                              className="flex flex-wrap items-center justify-between rounded bg-[#161616] px-3 py-2 text-xs font-mono tabular-nums"
+                              key={p.id || idx}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#161616] px-3 py-2 text-xs font-mono tabular-nums"
                             >
                               <span className="text-emerald-400 font-semibold">
-                                +${p.amount.toFixed(2)} <span className="text-neutral-400 font-normal">({p.method})</span>
+                                +{formatMoney(p.amount, currency)}{' '}
+                                <span className="text-neutral-400 font-normal">({p.method})</span>
                               </span>
-                              <span className="text-neutral-500">
-                                {p.date} {p.reference ? `· Ref: ${p.reference}` : ''}
+                              <span className="text-neutral-400">
+                                {p.receiptNumber ? `${p.receiptNumber} · ` : ''}
+                                {p.date}
+                                {p.reference ? ` · Ref: ${p.reference}` : ''}
                               </span>
                             </div>
                           ))}
@@ -2959,37 +2951,24 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                     )}
 
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#222]">
-                      <p className="text-xs text-neutral-500">Terms: {inv.paymentTerms || 'Net 30'}</p>
+                      <p className="text-xs text-neutral-500">
+                        Terms: {inv.paymentTerms || 'Due upon receipt'}
+                      </p>
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => setPreviewDocument(inv)}
+                          onClick={() => setPreviewInvoice(inv)}
                           className="rounded border border-[#333] bg-[#141414] px-3 py-1.5 text-xs text-neutral-200 hover:text-white"
                         >
-                          Preview
+                          View Statement
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            generateCorporateDocumentPdf(
-                              {
-                                ...inv,
-                                workspaceId: workspace.id,
-                                recipientAddress: '',
-                                authorName: accountName,
-                                authorRole: 'Client Review',
-                                items:
-                                  inv.items || [{ description: inv.subject || inv.title, quantity: 1, unitPrice: total, total }],
-                                paymentTerms: inv.paymentTerms || 'Net 30',
-                                createdAt: inv.createdAt,
-                                updatedAt: inv.updatedAt,
-                              } as CorporateDocument,
-                              workspace,
-                            )
-                          }
+                          onClick={() => generateCommercialInvoicePdf(inv, workspace)}
                           className="inline-flex items-center gap-1.5 rounded border border-[#333] bg-[#161616] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#222]"
                         >
-                          <ArrowDownToLine size={13} /> Download PDF
+                          <ArrowDownToLine size={13} />
+                          <span>Download Invoice PDF</span>
                         </button>
                       </div>
                     </div>
@@ -3003,495 +2982,220 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     );
   };
 
-  const renderProposals = () => {
-    const proposals = documents.filter(d =>
-      ['quotation', 'partnership_proposal', 'sponsorship_proposal'].includes(d.type),
-    );
+  const renderProposals = () => (
+    <div className="space-y-5">
+      <section className={panelClass}>
+        <div className="mb-5 border-b border-[#1A1A1A] pb-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-purple-400">
+            Billing &amp; Agreements · Client Review
+          </p>
+          <h3 className="mt-1 text-xl font-bold text-white">Proposals &amp; Quotations</h3>
+          <p className="mt-1 text-sm text-neutral-400">
+            Review commercial scopes, pricing, and deliverables issued by KeedoHub. Approve proposals, request revisions, or download PDFs.
+          </p>
+        </div>
 
-    return (
-      <div className="space-y-5">
-        <section className={panelClass}>
-          <div className="mb-5">
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-purple-400">Commercial Agreements</p>
-            <h3 className="mt-1 text-xl font-bold text-white">Proposals &amp; Quotations</h3>
-            <p className="mt-1 text-sm text-neutral-400">
-              Review project quotations, partnership scopes and sponsorship proposals issued for your workspace.
-            </p>
-          </div>
+        {proposals.length === 0 ? (
+          <p className="rounded border border-dashed border-[#333] p-8 text-center text-sm text-neutral-500">
+            No commercial proposals or quotations have been issued to this workspace yet.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {proposals.map(prop => {
+              const currency = prop.currency || 'USD';
+              const canRespond = ['Issued', 'Sent', 'Under Review'].includes(prop.status);
+              const linkedProject = prop.projectId ? projectById.get(prop.projectId) : undefined;
+              const commentValue = proposalReplyById[prop.id] || '';
+              const busy = respondingProposalId === prop.id;
 
-          {proposals.length === 0 ? (
-            <p className="rounded border border-dashed border-[#333] p-6 text-center text-sm text-neutral-500">
-              No proposals or quotations have been issued to this workspace yet.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {proposals.map(prop => {
-                const isAccepted = prop.clientAction === 'Accepted' || prop.status === 'Accepted';
-                const isDeclined = prop.clientAction === 'Declined' || prop.status === 'Declined';
-
-                return (
-                  <article key={prop.id} className="rounded-lg border border-[#252525] bg-[#111] p-5 space-y-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="text-base font-bold text-white">{prop.title}</h4>
-                          <span
-                            className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                              isAccepted
-                                ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
-                                : isDeclined
-                                  ? 'bg-red-950/60 text-red-300 border border-red-500/30'
+              return (
+                <article key={prop.id} className="rounded-lg border border-[#252525] bg-[#111] p-5 space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-base font-bold text-white">{prop.title}</h4>
+                        <span
+                          className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                            prop.status === 'Approved'
+                              ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
+                              : prop.status === 'Declined'
+                                ? 'bg-red-950/60 text-red-300 border border-red-500/30'
+                                : prop.status === 'Revision Requested'
+                                  ? 'bg-amber-950/60 text-amber-300 border border-amber-500/30'
                                   : 'bg-purple-950/60 text-purple-300 border border-purple-500/30'
-                            }`}
-                          >
-                            {prop.clientAction || prop.status}
+                          }`}
+                        >
+                          {prop.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs font-mono text-neutral-400 tabular-nums">
+                        {prop.type.replaceAll('_', ' ')} · Ref: {prop.referenceNo} · Issued: {prop.issueDate}
+                        {prop.validUntil ? ` · Valid until: ${prop.validUntil}` : ''}
+                        {linkedProject ? ` · Project: ${linkedProject.title}` : ''}
+                      </p>
+                    </div>
+                    {prop.totalAmount > 0 && (
+                      <p className="text-lg font-bold font-mono text-white tabular-nums">
+                        {formatMoney(prop.totalAmount, currency)}
+                      </p>
+                    )}
+                  </div>
+
+                  {prop.bodyContent && (
+                    <p className="text-sm text-neutral-300 whitespace-pre-wrap leading-relaxed">{prop.bodyContent}</p>
+                  )}
+
+                  {prop.items && prop.items.length > 0 && (
+                    <div className="rounded border border-[#222] bg-[#0A0A0A] p-3 text-xs space-y-1.5">
+                      <p className="font-semibold text-neutral-300 uppercase tracking-wider text-[10px] mb-2">
+                        Proposed Scope &amp; Deliverables
+                      </p>
+                      {prop.items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between gap-3 text-neutral-400">
+                          <span>
+                            {item.quantity}x {item.description} ({formatMoney(item.unitPrice || 0, currency)} ea)
+                          </span>
+                          <span className="font-mono text-white tabular-nums shrink-0">
+                            {formatMoney(item.total || 0, currency)}
                           </span>
                         </div>
-                        <p className="mt-1 text-xs font-mono text-neutral-400 tabular-nums">
-                          {prop.type.replaceAll('_', ' ')} · Ref: {prop.referenceNo} · Issued: {prop.date}
-                          {prop.validityDate ? ` · Valid until: ${prop.validityDate}` : ''}
-                        </p>
-                      </div>
-                      {prop.totalAmount !== undefined && prop.totalAmount > 0 && (
-                        <p className="text-lg font-bold font-mono text-white tabular-nums">${prop.totalAmount.toFixed(2)}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  {prop.clientResponse && (
+                    <div className="rounded border border-[#282828] bg-[#161616] p-3 text-xs">
+                      <p className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+                        Your Recorded Response · {prop.clientResponse.action} ·{' '}
+                        {new Date(prop.clientResponse.respondedAt).toLocaleDateString()}
+                      </p>
+                      {prop.clientResponse.comment && (
+                        <p className="mt-1 text-neutral-200 whitespace-pre-wrap">{prop.clientResponse.comment}</p>
                       )}
                     </div>
+                  )}
 
-                    <p className="text-sm text-neutral-300 whitespace-pre-wrap leading-relaxed">{prop.bodyContent}</p>
-
-                    {prop.items && prop.items.length > 0 && (
-                      <div className="rounded border border-[#222] bg-[#0A0A0A] p-3 text-xs space-y-1">
-                        <p className="font-semibold text-neutral-300 uppercase tracking-wider text-[10px] mb-2">
-                          Proposed Scope &amp; Deliverables
-                        </p>
-                        {prop.items.map((item, idx) => (
-                          <div key={idx} className="flex justify-between text-neutral-400">
-                            <span>
-                              {item.quantity}x {item.description} (${(item.unitPrice || 0).toFixed(2)} ea)
+                  {prop.revisionHistory && prop.revisionHistory.length > 0 && (
+                    <details className="rounded border border-[#222] bg-[#0D0D0D] p-3 text-xs">
+                      <summary className="cursor-pointer font-semibold text-neutral-300">
+                        Revision &amp; Response Log ({prop.revisionHistory.length})
+                      </summary>
+                      <ol className="mt-2 space-y-1.5">
+                        {prop.revisionHistory.map((rev, idx) => (
+                          <li key={idx} className="border-t border-[#1C1C1C] pt-1.5 text-neutral-400">
+                            <span className="font-mono text-[10px] text-neutral-500">
+                              {rev.actorRole} · {rev.action} · {new Date(rev.timestamp).toLocaleDateString()}
                             </span>
-                            <span className="font-mono text-white tabular-nums">${(item.total || 0).toFixed(2)}</span>
-                          </div>
+                            {rev.comment && <p className="mt-0.5 text-neutral-200">{rev.comment}</p>}
+                          </li>
                         ))}
-                      </div>
-                    )}
+                      </ol>
+                    </details>
+                  )}
 
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#222]">
+                  {canRespond && (
+                    <div className="rounded border border-[#2A2A2A] bg-[#141414] p-3 space-y-2.5">
+                      <textarea
+                        value={commentValue}
+                        onChange={e => setProposalReplyById(prev => ({ ...prev, [prop.id]: e.target.value }))}
+                        rows={2}
+                        maxLength={2000}
+                        placeholder="Optional approval note or required revision feedback…"
+                        className="w-full rounded border border-[#2E2E2E] bg-[#0E0E0E] px-3 py-2 text-xs text-white outline-none focus:border-[#FF1E1E]"
+                      />
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => void handleClientProposalAction(prop.id, 'Accepted')}
-                          disabled={isAccepted}
-                          className="rounded bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => void respondToProposal(prop, 'Approved')}
+                          className="rounded bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
                         >
-                          {isAccepted ? 'Accepted' : 'Accept Proposal'}
+                          {busy ? 'Submitting…' : 'Approve Proposal'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handleClientProposalAction(prop.id, 'Declined')}
-                          disabled={isDeclined}
-                          className="rounded border border-red-500/40 bg-red-950/30 px-4 py-2 text-xs font-semibold text-red-200 hover:bg-red-950/60 disabled:opacity-50"
+                          disabled={busy || !commentValue.trim()}
+                          onClick={() => void respondToProposal(prop, 'Revision Requested')}
+                          className="rounded border border-amber-500/40 bg-amber-950/30 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-950/60 disabled:opacity-40"
                         >
-                          {isDeclined ? 'Declined' : 'Decline'}
-                        </button>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPreviewDocument(prop)}
-                          className="rounded border border-[#333] bg-[#141414] px-3 py-1.5 text-xs text-neutral-200 hover:text-white"
-                        >
-                          Preview
+                          Request Revision
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            generateCorporateDocumentPdf(
-                              {
-                                ...prop,
-                                workspaceId: workspace.id,
-                                recipientAddress: '',
-                                authorName: accountName,
-                                authorRole: 'Client Review',
-                                items:
-                                  prop.items || [
-                                    {
-                                      description: prop.subject || prop.title,
-                                      quantity: 1,
-                                      unitPrice: prop.totalAmount || 0,
-                                      total: prop.totalAmount || 0,
-                                    },
-                                  ],
-                                paymentTerms: prop.paymentTerms || '',
-                                createdAt: prop.createdAt,
-                                updatedAt: prop.updatedAt,
-                              } as CorporateDocument,
-                              workspace,
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded border border-[#333] bg-[#161616] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#222]"
+                          disabled={busy}
+                          onClick={() => void respondToProposal(prop, 'Declined')}
+                          className="rounded border border-red-500/40 bg-red-950/30 px-3.5 py-2 text-xs font-semibold text-red-200 hover:bg-red-950/60 disabled:opacity-50"
                         >
-                          <ArrowDownToLine size={13} /> Download PDF
+                          Decline
                         </button>
                       </div>
                     </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </div>
-    );
-  };
+                  )}
 
-  const renderDocumentsListAndForm = (onlyCorporate = false) => {
-    const visibleDocs = onlyCorporate
-      ? documents.filter(
-          d => d.type !== 'invoice' && !['quotation', 'partnership_proposal', 'sponsorship_proposal'].includes(d.type),
-        )
-      : documents;
-
-    return (
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,.8fr)]">
-        <section className={panelClass}>
-          <div className="mb-5">
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">Brand OS · Business</p>
-            <h3 className="mt-1 text-xl font-bold text-white">
-              {onlyCorporate ? 'Corporate & Correspondence' : 'All Business Documents'}
-            </h3>
-            <p className="mt-1 text-sm text-neutral-400">
-              Draft, revise, preview and download branded invoices, proposals and business correspondence.
-            </p>
-          </div>
-          {visibleDocs.length === 0 ? (
-            <p className="rounded border border-dashed border-[#333] p-6 text-center text-sm text-neutral-500">
-              No business documents match this category yet.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {visibleDocs.map(item => (
-                <article key={item.id} className="rounded-lg border border-[#252525] bg-[#111] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-semibold text-white">{item.title}</h4>
-                      <p className="mt-1 text-[11px] font-mono uppercase tracking-wider text-neutral-500 tabular-nums">
-                        {item.type.replaceAll('_', ' ')} · {item.referenceNo} · {item.date}
-                      </p>
-                      <p className="mt-1 text-xs text-neutral-400">
-                        Prepared for {item.recipientName}
-                        {item.recipientOrg ? ` · ${item.recipientOrg}` : ''}
-                        {item.projectId ? ` · ${projects.find(project => project.id === item.projectId)?.title || 'Project'}` : ''}
-                        {item.totalAmount ? ` · $${item.totalAmount.toFixed(2)}` : ''}
-                      </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#222]">
+                    <p className="text-xs text-neutral-500">
+                      {prop.paymentTerms ? `Terms: ${prop.paymentTerms}` : 'Commercial scope governed by KeedoHub'}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewProposal(prop)}
+                        className="rounded border border-[#333] bg-[#141414] px-3 py-1.5 text-xs text-neutral-200 hover:text-white"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => generateCommercialProposalPdf(prop, workspace)}
+                        className="inline-flex items-center gap-1.5 rounded border border-[#333] bg-[#161616] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#222]"
+                      >
+                        <ArrowDownToLine size={13} />
+                        <span>Download PDF</span>
+                      </button>
                     </div>
-                    <select
-                      aria-label={`Status for ${item.title}`}
-                      value={item.status}
-                      onChange={event => void saveStatus('documents', item.id, event.target.value)}
-                      className="rounded border border-[#333] bg-[#141414] px-2 py-1 text-xs text-neutral-300"
-                    >
-                      <option>Draft</option>
-                      <option>Under Review</option>
-                      <option>Approved</option>
-                      <option>Issued</option>
-                    </select>
-                  </div>
-                  <p className="mt-3 line-clamp-3 whitespace-pre-wrap text-sm text-neutral-300">{item.bodyContent}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDocument(item)}
-                      className="inline-flex items-center gap-1 rounded border border-[#333] px-2.5 py-1.5 text-xs text-neutral-200 hover:text-white"
-                    >
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => editDocument(item)}
-                      className="inline-flex items-center gap-1 rounded border border-[#333] px-2.5 py-1.5 text-xs text-white"
-                    >
-                      <Pencil size={12} />
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        generateCorporateDocumentPdf(
-                          {
-                            ...item,
-                            workspaceId: workspace.id,
-                            recipientAddress: '',
-                            authorName: accountName,
-                            authorRole: 'Workspace Owner',
-                            items:
-                              item.items && item.items.length > 0
-                                ? item.items
-                                : item.totalAmount
-                                  ? [{ description: item.subject || item.title, quantity: 1, unitPrice: item.totalAmount, total: item.totalAmount }]
-                                  : [],
-                            paymentTerms: item.paymentTerms || '',
-                            createdAt: item.createdAt,
-                            updatedAt: item.updatedAt,
-                          } as CorporateDocument,
-                          workspace,
-                        )
-                      }
-                      className="inline-flex items-center gap-1 rounded border border-[#333] px-2.5 py-1.5 text-xs text-neutral-300 hover:text-white"
-                    >
-                      <ArrowDownToLine size={12} />
-                      Download PDF
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        downloadText(
-                          `${item.referenceNo || item.title}.txt`,
-                          `${workspace.name}\n${item.title}\n${item.referenceNo} · ${item.date}\nPrepared for: ${item.recipientName}${item.recipientOrg ? ` · ${item.recipientOrg}` : ''}${item.recipientEmail ? ` · ${item.recipientEmail}` : ''}\nStatus: ${item.status}\n\n${item.subject || ''}\n\n${item.bodyContent}`,
-                        )
-                      }
-                      className="inline-flex items-center gap-1 rounded border border-[#333] px-2.5 py-1.5 text-xs text-neutral-300 hover:text-white"
-                    >
-                      <ArrowDownToLine size={12} />
-                      Download TXT
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void removeRecord('documents', item.id)}
-                      className="inline-flex items-center gap-1 rounded border border-[#333] px-2.5 py-1.5 text-xs text-neutral-400 hover:text-red-300"
-                    >
-                      <Trash2 size={12} />
-                      Delete
-                    </button>
                   </div>
                 </article>
-              ))}
-            </div>
-          )}
-        </section>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
 
-        <form onSubmit={saveDocument} className={`${panelClass} h-fit space-y-3`}>
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white">{documentEditingId ? 'Edit document' : 'Create document'}</h3>
-            {documentEditingId && (
-              <button type="button" onClick={resetDocumentForm} aria-label="Cancel editing" className="text-neutral-500">
-                <X size={16} />
-              </button>
-            )}
-          </div>
-          <label>
-            <span className={labelClass}>Document type</span>
-            <select
-              value={documentForm.type}
-              onChange={event => setDocumentForm(value => ({ ...value, type: event.target.value as DocumentType }))}
-              className={fieldClass}
-            >
-              <option value="invoice">Invoice</option>
-              <option value="quotation">Proposal / quotation</option>
-              <option value="partnership_proposal">Partnership proposal</option>
-              <option value="official_letter">Business letter</option>
-              <option value="company_profile">Company profile</option>
-            </select>
-          </label>
-          <label>
-            <span className={labelClass}>Title</span>
-            <input
-              required
-              value={documentForm.title}
-              onChange={event => setDocumentForm(value => ({ ...value, title: event.target.value }))}
-              className={fieldClass}
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label>
-              <span className={labelClass}>Reference</span>
-              <input
-                value={documentForm.referenceNo}
-                onChange={event => setDocumentForm(value => ({ ...value, referenceNo: event.target.value }))}
-                className={fieldClass}
-                placeholder="INV-2026-001"
-              />
-            </label>
-            <label>
-              <span className={labelClass}>Date</span>
-              <input
-                type="date"
-                value={documentForm.date}
-                onChange={event => setDocumentForm(value => ({ ...value, date: event.target.value }))}
-                className={fieldClass}
-              />
-            </label>
-          </div>
-          <label>
-            <span className={labelClass}>Client / recipient name</span>
-            <input
-              required
-              value={documentForm.recipientName}
-              onChange={event => setDocumentForm(value => ({ ...value, recipientName: event.target.value }))}
-              className={fieldClass}
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label>
-              <span className={labelClass}>Organization</span>
-              <input
-                value={documentForm.recipientOrg}
-                onChange={event => setDocumentForm(value => ({ ...value, recipientOrg: event.target.value }))}
-                className={fieldClass}
-              />
-            </label>
-            <label>
-              <span className={labelClass}>Email</span>
-              <input
-                type="email"
-                value={documentForm.recipientEmail}
-                onChange={event => setDocumentForm(value => ({ ...value, recipientEmail: event.target.value }))}
-                className={fieldClass}
-              />
-            </label>
-          </div>
-          <label>
-            <span className={labelClass}>Related project</span>
-            <select
-              value={documentForm.projectId}
-              onChange={event => setDocumentForm(value => ({ ...value, projectId: event.target.value }))}
-              className={fieldClass}
-            >
-              <option value="">No project association</option>
-              {projects.map(project => (
-                <option key={project.id} value={project.id}>
-                  {project.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          {documentForm.type === 'invoice' && (
-            <>
-              <label>
-                <span className={labelClass}>Invoice total (USD)</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={documentForm.totalAmount}
-                  onChange={event =>
-                    setDocumentForm(value => ({ ...value, totalAmount: Math.max(0, Number(event.target.value) || 0) }))
-                  }
-                  className={fieldClass}
-                />
-              </label>
-              <label>
-                <span className={labelClass}>Payment terms</span>
-                <input
-                  value={documentForm.paymentTerms}
-                  onChange={event => setDocumentForm(value => ({ ...value, paymentTerms: event.target.value }))}
-                  className={fieldClass}
-                />
-              </label>
-            </>
-          )}
-          <label>
-            <span className={labelClass}>Subject</span>
-            <input
-              value={documentForm.subject}
-              onChange={event => setDocumentForm(value => ({ ...value, subject: event.target.value }))}
-              className={fieldClass}
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Document content</span>
-            <textarea
-              rows={7}
-              value={documentForm.bodyContent}
-              onChange={event => setDocumentForm(value => ({ ...value, bodyContent: event.target.value }))}
-              className={fieldClass}
-              placeholder="Editable document copy, scope or payment terms."
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Status</span>
-            <select
-              value={documentForm.status}
-              onChange={event => setDocumentForm(value => ({ ...value, status: event.target.value as StudioDocumentStatus }))}
-              className={fieldClass}
-            >
-              <option>Draft</option>
-              <option>Under Review</option>
-              <option>Approved</option>
-              <option>Issued</option>
-            </select>
-          </label>
-          <button
-            disabled={saving}
-            className="inline-flex w-full items-center justify-center gap-2 rounded bg-[#FF1E1E] px-3 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition-colors disabled:opacity-50"
-          >
-            <FilePlus2 size={15} />
-            {saving ? 'Saving…' : documentEditingId ? 'Save document' : 'Create document'}
-          </button>
-        </form>
-      </div>
-    );
-  };
-
-  const renderDocumentsHub = () => {
-    const proposalsCount = documents.filter(d =>
-      ['quotation', 'partnership_proposal', 'sponsorship_proposal'].includes(d.type),
-    ).length;
-    const invoicesCount = documents.filter(d => d.type === 'invoice').length;
-    const corporateCount = documents.filter(
-      d => d.type !== 'invoice' && !['quotation', 'partnership_proposal', 'sponsorship_proposal'].includes(d.type),
-    ).length;
-
-    return (
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1E1E1E] pb-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {[
-              { id: 'all' as const, label: 'All Documents', count: documents.length },
-              { id: 'proposals' as const, label: 'Proposals & Quotes', count: proposalsCount },
-              { id: 'invoices' as const, label: 'Invoices & Billing', count: invoicesCount },
-              { id: 'corporate' as const, label: 'Corporate Docs', count: corporateCount },
-            ].map(tab => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setDocSubTab(tab.id)}
-                className={`rounded px-3 py-1.5 text-xs font-mono tabular-nums whitespace-nowrap shrink-0 transition-colors ${
-                  docSubTab === tab.id
-                    ? 'bg-white text-black font-semibold'
-                    : 'border border-[#2A2A2A] bg-[#121212] text-neutral-400 hover:text-white'
-                }`}
-              >
-                {tab.label} ({tab.count})
-              </button>
-            ))}
-          </div>
-          {onRequestProduction && (
-            <button
-              type="button"
-              onClick={() =>
+  const renderDocumentsHub = () =>
+    isArtist ? (
+      <ArtistDocumentLibrary
+        workspace={workspace}
+        clientProfile={clientProfile}
+        accountName={accountName}
+        releases={releases}
+        documents={documents as unknown as CorporateDocument[]}
+        onOpenReleases={() => onNavigateSection?.('releases')}
+        onOpenBilling={() => onNavigateSection?.('invoices')}
+      />
+    ) : (
+      <BrandDocumentLibrary
+        workspace={workspace}
+        clientProfile={clientProfile}
+        accountName={accountName}
+        documents={documents as unknown as CorporateDocument[]}
+        onOpenBrandIdentity={() => onNavigateSection?.('brand')}
+        onOpenBilling={() => onNavigateSection?.('invoices')}
+        onOpenProposals={() => onNavigateSection?.('proposals')}
+        onRequestCollateral={
+          onRequestProduction
+            ? () =>
                 onRequestProduction(
                   buildBrandProductionPrefill(workspace, brandProfile, {
                     category: 'Business Cards',
                     titleSuffix: 'Business Cards & Corporate Collateral',
                   }),
                 )
-              }
-              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-1.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white whitespace-nowrap shrink-0"
-            >
-              <Plus size={13} />
-              <span>Request Business Collateral</span>
-            </button>
-          )}
-        </div>
-
-        {docSubTab === 'proposals' && renderProposals()}
-        {docSubTab === 'invoices' && renderInvoices()}
-        {docSubTab === 'corporate' && renderDocumentsListAndForm(true)}
-        {docSubTab === 'all' && renderDocumentsListAndForm(false)}
-      </div>
+            : undefined
+        }
+      />
     );
-  };
 
   return (
     <div className="space-y-5">
@@ -3515,75 +3219,111 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
       {section === 'invoices' && renderInvoices()}
       {section === 'proposals' && renderProposals()}
 
-      {/* Document Preview Modal */}
-      {previewDocument && (
+      {/* Commercial Invoice Preview Modal */}
+      {previewInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-xl border border-[#2E2E2E] bg-[#0C0C0C] p-6 space-y-4">
             <div className="flex items-start justify-between gap-4 border-b border-[#1E1E1E] pb-4">
               <div>
                 <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
-                  {previewDocument.type.replaceAll('_', ' ')} · {previewDocument.referenceNo}
+                  INVOICE · {previewInvoice.referenceNo} · {deriveClientInvoiceStatus(previewInvoice)}
                 </p>
-                <h3 className="mt-1 text-lg font-bold text-white">{previewDocument.title}</h3>
+                <h3 className="mt-1 text-lg font-bold text-white">{previewInvoice.title}</h3>
                 <p className="mt-1 text-xs text-neutral-400">
-                  Prepared for {previewDocument.recipientName}
-                  {previewDocument.recipientOrg ? ` · ${previewDocument.recipientOrg}` : ''} · {previewDocument.date}
+                  Billed to {previewInvoice.recipientName} · Issued {previewInvoice.issueDate}
+                  {previewInvoice.dueDate ? ` · Due ${previewInvoice.dueDate}` : ''}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setPreviewDocument(null)}
-                aria-label="Close document preview"
+                onClick={() => setPreviewInvoice(null)}
+                aria-label="Close invoice preview"
                 className="rounded border border-[#2E2E2E] p-1.5 text-neutral-400 hover:text-white"
               >
                 <X size={16} />
               </button>
             </div>
-            {previewDocument.subject && (
-              <p className="text-sm font-semibold text-white">Subject: {previewDocument.subject}</p>
+            {previewInvoice.bodyContent && (
+              <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 text-sm text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                {previewInvoice.bodyContent}
+              </div>
             )}
-            <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 text-sm text-neutral-300 whitespace-pre-wrap leading-relaxed">
-              {previewDocument.bodyContent || 'No body content recorded.'}
+            <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 text-xs font-mono space-y-1.5 tabular-nums">
+              <div className="flex justify-between text-neutral-300">
+                <span>Total Amount</span>
+                <span>{formatMoney(previewInvoice.totalAmount, previewInvoice.currency)}</span>
+              </div>
+              <div className="flex justify-between text-emerald-400">
+                <span>Total Paid</span>
+                <span>{formatMoney(previewInvoice.totalPaid, previewInvoice.currency)}</span>
+              </div>
+              <div className="flex justify-between text-blue-400 font-bold border-t border-[#222] pt-1.5">
+                <span>Balance Due</span>
+                <span>{formatMoney(previewInvoice.balanceDue, previewInvoice.currency)}</span>
+              </div>
             </div>
             <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-[#1E1E1E]">
               <button
                 type="button"
-                onClick={() =>
-                  generateCorporateDocumentPdf(
-                    {
-                      ...previewDocument,
-                      workspaceId: workspace.id,
-                      recipientAddress: '',
-                      authorName: accountName,
-                      authorRole: 'Client Review',
-                      items:
-                        previewDocument.items && previewDocument.items.length > 0
-                          ? previewDocument.items
-                          : previewDocument.totalAmount
-                            ? [
-                                {
-                                  description: previewDocument.subject || previewDocument.title,
-                                  quantity: 1,
-                                  unitPrice: previewDocument.totalAmount,
-                                  total: previewDocument.totalAmount,
-                                },
-                              ]
-                            : [],
-                      paymentTerms: previewDocument.paymentTerms || '',
-                      createdAt: previewDocument.createdAt,
-                      updatedAt: previewDocument.updatedAt,
-                    } as CorporateDocument,
-                    workspace,
-                  )
-                }
+                onClick={() => generateCommercialInvoicePdf(previewInvoice, workspace)}
                 className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-4 py-2 text-xs font-semibold text-white hover:bg-red-600"
               >
                 <ArrowDownToLine size={13} />
-                Download PDF
+                <span>Download Invoice PDF</span>
               </button>
               <button
                 type="button"
-                onClick={() => setPreviewDocument(null)}
+                onClick={() => setPreviewInvoice(null)}
+                className="rounded border border-[#333] bg-[#141414] px-4 py-2 text-xs text-neutral-200 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Commercial Proposal Preview Modal */}
+      {previewProposal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-xl border border-[#2E2E2E] bg-[#0C0C0C] p-6 space-y-4">
+            <div className="flex items-start justify-between gap-4 border-b border-[#1E1E1E] pb-4">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                  {previewProposal.type.replaceAll('_', ' ')} · {previewProposal.referenceNo} · {previewProposal.status}
+                </p>
+                <h3 className="mt-1 text-lg font-bold text-white">{previewProposal.title}</h3>
+                <p className="mt-1 text-xs text-neutral-400">
+                  Prepared for {previewProposal.recipientName} · Issued {previewProposal.issueDate}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewProposal(null)}
+                aria-label="Close proposal preview"
+                className="rounded border border-[#2E2E2E] p-1.5 text-neutral-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {previewProposal.subject && (
+              <p className="text-sm font-semibold text-white">Subject: {previewProposal.subject}</p>
+            )}
+            <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 text-sm text-neutral-300 whitespace-pre-wrap leading-relaxed">
+              {previewProposal.bodyContent || 'No body content recorded.'}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-[#1E1E1E]">
+              <button
+                type="button"
+                onClick={() => generateCommercialProposalPdf(previewProposal, workspace)}
+                className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-4 py-2 text-xs font-semibold text-white hover:bg-red-600"
+              >
+                <ArrowDownToLine size={13} />
+                <span>Download Proposal PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewProposal(null)}
                 className="rounded border border-[#333] bg-[#141414] px-4 py-2 text-xs text-neutral-200 hover:text-white"
               >
                 Close

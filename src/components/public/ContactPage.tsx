@@ -25,7 +25,7 @@ export const ContactPage: React.FC<Props> = ({ navigate, serviceParam }) => {
   const { isAuthenticated, enterWorkspace, authError } = useApp();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [clientRole, setClientRole] = useState<'Artist' | 'Brand' | 'Company'>('Artist');
+  const [clientRole, setClientRole] = useState<'Artist' | 'Brand'>('Artist');
   const [service, setService] = useState(() => decodeService(serviceParam));
   const [message, setMessage] = useState('');
   const [requirements, setRequirements] = useState('');
@@ -83,7 +83,7 @@ export const ContactPage: React.FC<Props> = ({ navigate, serviceParam }) => {
               Put Creative Direction Behind the Idea.
             </h1>
             <p className="max-w-xl text-sm leading-7 text-neutral-400">
-              Send your brief directly to the KeedoHub studio desk. Once reviewed, projects move into your private Artist, Brand, or Company workspace for structured production, proofing, and delivery.
+              Send your brief directly to the KeedoHub studio desk. Once reviewed, projects move into your private Artist or Brand workspace for structured production, proofing, and delivery.
             </p>
           </div>
 
@@ -129,8 +129,8 @@ export const ContactPage: React.FC<Props> = ({ navigate, serviceParam }) => {
                 <span className="block font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-400">
                   I Am Enquiring As
                 </span>
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {(['Artist', 'Brand', 'Company'] as const).map(role => (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {(['Artist', 'Brand'] as const).map(role => (
                     <button
                       key={role}
                       type="button"
@@ -260,7 +260,7 @@ export const ContactPage: React.FC<Props> = ({ navigate, serviceParam }) => {
               <div>
                 <h2 className="text-base font-bold text-white">One Private Production Room</h2>
                 <p className="mt-2 text-sm leading-6 text-neutral-400">
-                  Already have an account? Submit production requests directly inside your Artist, Brand, or Company workspace to monitor status, inspect deliverable versions, and approve final masters.
+                  Already have an account? Submit production requests directly inside your Artist or Brand workspace to monitor status, inspect deliverable versions, and approve final masters.
                 </p>
               </div>
             </div>

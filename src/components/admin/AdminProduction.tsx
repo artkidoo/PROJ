@@ -81,6 +81,12 @@ import {
   type LegacyImportResult,
   type LegacyProductionSnapshot,
 } from '../../lib/productionImport';
+import {
+  inferDepartmentFromCategory,
+  resolveClientDepartment,
+  resolveProjectDepartment,
+  resolveWorkspaceDepartment,
+} from '../../lib/adminHQNavigation';
 
 const STAGES: ProductionStage[] = [
   'New Request',
@@ -136,6 +142,7 @@ interface ProjectAdminDetails {
   leadProducer: string;
   assignedTo: string;
   assignedToUid: string;
+  clientCategory?: string;
 }
 
 const ALLOWED_DELIVERABLE_TYPES = new Set([
@@ -205,6 +212,7 @@ export interface AdminProductionNavigateOptions {
 
 export interface AdminProductionProps {
   section?: AdminProductionSection;
+  lockedDepartment?: 'Artist' | 'Brand';
   embeddedMode?: boolean;
   initialProjectId?: string;
   initialTab?: 'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity';
@@ -225,6 +233,7 @@ export interface AdminProductionProps {
 
 export const AdminProduction: React.FC<AdminProductionProps> = ({
   section = 'studio',
+  lockedDepartment,
   embeddedMode = false,
   initialProjectId = '',
   initialTab,
@@ -290,6 +299,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   const [reviewFilter, setReviewFilter] = useState<'pending' | 'approved' | 'rejected' | 'revisions'>('pending');
   const [requestListFilter, setRequestListFilter] = useState<'awaiting' | 'accepted' | 'rejected' | 'all'>('awaiting');
   const [enquiryListFilter, setEnquiryListFilter] = useState<'open' | 'all'>('open');
+  const [departmentFilter, setDepartmentFilter] = useState<'All' | 'Artist' | 'Brand' | 'Unassigned'>('All');
   const [projectSearch, setProjectSearch] = useState('');
   const [localClientFilter, setLocalClientFilter] = useState(filterClientUid);
   const [localWorkspaceFilter, setLocalWorkspaceFilter] = useState(filterWorkspaceId);
@@ -377,7 +387,49 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     [adminAssignees]
   );
 
-  const selectedProject = projects.find(project => project.id === selectedProjectId) || null;
+  const activeDepartmentScope: 'All' | 'Artist' | 'Brand' | 'Unassigned' =
+    lockedDepartment || departmentFilter;
+
+  const scopedProjects = useMemo(() => {
+    if (activeDepartmentScope === 'All') return projects;
+    return projects.filter(
+      project =>
+        resolveProjectDepartment(project, clientsByUid, workspacesById, projectAdminDetailsMap) ===
+        activeDepartmentScope
+    );
+  }, [projects, activeDepartmentScope, clientsByUid, workspacesById, projectAdminDetailsMap]);
+
+  const scopedProjectIds = useMemo(
+    () => new Set(scopedProjects.map(p => p.id)),
+    [scopedProjects]
+  );
+
+  const scopedClients = useMemo(() => {
+    if (!lockedDepartment) return clients;
+    return clients.filter(c => resolveClientDepartment(c) === lockedDepartment);
+  }, [clients, lockedDepartment]);
+
+  const scopedWorkspaces = useMemo(() => {
+    if (!lockedDepartment) return workspaces;
+    return workspaces.filter(w => resolveWorkspaceDepartment(w) === lockedDepartment);
+  }, [workspaces, lockedDepartment]);
+
+  const scopedDeliverables = useMemo(() => {
+    if (activeDepartmentScope === 'All') return allDeliverables;
+    return allDeliverables.filter(d => scopedProjectIds.has(d.projectId));
+  }, [allDeliverables, activeDepartmentScope, scopedProjectIds]);
+
+  const scopedRevisions = useMemo(() => {
+    if (activeDepartmentScope === 'All') return allRevisions;
+    return allRevisions.filter(r => scopedProjectIds.has(r.projectId));
+  }, [allRevisions, activeDepartmentScope, scopedProjectIds]);
+
+  const scopedEnquiries = useMemo(() => {
+    if (!lockedDepartment) return serviceEnquiries;
+    return serviceEnquiries.filter(e => inferDepartmentFromCategory(e.service) === lockedDepartment);
+  }, [serviceEnquiries, lockedDepartment]);
+
+  const selectedProject = scopedProjects.find(project => project.id === selectedProjectId) || null;
   const selectedTasks = projectTasks;
   const todayIso = new Date().toISOString().slice(0, 10);
 
@@ -762,12 +814,13 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
               leadProducer: String(snap.get('leadProducer') || ''),
               assignedTo: String(snap.get('assignedTo') || ''),
               assignedToUid: String(snap.get('assignedToUid') || ''),
+              clientCategory: String(snap.get('clientCategory') || ''),
             },
           ] as const;
         } catch {
           return [
             project.id,
-            { leadProducer: '', assignedTo: '', assignedToUid: '' },
+            { leadProducer: '', assignedTo: '', assignedToUid: '', clientCategory: '' },
           ] as const;
         }
       })
@@ -843,10 +896,10 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   }, [isAdmin, selectedWorkspaceId]);
 
   useEffect(() => {
-    if (selectedProjectId && projects.length > 0 && !projects.some(project => project.id === selectedProjectId)) {
+    if (selectedProjectId && scopedProjects.length > 0 && !scopedProjects.some(project => project.id === selectedProjectId)) {
       setSelectedProjectId('');
     }
-  }, [projects, selectedProjectId]);
+  }, [scopedProjects, selectedProjectId]);
 
   // Enrich admin assignees with ClientProfile labels if user doc lacked displayName
   const resolvedAdminAssignees = useMemo<AdminAssigneeOption[]>(() => {
@@ -861,14 +914,14 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     });
   }, [adminAssignees, clientsByUid]);
 
-  const categoryOptions = useMemo(() => getCategoryOptionsForProjects(projects), [projects]);
+  const categoryOptions = useMemo(() => getCategoryOptionsForProjects(scopedProjects), [scopedProjects]);
 
   const effectiveClientFilter = localClientFilter;
   const effectiveWorkspaceFilter = localWorkspaceFilter;
 
   const filteredProjects = useMemo(() => {
     const q = projectSearch.trim().toLowerCase();
-    return projects.filter(project => {
+    return scopedProjects.filter(project => {
       if (effectiveClientFilter && project.clientUid !== effectiveClientFilter) return false;
       if (effectiveWorkspaceFilter && project.workspaceId !== effectiveWorkspaceFilter) return false;
       if (categoryFilter !== 'All' && (project.category || '') !== categoryFilter) return false;
@@ -913,7 +966,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       );
     });
   }, [
-    projects,
+    scopedProjects,
     clientsByUid,
     workspacesById,
     projectAdminDetailsMap,
@@ -929,43 +982,43 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   ]);
 
   const studioMetrics = useMemo(() => {
-    const active = projects.filter(p => p.stage !== 'Delivered');
+    const active = scopedProjects.filter(p => p.stage !== 'Delivered');
     const unassignedActive = active.filter(p => {
       const det = projectAdminDetailsMap[p.id];
       return !det?.assignedToUid && !det?.assignedTo && !det?.leadProducer;
     });
-    const pendingRequests = projects.filter(
+    const pendingRequests = scopedProjects.filter(
       p =>
         p.requestStatus === 'Pending' ||
         p.requestStatus === 'Clarification Requested' ||
         (!p.requestStatus && p.stage === 'New Request')
     );
-    const inProduction = projects.filter(p =>
+    const inProduction = scopedProjects.filter(p =>
       IN_PRODUCTION_STAGES.has((p.stage || 'New Request') as ProductionStage)
     );
-    const awaitingClientReview = projects.filter(p => p.stage === 'Client Review');
-    const awaitingRevision = projects.filter(p => p.stage === 'Revision Required');
-    const delivered = projects.filter(p => p.stage === 'Delivered');
-    const overdue = projects.filter(p => isProjectOverdue(p));
-    const openEnquiries = serviceEnquiries.filter(
+    const awaitingClientReview = scopedProjects.filter(p => p.stage === 'Client Review');
+    const awaitingRevision = scopedProjects.filter(p => p.stage === 'Revision Required');
+    const delivered = scopedProjects.filter(p => p.stage === 'Delivered');
+    const overdue = scopedProjects.filter(p => isProjectOverdue(p));
+    const openEnquiries = scopedEnquiries.filter(
       e => e.status !== 'Closed' && e.status !== 'Converted'
     );
-    const deliverablesAwaitingReview = allDeliverables.filter(d =>
+    const deliverablesAwaitingReview = scopedDeliverables.filter(d =>
       ['Awaiting Review', 'Revised - Awaiting Review'].includes(d.reviewStatus)
     );
-    const approvedDeliverablesCount = allDeliverables.filter(d => d.reviewStatus === 'Approved').length;
-    const draftDeliverablesCount = allDeliverables.filter(d => !d.isClientPublished).length;
-    const pendingRevisions = allRevisions.filter(r =>
+    const approvedDeliverablesCount = scopedDeliverables.filter(d => d.reviewStatus === 'Approved').length;
+    const draftDeliverablesCount = scopedDeliverables.filter(d => !d.isClientPublished).length;
+    const pendingRevisions = scopedRevisions.filter(r =>
       ['Submitted', 'In Progress'].includes(r.status)
     );
 
     const stageCounts = STAGES.map(stage => ({
       stage,
-      count: projects.filter(p => (p.stage || 'New Request') === stage).length,
+      count: scopedProjects.filter(p => (p.stage || 'New Request') === stage).length,
     }));
 
     return {
-      total: projects.length,
+      total: scopedProjects.length,
       activeCount: active.length,
       unassignedActiveCount: unassignedActive.length,
       pendingRequests,
@@ -981,7 +1034,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       pendingRevisions,
       stageCounts,
     };
-  }, [projects, serviceEnquiries, allDeliverables, allRevisions, projectAdminDetailsMap, todayIso]);
+  }, [scopedProjects, scopedEnquiries, scopedDeliverables, scopedRevisions, projectAdminDetailsMap, todayIso]);
 
   const recentProductionEvents = useMemo(() => {
     type ProductionEventItem = {
@@ -996,7 +1049,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
 
     const items: ProductionEventItem[] = [];
 
-    projects.slice(0, 12).forEach(project => {
+    scopedProjects.slice(0, 12).forEach(project => {
       const client = clientsByUid.get(project.clientUid);
       items.push({
         id: `proj-${project.id}`,
@@ -1009,8 +1062,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       });
     });
 
-    allDeliverables.slice(0, 12).forEach(deliverable => {
-      const proj = projects.find(p => p.id === deliverable.projectId);
+    scopedDeliverables.slice(0, 12).forEach(deliverable => {
+      const proj = scopedProjects.find(p => p.id === deliverable.projectId);
       items.push({
         id: `del-${deliverable.id}`,
         kind: 'deliverable',
@@ -1022,8 +1075,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       });
     });
 
-    allRevisions.slice(0, 12).forEach(revision => {
-      const proj = projects.find(p => p.id === revision.projectId);
+    scopedRevisions.slice(0, 12).forEach(revision => {
+      const proj = scopedProjects.find(p => p.id === revision.projectId);
       items.push({
         id: `rev-${revision.id}`,
         kind: 'revision',
@@ -1035,7 +1088,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       });
     });
 
-    serviceEnquiries.slice(0, 8).forEach(enquiry => {
+    scopedEnquiries.slice(0, 8).forEach(enquiry => {
       items.push({
         id: `enq-${enquiry.id}`,
         kind: 'enquiry',
@@ -1049,7 +1102,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       .filter(item => Boolean(item.timestamp))
       .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
       .slice(0, 12);
-  }, [projects, allDeliverables, allRevisions, serviceEnquiries, clientsByUid]);
+  }, [scopedProjects, scopedDeliverables, scopedRevisions, scopedEnquiries, clientsByUid]);
 
   const pendingCreativeRequests = studioMetrics.pendingRequests;
   const filteredCreativeRequests = useMemo(() => {
@@ -1057,20 +1110,20 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
       case 'awaiting':
         return pendingCreativeRequests;
       case 'accepted':
-        return projects.filter(p => p.requestStatus === 'Accepted');
+        return scopedProjects.filter(p => p.requestStatus === 'Accepted');
       case 'rejected':
-        return projects.filter(p => p.requestStatus === 'Rejected');
+        return scopedProjects.filter(p => p.requestStatus === 'Rejected');
       default:
-        return projects.filter(p => Boolean(p.requestStatus) || p.stage === 'New Request');
+        return scopedProjects.filter(p => Boolean(p.requestStatus) || p.stage === 'New Request');
     }
-  }, [projects, pendingCreativeRequests, requestListFilter]);
+  }, [scopedProjects, pendingCreativeRequests, requestListFilter]);
 
   const filteredEnquiries = useMemo(() => {
     if (enquiryListFilter === 'open') {
-      return serviceEnquiries.filter(e => e.status !== 'Closed' && e.status !== 'Converted');
+      return scopedEnquiries.filter(e => e.status !== 'Closed' && e.status !== 'Converted');
     }
-    return serviceEnquiries;
-  }, [serviceEnquiries, enquiryListFilter]);
+    return scopedEnquiries;
+  }, [scopedEnquiries, enquiryListFilter]);
 
   const downloadRequestAttachment = async (
     attachment: NonNullable<ClientProject['requestAttachments']>[number]
@@ -1101,6 +1154,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   };
 
   const clearAllProjectFilters = () => {
+    if (!lockedDepartment) setDepartmentFilter('All');
     setProjectSearch('');
     setLocalClientFilter('');
     setLocalWorkspaceFilter('');
@@ -1112,6 +1166,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
   };
 
   const hasActiveFilters = Boolean(
+    (!lockedDepartment && departmentFilter !== 'All') ||
     projectSearch.trim() ||
     effectiveClientFilter ||
     effectiveWorkspaceFilter ||
@@ -1152,15 +1207,14 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
     setProjectProgress(0);
     if (preselectedClient) {
       setProjectClientUid(preselectedClient.uid);
-      const isArtist = preselectedClient.accountType === 'Artist';
-      setProjectCategory(
-        isArtist ? 'artist' : preselectedClient.accountType === 'Company' ? 'business' : 'brand'
-      );
+      const isArtist = resolveClientDepartment(preselectedClient) === 'Artist';
+      setProjectCategory(isArtist ? 'artist' : 'brand');
       setProjectType(defaultCategoryForAudience(isArtist));
     } else {
+      const defaultIsArtist = lockedDepartment === 'Artist';
       setProjectClientUid('');
-      setProjectCategory('brand');
-      setProjectType(UNIFIED_PRODUCTION_CATEGORIES[1]);
+      setProjectCategory(defaultIsArtist ? 'artist' : 'brand');
+      setProjectType(defaultCategoryForAudience(defaultIsArtist));
     }
     setCreateProjectModalOpen(true);
   };
@@ -2188,7 +2242,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
             <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-300">
               <Clapperboard size={15} className="text-[#FF1E1E]" />
               <span>
-                Live creative operations snapshot across <strong className="text-white">{projects.length}</strong> production project{projects.length === 1 ? '' : 's'}
+                Live {lockedDepartment ? `${lockedDepartment} Department` : 'creative operations'} snapshot across{' '}
+                <strong className="text-white">{scopedProjects.length}</strong> production project{scopedProjects.length === 1 ? '' : 's'}
                 {' · '}
                 <span className="font-mono tabular-nums text-neutral-400">
                   {studioMetrics.unassignedActiveCount} unassigned active · {studioMetrics.draftDeliverablesCount} internal drafts · {studioMetrics.approvedDeliverablesCount} approved outputs
@@ -2556,9 +2611,9 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
               {(
                 [
                   ['awaiting', `Awaiting review · ${pendingCreativeRequests.length}`],
-                  ['accepted', `Accepted · ${projects.filter(p => p.requestStatus === 'Accepted').length}`],
-                  ['rejected', `Rejected · ${projects.filter(p => p.requestStatus === 'Rejected').length}`],
-                  ['all', `All · ${projects.filter(p => Boolean(p.requestStatus) || p.stage === 'New Request').length}`],
+                  ['accepted', `Accepted · ${scopedProjects.filter(p => p.requestStatus === 'Accepted').length}`],
+                  ['rejected', `Rejected · ${scopedProjects.filter(p => p.requestStatus === 'Rejected').length}`],
+                  ['all', `All · ${scopedProjects.filter(p => Boolean(p.requestStatus) || p.stage === 'New Request').length}`],
                 ] as const
               ).map(([tab, label]) => (
                 <button
@@ -2584,6 +2639,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
               {filteredCreativeRequests.map(request => {
                 const client = clientsByUid.get(request.clientUid);
                 const workspace = request.workspaceId ? workspacesById.get(request.workspaceId) : undefined;
+                const reqDept = resolveProjectDepartment(request, clientsByUid, workspacesById, projectAdminDetailsMap);
                 const isSelected = selectedProjectId === request.id;
                 const attachmentCount = request.requestAttachments?.length || 0;
 
@@ -2606,6 +2662,11 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold text-white">{request.title}</span>
+                        {!lockedDepartment && (
+                          <span className="border border-[#2C2C2C] bg-[#0B0B0B] px-2 py-0.5 text-[10px] font-mono uppercase text-neutral-300">
+                            {reqDept === 'Unassigned' ? 'Triage' : reqDept}
+                          </span>
+                        )}
                         <span className="border border-[#2C2C2C] bg-[#161616] px-2 py-0.5 text-[10px] font-mono text-neutral-300">
                           {request.category}
                         </span>
@@ -2688,8 +2749,8 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                   }`}
                 >
                   {mode === 'open'
-                    ? `Open · ${serviceEnquiries.filter(item => item.status !== 'Closed' && item.status !== 'Converted').length}`
-                    : `All · ${serviceEnquiries.length} (latest 50)`}
+                    ? `Open · ${scopedEnquiries.filter(item => item.status !== 'Closed' && item.status !== 'Converted').length}`
+                    : `All · ${scopedEnquiries.length} (latest 50)`}
                 </button>
               ))}
             </div>
@@ -2800,24 +2861,24 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                   [
                     'pending',
                     'Pending review',
-                    allDeliverables.filter(item =>
+                    scopedDeliverables.filter(item =>
                       ['Awaiting Review', 'Revised - Awaiting Review'].includes(item.reviewStatus)
                     ).length,
                   ],
                   [
                     'approved',
                     'Approved',
-                    allDeliverables.filter(item => item.reviewStatus === 'Approved').length,
+                    scopedDeliverables.filter(item => item.reviewStatus === 'Approved').length,
                   ],
                   [
                     'rejected',
                     'Rejected',
-                    allDeliverables.filter(item => item.reviewStatus === 'Rejected').length,
+                    scopedDeliverables.filter(item => item.reviewStatus === 'Rejected').length,
                   ],
                   [
                     'revisions',
                     'Outstanding revisions',
-                    allRevisions.filter(item => ['Submitted', 'In Progress'].includes(item.status)).length,
+                    scopedRevisions.filter(item => ['Submitted', 'In Progress'].includes(item.status)).length,
                   ],
                 ] as const
               ).map(([filter, title, count]) => (
@@ -2839,13 +2900,13 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
 
           {reviewFilter === 'revisions' ? (
             <div className="space-y-2">
-              {allRevisions
+              {scopedRevisions
                 .filter(item => ['Submitted', 'In Progress'].includes(item.status))
                 .map(revision => {
                   const project = projects.find(p => p.id === revision.projectId);
                   const client = project ? clientsByUid.get(project.clientUid) : undefined;
                   const workspace = project?.workspaceId ? workspacesById.get(project.workspaceId) : undefined;
-                  const deliverable = allDeliverables.find(d => d.id === revision.deliverableId);
+                  const deliverable = scopedDeliverables.find(d => d.id === revision.deliverableId);
                   return (
                     <div
                       key={revision.id}
@@ -2893,13 +2954,13 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     </div>
                   );
                 })}
-              {allRevisions.filter(item => ['Submitted', 'In Progress'].includes(item.status)).length === 0 && (
+              {scopedRevisions.filter(item => ['Submitted', 'In Progress'].includes(item.status)).length === 0 && (
                 <p className="text-xs text-neutral-500 py-2">No outstanding revision requests.</p>
               )}
             </div>
           ) : (
             <div className="space-y-2">
-              {allDeliverables
+              {scopedDeliverables
                 .filter(item =>
                   reviewFilter === 'pending'
                     ? ['Awaiting Review', 'Revised - Awaiting Review'].includes(item.reviewStatus)
@@ -2944,7 +3005,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     </div>
                   );
                 })}
-              {allDeliverables.filter(item =>
+              {scopedDeliverables.filter(item =>
                 reviewFilter === 'pending'
                   ? ['Awaiting Review', 'Revised - Awaiting Review'].includes(item.reviewStatus)
                   : item.reviewStatus === (reviewFilter === 'approved' ? 'Approved' : 'Rejected')
@@ -3003,7 +3064,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     onChange={event => setStageFilter(event.target.value)}
                     className="rounded border border-[#262626] bg-[#141414] px-2.5 py-1.5 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
                   >
-                    <option value="All">All stages ({projects.length})</option>
+                    <option value="All">All stages ({scopedProjects.length})</option>
                     <option value="Active">Active only ({studioMetrics.activeCount})</option>
                     {STAGES.map(stage => (
                       <option key={stage} value={stage}>
@@ -3036,10 +3097,10 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     }}
                     className="rounded border border-[#262626] bg-[#141414] px-2.5 py-1.5 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
                   >
-                    <option value="">All clients ({clients.length})</option>
-                    {clients.map(client => (
+                    <option value="">All clients ({scopedClients.length})</option>
+                    {scopedClients.map(client => (
                       <option key={client.uid} value={client.uid}>
-                        {client.displayName || client.organizationName} ({client.accountType})
+                        {client.displayName || client.organizationName} ({resolveClientDepartment(client)})
                       </option>
                     ))}
                   </select>
@@ -3054,25 +3115,45 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                     }}
                     className="rounded border border-[#262626] bg-[#141414] px-2.5 py-1.5 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
                   >
-                    <option value="">All workspaces ({workspaces.length})</option>
-                    {workspaces.map(workspace => (
+                    <option value="">All workspaces ({scopedWorkspaces.length})</option>
+                    {scopedWorkspaces.map(workspace => (
                       <option key={workspace.id} value={workspace.id}>
-                        {workspace.name} ({workspace.type})
+                        {workspace.name} ({resolveWorkspaceDepartment(workspace)})
                       </option>
                     ))}
                   </select>
+
+                  {!lockedDepartment ? (
+                    <select
+                      aria-label="Filter projects by department"
+                      value={departmentFilter}
+                      onChange={event =>
+                        setDepartmentFilter(event.target.value as 'All' | 'Artist' | 'Brand' | 'Unassigned')
+                      }
+                      className="rounded border border-[#262626] bg-[#141414] px-2.5 py-1.5 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
+                    >
+                      <option value="All">All Departments ({projects.length})</option>
+                      <option value="Artist">Artist Department</option>
+                      <option value="Brand">Brand Department</option>
+                      <option value="Unassigned">Unassigned / Triage</option>
+                    </select>
+                  ) : (
+                    <div className="rounded border border-[#262626] bg-[#111111] px-2.5 py-1.5 text-xs font-mono text-neutral-300 flex items-center">
+                      Dept: <strong className="ml-1.5 text-white">{lockedDepartment}</strong>
+                    </div>
+                  )}
 
                   <select
                     aria-label="Filter projects by assignment"
                     value={assigneeFilter}
                     onChange={event => setAssigneeFilter(event.target.value)}
-                    className="sm:col-span-2 rounded border border-[#262626] bg-[#141414] px-2.5 py-1.5 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
+                    className="rounded border border-[#262626] bg-[#141414] px-2.5 py-1.5 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
                   >
                     <option value="All">All Producer Assignments</option>
                     <option value="Mine">Assigned to Me</option>
                     <option value="Unassigned">Unassigned Queue ({studioMetrics.unassignedActiveCount})</option>
                     {resolvedAdminAssignees.map(admin => (
-                      <option key={admin.uid} value={admin.uid}>
+                      <option key={admin.uid} value={admin.hasUserDoc ? admin.uid : ''}>
                         Producer: {admin.label}
                       </option>
                     ))}
@@ -4812,9 +4893,7 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                   const nextClient = clientsByUid.get(nextUid);
                   if (nextClient) {
                     const isArtist = nextClient.accountType === 'Artist';
-                    setProjectCategory(
-                      isArtist ? 'artist' : nextClient.accountType === 'Company' ? 'business' : 'brand'
-                    );
+                    setProjectCategory(isArtist ? 'artist' : 'brand');
                     setProjectType(defaultCategoryForAudience(isArtist));
                   }
                 }}
@@ -4822,9 +4901,9 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                 className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
               >
                 <option value="">Assign to client profile…</option>
-                {clients.map(client => (
+                {scopedClients.map(client => (
                   <option key={client.uid} value={client.uid} disabled={client.status === 'Suspended'}>
-                    {client.displayName || client.organizationName} · {client.accountType}
+                    {client.displayName || client.organizationName} · {resolveClientDepartment(client)}
                     {client.status === 'Suspended' ? ' (Suspended)' : ''}
                   </option>
                 ))}
@@ -4928,14 +5007,12 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
               </label>
               <select
                 id="create-proj-audience"
-                value={projectCategory}
-                onChange={event => setProjectCategory(event.target.value as typeof projectCategory)}
+                value={projectCategory === 'artist' ? 'artist' : 'brand'}
+                onChange={event => setProjectCategory(event.target.value === 'artist' ? 'artist' : 'brand')}
                 className="w-full rounded border border-[#333] bg-[#141414] px-2 py-2 text-xs text-white"
               >
                 <option value="artist">Artist</option>
-                <option value="label">Label</option>
                 <option value="brand">Brand</option>
-                <option value="business">Business</option>
               </select>
             </div>
 

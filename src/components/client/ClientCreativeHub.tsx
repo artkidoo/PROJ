@@ -71,8 +71,7 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
 
   const allowedQueryAudiences = useMemo<CreativeProductAudience[]>(() => {
     if (clientBucket === 'Artist') return ['Artist', 'Shared'];
-    if (clientBucket === 'Business') return ['Business', 'Brand & Business', 'Shared'];
-    return ['Brand', 'Brand & Business', 'Shared'];
+    return ['Brand', 'Business', 'Brand & Business', 'Shared'];
   }, [clientBucket]);
 
   const productFamilies = useMemo(
@@ -432,7 +431,7 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">
-              {experience.isArtist ? 'Artist Creative Hub' : 'Brand & Business Creative Hub'}
+              {experience.isArtist ? 'Artist Creative Hub' : 'Brand Creative Hub'}
             </p>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
               {experience.isArtist

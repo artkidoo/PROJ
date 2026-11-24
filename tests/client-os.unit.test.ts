@@ -49,11 +49,10 @@ function run() {
 
   const artistIds = artistExp.navGroups.flatMap(g => g.items.map(i => i.id));
   assert.equal(new Set(artistIds).size, artistIds.length, 'Artist nav tab IDs must be strictly unique');
-  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'artist-profile', 'releases', 'content', 'assets', 'account']) {
+  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'artist-profile', 'releases', 'content', 'documents', 'assets', 'invoices', 'proposals', 'account']) {
     assert.ok(artistIds.includes(requiredId as typeof artistIds[number]), `Artist OS missing tab ${requiredId}`);
   }
   assert.ok(!artistIds.includes('brand'), 'Artist OS must not expose Brand Identity tab');
-  assert.ok(!artistIds.includes('documents'), 'Artist OS must not expose Brand Business Documents tab');
 
   // 2. Brand experience resolution & isolation from Artist-only features
   const brandExp = resolveClientExperience('Brand', 'Brand');
@@ -64,16 +63,16 @@ function run() {
 
   const brandIds = brandExp.navGroups.flatMap(g => g.items.map(i => i.id));
   assert.equal(new Set(brandIds).size, brandIds.length, 'Brand nav tab IDs must be strictly unique');
-  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'brand', 'content', 'documents', 'assets', 'account']) {
+  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'brand', 'content', 'documents', 'assets', 'invoices', 'proposals', 'account']) {
     assert.ok(brandIds.includes(requiredId as typeof brandIds[number]), `Brand OS missing tab ${requiredId}`);
   }
   assert.ok(!brandIds.includes('releases'), 'Brand OS must not expose Artist Music & Releases tab');
   assert.ok(!brandIds.includes('artist-profile'), 'Brand OS must not expose Artist Profile tab');
 
-  // 3. Company experience receives Business OS (brand/business capabilities without artist-only features)
+  // 3. Historical Company/Business experience normalizes to Brand OS per Phase 1 two-client architecture
   const companyExp = resolveClientExperience('Company', 'Business');
-  assert.equal(companyExp.osMode, 'company');
-  assert.equal(companyExp.osTitle, 'Business OS');
+  assert.equal(companyExp.osMode, 'brand');
+  assert.equal(companyExp.osTitle, 'Brand OS');
   assert.equal(companyExp.isArtist, false);
   assert.equal(companyExp.isBrandOrCompany, true);
   const companyIds = companyExp.navGroups.flatMap(g => g.items.map(i => i.id));
@@ -83,6 +82,8 @@ function run() {
   assert.ok(companyIds.includes('documents'));
   assert.ok(companyIds.includes('content'));
   assert.ok(companyIds.includes('assets'));
+  assert.ok(companyIds.includes('invoices'));
+  assert.ok(companyIds.includes('proposals'));
   assert.ok(!companyIds.includes('releases'), 'Company account must not expose Artist-only Music & Releases');
   assert.ok(!companyIds.includes('artist-profile'), 'Company account must not expose Artist-only Profile');
 

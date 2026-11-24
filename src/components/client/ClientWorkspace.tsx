@@ -40,16 +40,19 @@ import {
 import {
   ClientProfile,
   ClientProject,
+  InvoiceRecord,
   ProductionActivity,
   ProductionDeliverable,
   ProductionNotification,
   ProductionRevisionRequest,
   ProductionTask,
+  ProposalRecord,
   RequestAttachment,
   Workspace,
 } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { db, functions, storage } from '../../lib/firebase';
+import { deriveClientInvoiceStatus } from '../../lib/financeDocuments';
 import { ensureClientWorkspace, resolveClientProjectWorkspaceId } from '../../lib/clientWorkspace';
 import { defaultCategoryForAudience } from '../../lib/productionCategories';
 import { isInternalStoragePath } from '../../lib/productionPromotion';
@@ -71,6 +74,7 @@ import {
   resolveClientExperience,
   validatePersonalAccountUpdate,
 } from '../../lib/clientOS';
+import { normalizeAccountType } from '../../lib/accountNormalization';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { ClientOnboarding } from './ClientOnboarding';
 import { ClientCreativeHub } from './ClientCreativeHub';
@@ -148,6 +152,10 @@ export const ClientWorkspace: React.FC = () => {
   const [studioDocuments, setStudioDocuments] = useState<StudioDocument[]>([]);
   const [studioLoading, setStudioLoading] = useState(true);
   const [studioError, setStudioError] = useState('');
+
+  // Server-governed Commercial Invoices & Proposals
+  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [proposals, setProposals] = useState<ProposalRecord[]>([]);
 
   const [error, setError] = useState('');
   const [feedbackByDeliverable, setFeedbackByDeliverable] = useState<Record<string, string>>({});
@@ -407,6 +415,63 @@ export const ClientWorkspace: React.FC = () => {
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
   }, [activeWorkspace]);
 
+  // Load read-only Commercial Invoices & Proposals for active workspace
+  useEffect(() => {
+    if (!firebaseUser || !activeWorkspace || contextClientProfile?.status === 'Suspended') {
+      setInvoices([]);
+      setProposals([]);
+      return;
+    }
+    if (activeWorkspace.status === 'Paused' || activeWorkspace.status === 'Archived') {
+      setInvoices([]);
+      setProposals([]);
+      return;
+    }
+    const uid = firebaseUser.uid;
+    const unsubInvoices = onSnapshot(
+      query(
+        collection(db, 'invoices'),
+        where('clientUid', '==', uid),
+        where('workspaceId', '==', activeWorkspace.id),
+        where('status', 'in', ['Issued', 'Partially Paid', 'Paid', 'Overdue', 'Void']),
+      ),
+      snapshot => {
+        const rows = snapshot.docs
+          .map(item => ({ id: item.id, ...item.data() } as InvoiceRecord))
+          .sort((a, b) => (b.issueDate || b.createdAt || '').localeCompare(a.issueDate || a.createdAt || ''));
+        setInvoices(rows);
+      },
+      err => setError(messageFromError(err)),
+    );
+    const unsubProposals = onSnapshot(
+      query(
+        collection(db, 'proposals'),
+        where('clientUid', '==', uid),
+        where('workspaceId', '==', activeWorkspace.id),
+        where('status', 'in', [
+          'Issued',
+          'Sent',
+          'Under Review',
+          'Revision Requested',
+          'Approved',
+          'Declined',
+          'Expired',
+        ]),
+      ),
+      snapshot => {
+        const rows = snapshot.docs
+          .map(item => ({ id: item.id, ...item.data() } as ProposalRecord))
+          .sort((a, b) => (b.issueDate || b.createdAt || '').localeCompare(a.issueDate || a.createdAt || ''));
+        setProposals(rows);
+      },
+      err => setError(messageFromError(err)),
+    );
+    return () => {
+      unsubInvoices();
+      unsubProposals();
+    };
+  }, [firebaseUser, activeWorkspace, contextClientProfile?.status]);
+
   // Load projects, tasks, deliverables, revisions, activity for the single workspace.
   useEffect(() => {
     setError('');
@@ -643,6 +708,19 @@ export const ClientWorkspace: React.FC = () => {
     [workspaceProjects],
   );
 
+  const unpaidInvoicesCount = useMemo(
+    () =>
+      invoices.filter(
+        inv => deriveClientInvoiceStatus(inv) !== 'Paid' && inv.status !== 'Void' && (inv.balanceDue ?? 0) > 0,
+      ).length,
+    [invoices],
+  );
+
+  const pendingProposalsCount = useMemo(
+    () => proposals.filter(prop => ['Issued', 'Sent', 'Under Review'].includes(prop.status)).length,
+    [proposals],
+  );
+
   const filteredRequests = useMemo(() => {
     return [...workspaceProjects]
       .sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''))
@@ -819,7 +897,7 @@ export const ClientWorkspace: React.FC = () => {
       const linkedRelease = studioReleases.find(r => r.id === requestLinkedReleaseId);
       const requestBrief = formatDynamicRequestBrief({
         workspaceName: activeWorkspace?.name || clientProfile?.organizationName || 'Client workspace',
-        workspaceType: activeWorkspace?.type || clientProfile?.accountType || 'Client',
+        workspaceType: normalizeAccountType(clientProfile?.accountType || activeWorkspace?.type),
         category: requestCategory,
         description: requestDescription,
         requirements: requestRequirements,
@@ -886,7 +964,11 @@ export const ClientWorkspace: React.FC = () => {
 
   const handleSelectNotification = (notification: ProductionNotification) => {
     const type = (notification.type || '').toLowerCase();
-    if (type.includes('deliverable')) {
+    if (type.includes('proposal')) {
+      selectTab('proposals');
+    } else if (type.includes('invoice')) {
+      selectTab('invoices');
+    } else if (type.includes('deliverable')) {
       selectTab('deliverables');
     } else if (type.includes('revision')) {
       selectTab('updates');
@@ -1130,7 +1212,7 @@ export const ClientWorkspace: React.FC = () => {
         <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Workspace</p>
         <p className="mt-0.5 text-sm font-bold text-white truncate">{activeWorkspace.name}</p>
         <p className="mt-0.5 text-[11px] font-mono text-neutral-500 truncate">
-          {clientProfile?.accountType || activeWorkspace.type} · {activeWorkspace.status || 'Active'}
+          {normalizeAccountType(clientProfile?.accountType || activeWorkspace.type)} · {activeWorkspace.status || 'Active'}
         </p>
       </div>
 
@@ -1149,7 +1231,11 @@ export const ClientWorkspace: React.FC = () => {
                     ? awaitingDeliverables.length
                     : item.id === 'requests'
                       ? openRequests.length
-                      : 0;
+                      : item.id === 'invoices'
+                        ? unpaidInvoicesCount
+                        : item.id === 'proposals'
+                          ? pendingProposalsCount
+                          : 0;
                 return (
                   <li key={item.id}>
                     <button
@@ -1456,7 +1542,7 @@ export const ClientWorkspace: React.FC = () => {
                     onClick={() => selectTab('creative-hub')}
                     className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
                   >
-                    <span>{experience.osMode === 'company' ? 'Business Creative Hub & Packs' : 'Brand Creative Hub & Packs'}</span>
+                    <span>Brand Creative Hub & Packs</span>
                     <ArrowRight size={13} />
                   </button>
                   <button
@@ -1896,7 +1982,7 @@ export const ClientWorkspace: React.FC = () => {
           <dl className="space-y-2.5 text-xs">
             <div className="flex justify-between gap-2 border-b border-[#1A1A1A] pb-2">
               <dt className="text-neutral-500">Account Type</dt>
-              <dd className="font-mono text-white">{clientProfile?.accountType || activeWorkspace.type}</dd>
+              <dd className="font-mono text-white">{normalizeAccountType(clientProfile?.accountType || activeWorkspace.type)}</dd>
             </div>
             <div className="flex justify-between gap-2 border-b border-[#1A1A1A] pb-2">
               <dt className="text-neutral-500">OS Mode</dt>
@@ -1943,7 +2029,7 @@ export const ClientWorkspace: React.FC = () => {
   );
 
   const allowedStudioTabs = experience.isArtist
-    ? ['artist-profile', 'profile', 'releases', 'content', 'assets']
+    ? ['artist-profile', 'profile', 'releases', 'content', 'documents', 'assets', 'invoices', 'proposals']
     : ['brand', 'content', 'assets', 'documents', 'invoices', 'proposals'];
   const isStudioSection = allowedTabIds.has(activeTab) && allowedStudioTabs.includes(activeTab);
 
@@ -2063,10 +2149,13 @@ export const ClientWorkspace: React.FC = () => {
             <ClientStudio
               section={activeTab as ClientStudioSection}
               workspace={activeWorkspace}
+              clientProfile={clientProfile}
               uid={firebaseUser?.uid || ''}
               accountName={accountName}
               projects={workspaceProjects}
               deliverables={workspaceDeliverables}
+              invoices={invoices}
+              proposals={proposals}
               primaryWorkspaceId={clientProfile?.workspaceId}
               externalData={{
                 releases: studioReleases,

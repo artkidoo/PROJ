@@ -56,12 +56,19 @@ import { AspectRatioType, CanvasDesign, TemplateFamilyItem } from '../../types/d
 import { CreativeTemplate, MASTER_CREATIVE_TEMPLATES } from '../../data/creativeTemplatesData';
 import { TEMPLATE_FAMILIES } from '../../data/templateFamiliesData';
 import { buildHonestDesignForTemplate } from '../../utils/templateDesignBuilder';
+import {
+  isTemplateFamilyRelevantToDepartment,
+  isTemplateRelevantToDepartment,
+  resolveProjectDepartment,
+  resolveWorkspaceDepartment,
+} from '../../lib/adminHQNavigation';
 import { Modal } from '../common/Modal';
 import { DesignCanvasEditor } from '../studio/DesignCanvasEditor';
 
 export type DesignLibraryTab = 'designs' | 'assets' | 'templates';
 
 export interface AdminDesignLibraryProps {
+  lockedDepartment?: 'Artist' | 'Brand';
   initialWorkspaceId?: string;
   initialProjectId?: string;
   initialTab?: DesignLibraryTab;
@@ -152,6 +159,7 @@ function formatBytes(bytes?: number): string {
 }
 
 export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
+  lockedDepartment,
   initialWorkspaceId = '',
   initialProjectId = '',
   initialTab = 'designs',
@@ -462,34 +470,58 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
     [clients]
   );
 
+  const scopedWorkspaces = useMemo(() => {
+    if (!lockedDepartment) return workspaces;
+    return workspaces.filter(ws => resolveWorkspaceDepartment(ws) === lockedDepartment);
+  }, [workspaces, lockedDepartment]);
+
+  const scopedWorkspaceIds = useMemo(
+    () => new Set(scopedWorkspaces.map(w => w.id)),
+    [scopedWorkspaces]
+  );
+
+  const scopedProjects = useMemo(() => {
+    if (!lockedDepartment) return projects;
+    return projects.filter(p => {
+      if (p.workspaceId && scopedWorkspaceIds.has(p.workspaceId)) return true;
+      return resolveProjectDepartment(p, clientsByUid, workspacesById) === lockedDepartment;
+    });
+  }, [projects, lockedDepartment, scopedWorkspaceIds, clientsByUid, workspacesById]);
+
   // If projectFilter is set and workspaceFilter is blank, let projects dropdown still filter cleanly
   const projectsForDropdown = useMemo(() => {
     const base = workspaceFilter
-      ? projects.filter(p => p.workspaceId === workspaceFilter)
-      : projects;
+      ? scopedProjects.filter(p => p.workspaceId === workspaceFilter)
+      : scopedProjects;
     return [...base].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  }, [projects, workspaceFilter]);
+  }, [scopedProjects, workspaceFilter]);
 
   const allDesigns = useMemo(
     () =>
-      [...designs].sort((a, b) =>
-        (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '')
-      ),
-    [designs]
+      [...designs]
+        .filter(d => !lockedDepartment || scopedWorkspaceIds.has(d.workspaceId))
+        .sort((a, b) =>
+          (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '')
+        ),
+    [designs, lockedDepartment, scopedWorkspaceIds]
   );
 
   const allAssets = useMemo(() => {
     const merged = new Map<string, WorkspaceAssetRecord>();
     for (const item of sharedAssets) {
-      merged.set(`${item.workspaceId}/${item.id}`, item);
+      if (!lockedDepartment || scopedWorkspaceIds.has(item.workspaceId)) {
+        merged.set(`${item.workspaceId}/${item.id}`, item);
+      }
     }
     for (const item of internalAssets) {
-      merged.set(`${item.workspaceId}/${item.id}`, item);
+      if (!lockedDepartment || scopedWorkspaceIds.has(item.workspaceId)) {
+        merged.set(`${item.workspaceId}/${item.id}`, item);
+      }
     }
     return Array.from(merged.values()).sort((a, b) =>
       (b.uploadedAt || '').localeCompare(a.uploadedAt || '')
     );
-  }, [internalAssets, sharedAssets]);
+  }, [internalAssets, sharedAssets, lockedDepartment, scopedWorkspaceIds]);
 
   const legacyInternalAssets = useMemo(
     () => allAssets.filter(asset => asset.legacyInternalLocation),
@@ -569,19 +601,33 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
     projectsById,
   ]);
 
+  const departmentCreativeTemplates = useMemo(() => {
+    if (!lockedDepartment) return MASTER_CREATIVE_TEMPLATES;
+    return MASTER_CREATIVE_TEMPLATES.filter(t =>
+      isTemplateRelevantToDepartment(t.category, lockedDepartment, t.title)
+    );
+  }, [lockedDepartment]);
+
+  const departmentFamilyTemplates = useMemo(() => {
+    if (!lockedDepartment) return TEMPLATE_FAMILIES;
+    return TEMPLATE_FAMILIES.filter(t =>
+      isTemplateFamilyRelevantToDepartment(t.familyName, t.design?.templateFamily, lockedDepartment)
+    );
+  }, [lockedDepartment]);
+
   const creativeTemplateCategories = useMemo(
-    () => Array.from(new Set(MASTER_CREATIVE_TEMPLATES.map(t => t.category))),
-    []
+    () => Array.from(new Set(departmentCreativeTemplates.map(t => t.category))),
+    [departmentCreativeTemplates]
   );
 
   const templateFamiliesList = useMemo(
-    () => Array.from(new Set(TEMPLATE_FAMILIES.map(t => t.familyName))),
-    []
+    () => Array.from(new Set(departmentFamilyTemplates.map(t => t.familyName))),
+    [departmentFamilyTemplates]
   );
 
   const filteredCreativeTemplates = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return MASTER_CREATIVE_TEMPLATES.filter(t => {
+    return departmentCreativeTemplates.filter(t => {
       if (templateCategoryFilter !== 'All' && t.category !== templateCategoryFilter) return false;
       if (templateAspectFilter !== 'All' && t.aspectRatio !== templateAspectFilter) return false;
       if (!q) return true;
@@ -592,11 +638,11 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
         t.headline.toLowerCase().includes(q)
       );
     });
-  }, [templateCategoryFilter, templateAspectFilter, searchQuery]);
+  }, [departmentCreativeTemplates, templateCategoryFilter, templateAspectFilter, searchQuery]);
 
   const filteredFamilyTemplates = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return TEMPLATE_FAMILIES.filter(t => {
+    return departmentFamilyTemplates.filter(t => {
       if (templateFamilyFilter !== 'All' && t.familyName !== templateFamilyFilter) return false;
       if (templateAspectFilter !== 'All' && t.aspectRatio !== templateAspectFilter) return false;
       if (!q) return true;
@@ -606,7 +652,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
         t.description.toLowerCase().includes(q)
       );
     });
-  }, [templateFamilyFilter, templateAspectFilter, searchQuery]);
+  }, [departmentFamilyTemplates, templateFamilyFilter, templateAspectFilter, searchQuery]);
 
   // Fail-closed authorization guard
   if (!firebaseUser || !canAccessAdminCenter) {
@@ -618,11 +664,11 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
   }
 
   const openBlankDesignModal = () => {
-    const defaultWsId = workspaceFilter || workspaces[0]?.id || '';
+    const defaultWsId = workspaceFilter || scopedWorkspaces[0]?.id || '';
     const defaultProjId =
       projectFilter && (!defaultWsId || projectsById.get(projectFilter)?.workspaceId === defaultWsId)
         ? projectFilter
-        : projects.find(p => p.workspaceId === defaultWsId)?.id || '';
+        : scopedProjects.find(p => p.workspaceId === defaultWsId)?.id || '';
     setDesignModal({
       mode: 'create',
       workspaceId: defaultWsId,
@@ -641,9 +687,9 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
 
   const openTemplateStageModal = (template: CreativeTemplate) => {
     const built = buildHonestDesignForTemplate(template);
-    const defaultWsId = workspaceFilter || workspaces[0]?.id || '';
+    const defaultWsId = workspaceFilter || scopedWorkspaces[0]?.id || '';
     const defaultProjId =
-      projectFilter || projects.find(p => p.workspaceId === defaultWsId)?.id || '';
+      projectFilter || scopedProjects.find(p => p.workspaceId === defaultWsId)?.id || '';
     setDesignModal({
       mode: 'fromTemplate',
       workspaceId: defaultWsId,
@@ -667,9 +713,9 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
   };
 
   const openFamilyTemplateStageModal = (item: TemplateFamilyItem) => {
-    const defaultWsId = workspaceFilter || workspaces[0]?.id || '';
+    const defaultWsId = workspaceFilter || scopedWorkspaces[0]?.id || '';
     const defaultProjId =
-      projectFilter || projects.find(p => p.workspaceId === defaultWsId)?.id || '';
+      projectFilter || scopedProjects.find(p => p.workspaceId === defaultWsId)?.id || '';
     const textEls = item.design.elements.filter(el => el.type === 'text');
     setDesignModal({
       mode: 'fromTemplate',
@@ -912,14 +958,14 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
   };
 
   const launchCanvasFromCreativeTemplate = (template: CreativeTemplate) => {
-    const wsId = workspaceFilter || workspaces[0]?.id || '';
+    const wsId = workspaceFilter || scopedWorkspaces[0]?.id || '';
     if (!wsId) {
       setError('Create or select a client workspace before opening the creative engine.');
       return;
     }
     const projId =
       (projectFilter && projectsById.get(projectFilter)?.workspaceId === wsId ? projectFilter : '') ||
-      projects.find(p => p.workspaceId === wsId)?.id ||
+      scopedProjects.find(p => p.workspaceId === wsId)?.id ||
       '';
     const built = buildHonestDesignForTemplate(template);
     const category: CampaignCategory =
@@ -941,14 +987,14 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
   };
 
   const launchCanvasFromFamilyTemplate = (item: TemplateFamilyItem) => {
-    const wsId = workspaceFilter || workspaces[0]?.id || '';
+    const wsId = workspaceFilter || scopedWorkspaces[0]?.id || '';
     if (!wsId) {
       setError('Create or select a client workspace before opening the creative engine.');
       return;
     }
     const projId =
       (projectFilter && projectsById.get(projectFilter)?.workspaceId === wsId ? projectFilter : '') ||
-      projects.find(p => p.workspaceId === wsId)?.id ||
+      scopedProjects.find(p => p.workspaceId === wsId)?.id ||
       '';
     setCanvasOverlayNotice('');
     setCanvasOverlayError('');
@@ -967,14 +1013,14 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
   };
 
   const launchBlankCanvasEngine = () => {
-    const wsId = workspaceFilter || workspaces[0]?.id || '';
+    const wsId = workspaceFilter || scopedWorkspaces[0]?.id || '';
     if (!wsId) {
       setError('Create or select a client workspace before opening the creative engine.');
       return;
     }
     const projId =
       (projectFilter && projectsById.get(projectFilter)?.workspaceId === wsId ? projectFilter : '') ||
-      projects.find(p => p.workspaceId === wsId)?.id ||
+      scopedProjects.find(p => p.workspaceId === wsId)?.id ||
       '';
     const now = new Date().toISOString();
     const blankDesign: CanvasDesign = {
@@ -1077,7 +1123,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
   };
 
   const openUploadAssetModal = () => {
-    const defaultWs = workspaceFilter || workspaces[0]?.id || '';
+    const defaultWs = workspaceFilter || scopedWorkspaces[0]?.id || '';
     const defaultProj =
       projectFilter && (!defaultWs || projectsById.get(projectFilter)?.workspaceId === defaultWs)
         ? projectFilter
@@ -1353,7 +1399,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
             <button
               type="button"
               onClick={launchBlankCanvasEngine}
-              disabled={workspaces.length === 0}
+              disabled={scopedWorkspaces.length === 0}
               className="inline-flex items-center gap-1.5 border border-[#FF1E1E]/60 bg-[#1A0E0E] px-3 py-2 text-xs font-semibold text-white hover:bg-[#FF1E1E] disabled:opacity-40 whitespace-nowrap"
             >
               <Sparkles size={13} />
@@ -1362,7 +1408,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
             <button
               type="button"
               onClick={openUploadAssetModal}
-              disabled={workspaces.length === 0}
+              disabled={scopedWorkspaces.length === 0}
               className="inline-flex items-center gap-1.5 border border-[#2C2C2C] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] disabled:opacity-40 whitespace-nowrap"
             >
               <Upload size={13} />
@@ -1371,7 +1417,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
             <button
               type="button"
               onClick={openBlankDesignModal}
-              disabled={workspaces.length === 0}
+              disabled={scopedWorkspaces.length === 0}
               className="inline-flex items-center gap-1.5 bg-[#FF1E1E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-40 whitespace-nowrap"
             >
               <Plus size={13} />
@@ -1403,7 +1449,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
               Master Creative Templates
             </p>
             <p className="mt-1 text-xl font-bold font-mono tabular-nums text-white">
-              {MASTER_CREATIVE_TEMPLATES.length}
+              {departmentCreativeTemplates.length}
             </p>
           </div>
           <div className="border border-[#1A1A1A] bg-[#101010] p-3">
@@ -1411,7 +1457,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
               Layout Family Blueprints
             </p>
             <p className="mt-1 text-xl font-bold font-mono tabular-nums text-white">
-              {TEMPLATE_FAMILIES.length}
+              {departmentFamilyTemplates.length}
             </p>
           </div>
         </div>
@@ -1441,8 +1487,12 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
             }}
             className="border border-[#262626] bg-[#141414] px-3 py-2 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
           >
-            <option value="">All Workspaces ({workspaces.length})</option>
-            {workspaces.map(ws => (
+            <option value="">
+              {lockedDepartment
+                ? `All ${lockedDepartment} Workspaces (${scopedWorkspaces.length})`
+                : `All Workspaces (${scopedWorkspaces.length})`}
+            </option>
+            {scopedWorkspaces.map(ws => (
               <option key={ws.id} value={ws.id}>
                 {ws.name} ({ws.type})
               </option>
@@ -1568,7 +1618,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
           { id: 'assets' as const, label: `Production & Workspace Assets (${filteredAssets.length})` },
           {
             id: 'templates' as const,
-            label: `Master Template Catalog (${MASTER_CREATIVE_TEMPLATES.length + TEMPLATE_FAMILIES.length})`,
+            label: `Master Template Catalog (${departmentCreativeTemplates.length + departmentFamilyTemplates.length})`,
           },
         ].map(tab => (
           <button
@@ -2058,7 +2108,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                       catalogMode === 'creative' ? 'bg-white text-black font-semibold' : 'text-neutral-300'
                     }`}
                   >
-                    Master Creative Templates ({MASTER_CREATIVE_TEMPLATES.length})
+                    Master Creative Templates ({departmentCreativeTemplates.length})
                   </button>
                   <button
                     type="button"
@@ -2067,7 +2117,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                       catalogMode === 'families' ? 'bg-white text-black font-semibold' : 'text-neutral-300'
                     }`}
                   >
-                    Layout Blueprints ({TEMPLATE_FAMILIES.length})
+                    Layout Blueprints ({departmentFamilyTemplates.length})
                   </button>
                 </div>
 
@@ -2300,7 +2350,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                   className="w-full border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white disabled:opacity-60"
                 >
                   <option value="">Select workspace…</option>
-                  {workspaces.map(ws => {
+                  {scopedWorkspaces.map(ws => {
                     const owner = ws.ownerId ? clientsByUid.get(ws.ownerId) : undefined;
                     return (
                       <option key={ws.id} value={ws.id}>
@@ -2512,7 +2562,7 @@ export const AdminDesignLibrary: React.FC<AdminDesignLibraryProps> = ({
                 className="w-full border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white"
               >
                 <option value="">Select workspace…</option>
-                {workspaces.map(ws => (
+                {scopedWorkspaces.map(ws => (
                   <option key={ws.id} value={ws.id}>
                     {ws.name} ({ws.type})
                   </option>

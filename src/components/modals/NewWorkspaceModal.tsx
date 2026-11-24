@@ -6,8 +6,8 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ClientCategory, WorkspaceType } from '../../types';
-import { X, Plus, Sparkles, Building2, Music, Check, Disc3, Briefcase } from 'lucide-react';
+import { WorkspaceType } from '../../types';
+import { X, Plus, Sparkles, Building2, Music, Check } from 'lucide-react';
 
 interface NewWorkspaceModalProps {
   isOpen: boolean;
@@ -17,8 +17,8 @@ interface NewWorkspaceModalProps {
 const PRESET_COLORS = [
   { name: 'Warm Soul Gold', hex: '#D97706', for: 'artist' },
   { name: 'Electric Cobalt', hex: '#2563EB', for: 'brand' },
-  { name: 'Emerald Studio', hex: '#10B981', for: 'business' },
-  { name: 'KeedoHub Red', hex: '#FF1E1E', for: 'label' },
+  { name: 'Emerald Studio', hex: '#10B981', for: 'brand' },
+  { name: 'KeedoHub Red', hex: '#FF1E1E', for: 'all' },
   { name: 'Deep Violet', hex: '#8B5CF6', for: 'artist' },
   { name: 'Monochrome Slate', hex: '#FFFFFF', for: 'all' }
 ];
@@ -30,23 +30,19 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
   const { createWorkspace, currentUser } = useApp();
 
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<ClientCategory>('artist');
+  const [category, setCategory] = useState<'artist' | 'brand'>('artist');
   const [tagline, setTagline] = useState('');
   const [accentColor, setAccentColor] = useState('#D97706');
   const [created, setCreated] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleCategoryChange = (cat: ClientCategory) => {
+  const handleCategoryChange = (cat: 'artist' | 'brand') => {
     setCategory(cat);
     if (cat === 'artist') {
       setAccentColor('#D97706');
-    } else if (cat === 'brand') {
-      setAccentColor('#2563EB');
-    } else if (cat === 'business') {
-      setAccentColor('#10B981');
     } else {
-      setAccentColor('#FF1E1E');
+      setAccentColor('#2563EB');
     }
   };
 
@@ -54,10 +50,7 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
 
-    const workspaceType: WorkspaceType = 
-      category === 'artist' ? 'Artist' : 
-      category === 'brand' ? 'Brand' : 
-      category === 'business' ? 'Enterprise' : 'Label';
+    const workspaceType: WorkspaceType = category === 'artist' ? 'Artist' : 'Brand';
 
     createWorkspace({
       name: name.trim(),
@@ -154,43 +147,7 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
                   <span className="text-xs font-bold">Brand Client</span>
                 </div>
                 <p className="text-[10px] text-neutral-500 leading-tight">
-                  Design systems, marketing kits, brand guidelines, stationery
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleCategoryChange('business')}
-                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-                  category === 'business' 
-                    ? 'bg-[#0B1A14] border-[#10B981] text-white ring-1 ring-[#10B981]' 
-                    : 'bg-[#141414] border-[#222222] text-neutral-400 hover:border-neutral-700'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Briefcase size={14} className={category === 'business' ? 'text-[#10B981]' : 'text-neutral-500'} />
-                  <span className="text-xs font-bold">Business / Enterprise</span>
-                </div>
-                <p className="text-[10px] text-neutral-500 leading-tight">
-                  Corporate contracts, retainer invoices, staff ID credentials
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleCategoryChange('label')}
-                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-                  category === 'label' 
-                    ? 'bg-[#1A0D0D] border-[#FF1E1E] text-white ring-1 ring-[#FF1E1E]' 
-                    : 'bg-[#141414] border-[#222222] text-neutral-400 hover:border-neutral-700'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Disc3 size={14} className={category === 'label' ? 'text-[#FF1E1E]' : 'text-neutral-500'} />
-                  <span className="text-xs font-bold">Record Label</span>
-                </div>
-                <p className="text-[10px] text-neutral-500 leading-tight">
-                  Artist roster, catalog management, media outreach, full suite
+                  Brand identity, business documents, marketing kits, corporate stationery
                 </p>
               </button>
             </div>
@@ -207,10 +164,9 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={
-                category === 'artist' ? 'e.g. SARIYAH or NOVA SOUND' :
-                category === 'brand' ? 'e.g. KINETIC APPAREL or AURA LABS' :
-                category === 'business' ? 'e.g. NEXUS CAPITAL or HORIZON STRATEGY' :
-                'e.g. ELEVATE RECORDS or VELOCITY SOUND'
+                category === 'artist'
+                  ? 'e.g. SARIYAH or NOVA SOUND'
+                  : 'e.g. KINETIC APPAREL or NEXUS VENTURES'
               }
               className="w-full bg-[#151515] border border-[#262626] text-xs text-white rounded-lg px-3.5 py-2.5 outline-none focus:border-white transition-colors"
             />
@@ -226,10 +182,9 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
               value={tagline}
               onChange={(e) => setTagline(e.target.value)}
               placeholder={
-                category === 'artist' ? 'e.g. Neo-Soul / Alternative R&B' :
-                category === 'brand' ? 'e.g. Sustainable Performance Apparel' :
-                category === 'business' ? 'e.g. Institutional Asset & Advisory Partner' :
-                'e.g. Independent Contemporary Electronic Label'
+                category === 'artist'
+                  ? 'e.g. Neo-Soul / Alternative R&B'
+                  : 'e.g. Brand Identity, Digital & Commercial Advisory'
               }
               className="w-full bg-[#151515] border border-[#262626] text-xs text-white rounded-lg px-3.5 py-2.5 outline-none focus:border-white transition-colors"
             />

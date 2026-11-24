@@ -11,51 +11,46 @@ import {
   AlertTriangle,
   ArrowRight,
   Building2,
-  CheckCircle2,
-  Clock,
-  ExternalLink,
+  Disc3,
   FileCheck2,
   FolderKanban,
   Inbox,
   Layers,
   Plus,
+  Receipt,
   ShieldAlert,
   Sparkles,
   Users,
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { useApp } from '../../context/AppContext';
+import { formatMoney } from '../../lib/financeDocuments';
+import {
+  computeDepartmentFinanceSummary,
+  resolveClientDepartment,
+  resolveProjectDepartment,
+  resolveWorkspaceDepartment,
+  type AdminHQSection,
+} from '../../lib/adminHQNavigation';
 import {
   ClientProfile,
   ClientProject,
+  InvoiceRecord,
   ProductionDeliverable,
   ProductionRevisionRequest,
   ProductionStage,
+  ProposalRecord,
   Workspace,
 } from '../../types';
 
 export interface AdminHQOverviewNavigateOptions {
+  subTab?: string;
   stageFilter?: string;
   overdueOnly?: boolean;
   tab?: 'overview' | 'tasks' | 'deliverables' | 'notes' | 'revisions' | 'activity';
 }
 
-export type AdminHQOverviewTarget =
-  | 'clients-accounts'
-  | 'workspaces'
-  | 'services-packages'
-  | 'production-studio'
-  | 'projects'
-  | 'deliverables-reviews'
-  | 'creative-requests'
-  | 'design-library'
-  | 'invoices-payments'
-  | 'proposals'
-  | 'business-documents'
-  | 'admin-management'
-  | 'security-access'
-  | 'audit-history'
-  | 'platform-settings';
+export type AdminHQOverviewTarget = Exclude<AdminHQSection, 'hq-overview'>;
 
 interface ServiceEnquirySummary {
   id: string;
@@ -93,6 +88,8 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
   const [revisions, setRevisions] = useState<ProductionRevisionRequest[]>([]);
   const [enquiries, setEnquiries] = useState<ServiceEnquirySummary[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogSummary[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [proposals, setProposals] = useState<ProposalRecord[]>([]);
 
   const [loadingStates, setLoadingStates] = useState({
     clients: true,
@@ -102,6 +99,8 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
     revisions: true,
     enquiries: true,
     auditLogs: true,
+    invoices: true,
+    proposals: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -114,6 +113,8 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
       setRevisions([]);
       setEnquiries([]);
       setAuditLogs([]);
+      setInvoices([]);
+      setProposals([]);
       return;
     }
 
@@ -125,6 +126,8 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
       revisions: true,
       enquiries: true,
       auditLogs: true,
+      invoices: true,
+      proposals: true,
     });
     setErrors({});
 
@@ -227,22 +230,61 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
         },
         err => recordError('auditLogs', err)
       ),
+      onSnapshot(
+        collection(db, 'invoices'),
+        snapshot => {
+          setInvoices(
+            snapshot.docs.map(item => ({ ...(item.data() as InvoiceRecord), id: item.id }))
+          );
+          markLoaded('invoices');
+        },
+        err => recordError('invoices', err)
+      ),
+      onSnapshot(
+        collection(db, 'proposals'),
+        snapshot => {
+          setProposals(
+            snapshot.docs.map(item => ({ ...(item.data() as ProposalRecord), id: item.id }))
+          );
+          markLoaded('proposals');
+        },
+        err => recordError('proposals', err)
+      ),
     ];
 
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
   }, [firebaseUser, canAccessAdminCenter]);
+
+  const clientsByUid = useMemo(() => new Map(clients.map(c => [c.uid, c])), [clients]);
+  const workspacesById = useMemo(() => new Map(workspaces.map(w => [w.id, w])), [workspaces]);
 
   const metrics = useMemo(() => {
     const activeClients = clients.filter(c => c.status !== 'Suspended').length;
     const suspendedClients = clients.filter(c => c.status === 'Suspended').length;
     const onboardingIncomplete = clients.filter(c => !c.onboardingComplete).length;
 
+    const artistClientsCount = clients.filter(c => resolveClientDepartment(c) === 'Artist').length;
+    const brandClientsCount = clients.filter(c => resolveClientDepartment(c) === 'Brand').length;
+
     const activeWorkspaces = workspaces.filter(
       w => !w.status || w.status === 'Active' || w.status === 'Onboarding'
+    ).length;
+    const artistWorkspacesCount = workspaces.filter(
+      w => resolveWorkspaceDepartment(w) === 'Artist'
+    ).length;
+    const brandWorkspacesCount = workspaces.filter(
+      w => resolveWorkspaceDepartment(w) === 'Brand'
     ).length;
 
     const todayIso = new Date().toISOString().slice(0, 10);
     const activeProjects = projects.filter(p => p.stage !== 'Delivered');
+    const artistActiveProjectsCount = activeProjects.filter(
+      p => resolveProjectDepartment(p, clientsByUid, workspacesById) === 'Artist'
+    ).length;
+    const brandActiveProjectsCount = activeProjects.filter(
+      p => resolveProjectDepartment(p, clientsByUid, workspacesById) === 'Brand'
+    ).length;
+
     const awaitingProduction = projects.filter(
       p => p.stage === 'New Request' || p.stage === 'Brief Approved'
     );
@@ -285,14 +327,28 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
       ['Submitted', 'In Progress'].includes(r.status)
     );
 
+    const financeSummary = computeDepartmentFinanceSummary(
+      invoices,
+      proposals,
+      workspacesById,
+      clientsByUid,
+      todayIso
+    );
+
     return {
       totalClients: clients.length,
       activeClients,
       suspendedClients,
       onboardingIncomplete,
+      artistClientsCount,
+      brandClientsCount,
       totalWorkspaces: workspaces.length,
       activeWorkspaces,
+      artistWorkspacesCount,
+      brandWorkspacesCount,
       activeProjectsCount: activeProjects.length,
+      artistActiveProjectsCount,
+      brandActiveProjectsCount,
       awaitingProductionCount: awaitingProduction.length,
       deliveredProjectsCount: projects.filter(p => p.stage === 'Delivered').length,
       pendingRequests,
@@ -302,8 +358,20 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
       stageCounts,
       overdueProjects,
       itemsAwaitingQA,
+      financeSummary,
     };
-  }, [clients, workspaces, projects, enquiries, deliverables, revisions]);
+  }, [
+    clients,
+    workspaces,
+    projects,
+    enquiries,
+    deliverables,
+    revisions,
+    invoices,
+    proposals,
+    clientsByUid,
+    workspacesById,
+  ]);
 
   if (!firebaseUser || !canAccessAdminCenter) {
     return (
@@ -315,9 +383,10 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
   }
 
   const errorEntries = Object.entries(errors);
-  const hasPermissionDeniedError = errorEntries.some(([, msg]) =>
-    msg.toLowerCase().includes('missing or insufficient permissions') ||
-    msg.toLowerCase().includes('permission-denied')
+  const hasPermissionDeniedError = errorEntries.some(
+    ([, msg]) =>
+      msg.toLowerCase().includes('missing or insufficient permissions') ||
+      msg.toLowerCase().includes('permission-denied')
   );
   const initialLoading =
     loadingStates.clients &&
@@ -349,40 +418,58 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-mono uppercase tracking-widest text-[#FF1E1E] font-bold">OPERATIONS CENTER</span>
           <span className="text-neutral-600 hidden sm:inline">·</span>
-          <span className="text-xs text-neutral-400 hidden sm:inline">Creative Production Direct Controls</span>
+          <span className="text-xs text-neutral-400 hidden sm:inline">Direct Department &amp; Studio Controls</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => onNavigate('projects', undefined, { tab: 'overview' })}
+            onClick={() =>
+              onNavigate('shared-operations', undefined, { subTab: 'master-studio', tab: 'overview' })
+            }
             className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-[#FF1E1E] px-3 py-1.5 text-xs font-semibold text-white transition-colors"
           >
             <Plus size={13} className="text-[#FF1E1E]" />
-            <span>Create / Browse Projects</span>
+            <span>Master Studio</span>
           </button>
           <button
             type="button"
-            onClick={() => onNavigate('creative-requests')}
+            onClick={() =>
+              onNavigate('shared-operations', undefined, { subTab: 'requests-enquiries' })
+            }
             className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
           >
             <Inbox size={13} className="text-amber-400" />
-            <span>Review Requests ({metrics.pendingRequests.length + metrics.openEnquiries.length})</span>
+            <span>Requests ({metrics.pendingRequests.length + metrics.openEnquiries.length})</span>
           </button>
           <button
             type="button"
-            onClick={() => onNavigate('design-library')}
+            onClick={() =>
+              onNavigate('artist-department', undefined, { subTab: 'releases' })
+            }
+            className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-white px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+          >
+            <Disc3 size={13} className="text-[#FF1E1E]" />
+            <span>Artist Releases</span>
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onNavigate('creative-products', undefined, { subTab: 'all' })
+            }
             className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-white px-3 py-1.5 text-xs font-semibold text-white transition-colors"
           >
             <Sparkles size={13} className="text-[#FF1E1E]" />
-            <span>Open Creative Engine</span>
+            <span>Creative Products</span>
           </button>
           <button
             type="button"
-            onClick={() => onNavigate('workspaces')}
+            onClick={() =>
+              onNavigate('finance', undefined, { subTab: 'invoices' })
+            }
             className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-white px-3 py-1.5 text-xs text-neutral-300 hover:text-white transition-colors"
           >
-            <Building2 size={13} />
-            <span>Workspaces ({metrics.totalWorkspaces})</span>
+            <Receipt size={13} />
+            <span>Finance ({metrics.financeSummary.activeInvoicesCount})</span>
           </button>
         </div>
       </section>
@@ -393,7 +480,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           {/* Clients */}
           <button
             type="button"
-            onClick={() => onNavigate('clients-accounts')}
+            onClick={() =>
+              onNavigate('artist-department', undefined, { subTab: 'accounts-workspaces' })
+            }
             className="text-left bg-[#0C0C0C] border border-[#1E1E1E] hover:border-[#333333] p-4 transition-colors group"
           >
             <div className="flex items-center justify-between text-neutral-400">
@@ -413,7 +502,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           {/* Workspaces */}
           <button
             type="button"
-            onClick={() => onNavigate('workspaces')}
+            onClick={() =>
+              onNavigate('brand-department', undefined, { subTab: 'accounts-workspaces' })
+            }
             className="text-left bg-[#0C0C0C] border border-[#1E1E1E] hover:border-[#333333] p-4 transition-colors group"
           >
             <div className="flex items-center justify-between text-neutral-400">
@@ -433,7 +524,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           {/* Active Projects */}
           <button
             type="button"
-            onClick={() => onNavigate('projects')}
+            onClick={() =>
+              onNavigate('shared-operations', undefined, { subTab: 'master-studio' })
+            }
             className="text-left bg-[#0C0C0C] border border-[#1E1E1E] hover:border-[#333333] p-4 transition-colors group"
           >
             <div className="flex items-center justify-between text-neutral-400">
@@ -446,14 +539,16 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
             <div className="mt-2 text-xs text-neutral-400 font-mono tabular-nums">
               {loadingStates.projects
                 ? 'Loading projects…'
-                : `${metrics.awaitingProductionCount} awaiting production · ${metrics.deliveredProjectsCount} delivered`}
+                : `${metrics.awaitingProductionCount} awaiting · ${metrics.deliveredProjectsCount} delivered`}
             </div>
           </button>
 
           {/* Creative Requests & Enquiries */}
           <button
             type="button"
-            onClick={() => onNavigate('creative-requests')}
+            onClick={() =>
+              onNavigate('shared-operations', undefined, { subTab: 'requests-enquiries' })
+            }
             className="text-left bg-[#0C0C0C] border border-[#1E1E1E] hover:border-[#333333] p-4 transition-colors group"
           >
             <div className="flex items-center justify-between text-neutral-400">
@@ -475,7 +570,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           {/* Deliverables & Revisions Queue */}
           <button
             type="button"
-            onClick={() => onNavigate('deliverables-reviews')}
+            onClick={() =>
+              onNavigate('shared-operations', undefined, { subTab: 'qa-reviews' })
+            }
             className="text-left bg-[#0C0C0C] border border-[#1E1E1E] hover:border-[#333333] p-4 transition-colors group"
           >
             <div className="flex items-center justify-between text-neutral-400">
@@ -496,7 +593,127 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
         </div>
       </section>
 
-      {/* Active Projects by Production Stage (9-Stage Lifecycle Pipeline) */}
+      {/* Department & Finance Performance Indicators */}
+      <section aria-label="Department and finance indicators" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <button
+          type="button"
+          onClick={() =>
+            onNavigate('artist-department', undefined, { subTab: 'accounts-workspaces' })
+          }
+          className="text-left border border-[#1E1E1E] bg-[#0C0C0C] hover:border-[#FF1E1E] p-4 space-y-3 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-[#FF1E1E]">
+              Artist Department
+            </span>
+            <Disc3 size={15} className="text-[#FF1E1E]" />
+          </div>
+          <div className="grid grid-cols-3 gap-2 font-mono tabular-nums">
+            <div>
+              <p className="text-lg font-bold text-white">{metrics.artistClientsCount}</p>
+              <p className="text-[11px] text-neutral-500">Accounts</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{metrics.artistWorkspacesCount}</p>
+              <p className="text-[11px] text-neutral-500">Workspaces</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{metrics.artistActiveProjectsCount}</p>
+              <p className="text-[11px] text-neutral-500">Active Projects</p>
+            </div>
+          </div>
+          <p className="text-[11px] text-neutral-400 flex items-center gap-1">
+            <span>Open Artist accounts, releases &amp; templates</span>
+            <ArrowRight size={12} />
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            onNavigate('brand-department', undefined, { subTab: 'accounts-workspaces' })
+          }
+          className="text-left border border-[#1E1E1E] bg-[#0C0C0C] hover:border-[#FF1E1E] p-4 space-y-3 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-300">
+              Brand Department
+            </span>
+            <Layers size={15} className="text-neutral-300" />
+          </div>
+          <div className="grid grid-cols-3 gap-2 font-mono tabular-nums">
+            <div>
+              <p className="text-lg font-bold text-white">{metrics.brandClientsCount}</p>
+              <p className="text-[11px] text-neutral-500">Accounts</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{metrics.brandWorkspacesCount}</p>
+              <p className="text-[11px] text-neutral-500">Workspaces</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{metrics.brandActiveProjectsCount}</p>
+              <p className="text-[11px] text-neutral-500">Active Projects</p>
+            </div>
+          </div>
+          <p className="text-[11px] text-neutral-400 flex items-center gap-1">
+            <span>Open Brand workspaces, identity &amp; collateral</span>
+            <ArrowRight size={12} />
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigate('finance', undefined, { subTab: 'overview' })}
+          className="text-left border border-[#1E1E1E] bg-[#0C0C0C] hover:border-[#FF1E1E] p-4 space-y-3 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400">
+              Finance &amp; Commercial Snapshot
+            </span>
+            <Receipt size={15} className="text-emerald-400" />
+          </div>
+          {metrics.financeSummary.byCurrency.length === 0 ? (
+            <div className="grid grid-cols-2 gap-2 font-mono tabular-nums">
+              <div>
+                <p className="text-lg font-bold text-white">
+                  {metrics.financeSummary.activeInvoicesCount}
+                </p>
+                <p className="text-[11px] text-neutral-500">Active Invoices</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-white">
+                  {metrics.financeSummary.awaitingProposalsCount}
+                </p>
+                <p className="text-[11px] text-neutral-500">Open Proposals</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1 font-mono tabular-nums text-xs">
+              {metrics.financeSummary.byCurrency.slice(0, 2).map(cur => (
+                <div key={cur.currency} className="flex items-center justify-between gap-2">
+                  <span className="text-white font-bold">{cur.currency}</span>
+                  <span className="text-emerald-400">
+                    {formatMoney(cur.collected, cur.currency)} collected
+                  </span>
+                  <span className="text-amber-300">
+                    {formatMoney(cur.outstanding, cur.currency)} due
+                  </span>
+                </div>
+              ))}
+              <p className="text-[11px] text-neutral-500 pt-0.5">
+                {metrics.financeSummary.overdueInvoicesCount} overdue ·{' '}
+                {metrics.financeSummary.awaitingProposalsCount} proposals awaiting review
+              </p>
+            </div>
+          )}
+          <p className="text-[11px] text-neutral-400 flex items-center gap-1">
+            <span>Open Firestore Invoices &amp; Proposals Ledger</span>
+            <ArrowRight size={12} />
+          </p>
+        </button>
+      </section>
+
+      {/* Active Projects by Production Stage (8-Stage Lifecycle Pipeline) */}
       <section aria-label="Active projects by stage" className="border border-[#1E1E1E] bg-[#0C0C0C] p-4 sm:p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -505,7 +722,7 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
               <span>Production Lifecycle Pipeline · Stage Breakdown</span>
             </h2>
             <p className="text-[11px] text-neutral-500 mt-0.5">
-              Click any stage to filter active projects and inspect deliverables.
+              Click any stage to filter active projects in Shared Operations Master Studio.
             </p>
           </div>
           <span className="text-xs font-mono tabular-nums text-neutral-400">
@@ -529,7 +746,12 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
             <button
               key={stageValue}
               type="button"
-              onClick={() => onNavigate('projects', undefined, { stageFilter: stageValue })}
+              onClick={() =>
+                onNavigate('shared-operations', undefined, {
+                  subTab: 'master-studio',
+                  stageFilter: stageValue,
+                })
+              }
               className={`border p-2.5 text-left rounded transition-all hover:border-[#FF1E1E] group ${colorClasses}`}
             >
               <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 group-hover:text-white truncate">
@@ -553,7 +775,12 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
             </div>
             <button
               type="button"
-              onClick={() => onNavigate('projects', undefined, { overdueOnly: true })}
+              onClick={() =>
+                onNavigate('shared-operations', undefined, {
+                  subTab: 'master-studio',
+                  overdueOnly: true,
+                })
+              }
               className="text-xs text-amber-400 hover:text-white underline font-mono"
             >
               Filter Overdue Projects →
@@ -564,7 +791,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
               <button
                 key={p.id}
                 type="button"
-                onClick={() => onNavigate('projects', p.id)}
+                onClick={() =>
+                  onNavigate('shared-operations', p.id, { subTab: 'master-studio' })
+                }
                 className="text-left bg-[#101010] border border-[#2B2B2B] hover:border-amber-500 p-2.5 rounded transition-colors"
               >
                 <p className="text-xs font-semibold text-white truncate">{p.title}</p>
@@ -584,7 +813,7 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           <div className="px-5 py-4 border-b border-[#1E1E1E] flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>Requests & Enquiries</span>
+                <span>Requests &amp; Enquiries</span>
                 {(metrics.pendingRequests.length + metrics.openEnquiries.length > 0) && (
                   <span className="text-[11px] font-mono text-amber-400 bg-amber-950/40 border border-amber-900/50 px-1.5 py-0.5 rounded">
                     {metrics.pendingRequests.length + metrics.openEnquiries.length}
@@ -597,7 +826,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
             </div>
             <button
               type="button"
-              onClick={() => onNavigate('creative-requests')}
+              onClick={() =>
+                onNavigate('shared-operations', undefined, { subTab: 'requests-enquiries' })
+              }
               className="text-xs font-medium text-[#FF1E1E] hover:text-red-400 inline-flex items-center gap-1 shrink-0"
             >
               <span>Open Queue</span>
@@ -621,7 +852,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
                   <button
                     key={project.id}
                     type="button"
-                    onClick={() => onNavigate('creative-requests', project.id)}
+                    onClick={() =>
+                      onNavigate('shared-operations', project.id, { subTab: 'requests-enquiries' })
+                    }
                     className="w-full px-5 py-3 text-left hover:bg-[#121212] transition-colors flex items-center justify-between gap-3"
                   >
                     <div className="min-w-0">
@@ -639,7 +872,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
                   <button
                     key={enquiry.id}
                     type="button"
-                    onClick={() => onNavigate('creative-requests')}
+                    onClick={() =>
+                      onNavigate('shared-operations', undefined, { subTab: 'requests-enquiries' })
+                    }
                     className="w-full px-5 py-3 text-left hover:bg-[#121212] transition-colors flex items-center justify-between gap-3"
                   >
                     <div className="min-w-0">
@@ -678,7 +913,12 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
             </div>
             <button
               type="button"
-              onClick={() => onNavigate('projects', undefined, { stageFilter: 'Internal QA' })}
+              onClick={() =>
+                onNavigate('shared-operations', undefined, {
+                  subTab: 'master-studio',
+                  stageFilter: 'Internal QA',
+                })
+              }
               className="text-xs font-medium text-amber-400 hover:text-amber-300 inline-flex items-center gap-1 shrink-0"
             >
               <span>View Projects</span>
@@ -703,7 +943,12 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
                   <button
                     key={deliverable.id}
                     type="button"
-                    onClick={() => onNavigate('projects', deliverable.projectId, { tab: 'deliverables' })}
+                    onClick={() =>
+                      onNavigate('shared-operations', deliverable.projectId, {
+                        subTab: 'master-studio',
+                        tab: 'deliverables',
+                      })
+                    }
                     className="w-full px-5 py-3 text-left hover:bg-[#121212] transition-colors flex items-center justify-between gap-3"
                   >
                     <div className="min-w-0">
@@ -740,7 +985,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
             </div>
             <button
               type="button"
-              onClick={() => onNavigate('deliverables-reviews')}
+              onClick={() =>
+                onNavigate('shared-operations', undefined, { subTab: 'qa-reviews' })
+              }
               className="text-xs font-medium text-[#FF1E1E] hover:text-red-400 inline-flex items-center gap-1 shrink-0"
             >
               <span>Review Queue</span>
@@ -768,7 +1015,11 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
                     <button
                       key={revision.id}
                       type="button"
-                      onClick={() => onNavigate('deliverables-reviews', revision.projectId)}
+                      onClick={() =>
+                        onNavigate('shared-operations', revision.projectId, {
+                          subTab: 'qa-reviews',
+                        })
+                      }
                       className="w-full px-5 py-3 text-left hover:bg-[#121212] transition-colors flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
@@ -792,7 +1043,11 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
                     <button
                       key={deliverable.id}
                       type="button"
-                      onClick={() => onNavigate('deliverables-reviews', deliverable.projectId)}
+                      onClick={() =>
+                        onNavigate('shared-operations', deliverable.projectId, {
+                          subTab: 'qa-reviews',
+                        })
+                      }
                       className="w-full px-5 py-3 text-left hover:bg-[#121212] transition-colors flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
@@ -826,7 +1081,9 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           </div>
           <button
             type="button"
-            onClick={() => onNavigate('audit-history')}
+            onClick={() =>
+              onNavigate('platform-settings', undefined, { subTab: 'audit-history' })
+            }
             className="text-xs font-medium text-[#FF1E1E] hover:text-red-400 inline-flex items-center gap-1 shrink-0"
           >
             <span>Full Audit Log</span>

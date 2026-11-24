@@ -20,10 +20,12 @@ import {
 import { useApp } from '../../context/AppContext';
 import { db, functions } from '../../lib/firebase';
 import { ClientProfile, ClientProject, Workspace } from '../../types';
+import { normalizeAccountType } from '../../lib/accountNormalization';
 import { Modal } from '../common/Modal';
 
 interface Props {
   initialSelectedUid?: string;
+  lockedDepartment?: 'Artist' | 'Brand';
   onSelectedClientChange?: (uid: string | null) => void;
   onSelectClient?: (uid: string) => void;
   onViewClientProjects?: (uid: string) => void;
@@ -88,6 +90,7 @@ function toTimestampMs(value?: string): number {
 
 export const ClientsDirectory: React.FC<Props> = ({
   initialSelectedUid = '',
+  lockedDepartment,
   onSelectedClientChange,
   onSelectClient,
   onViewClientProjects,
@@ -134,7 +137,7 @@ export const ClientsDirectory: React.FC<Props> = ({
   const [editForm, setEditForm] = useState<{
     displayName: string;
     organizationName: string;
-    accountType: 'Artist' | 'Brand' | 'Company';
+    accountType: 'Artist' | 'Brand';
   }>({
     displayName: '',
     organizationName: '',
@@ -171,13 +174,18 @@ export const ClientsDirectory: React.FC<Props> = ({
         const list = snap.docs
           .map(d => {
             const data = d.data() as Record<string, any>;
+            const rawAccountType = typeof data.accountType === 'string' ? data.accountType.trim() : '';
+            const normalizedType = normalizeAccountType(rawAccountType);
             return {
               ...data,
               uid: data.uid || d.id,
               displayName: data.displayName || '',
               email: data.email || '',
               organizationName: data.organizationName || '',
-              accountType: data.accountType || 'Artist',
+              accountType: normalizedType,
+              ...(rawAccountType && rawAccountType !== normalizedType
+                ? { rawLegacyAccountType: rawAccountType }
+                : {}),
               onboardingComplete: Boolean(data.onboardingComplete),
               status: normalizeStatus(data.status),
               createdAt: data.createdAt || '',
@@ -322,17 +330,22 @@ export const ClientsDirectory: React.FC<Props> = ({
     [selectedClient, workspaceMapById, workspaceMapByOwner]
   );
 
+  const departmentClients = useMemo(() => {
+    if (!lockedDepartment) return clients;
+    return clients.filter(c => normalizeAccountType(c.accountType || c.rawLegacyAccountType) === lockedDepartment);
+  }, [clients, lockedDepartment]);
+
   const stats = useMemo(() => {
-    const total = clients.length;
-    const suspended = clients.filter(c => normalizeStatus(c.status) === 'Suspended').length;
+    const total = departmentClients.length;
+    const suspended = departmentClients.filter(c => normalizeStatus(c.status) === 'Suspended').length;
     const active = total - suspended;
-    const onboardingIncomplete = clients.filter(c => !c.onboardingComplete).length;
+    const onboardingIncomplete = departmentClients.filter(c => !c.onboardingComplete).length;
     return { total, active, suspended, onboardingIncomplete };
-  }, [clients]);
+  }, [departmentClients]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return clients.filter(c => {
+    return departmentClients.filter(c => {
       const ws = resolveWorkspace(c);
       const matchesSearch =
         !q ||
@@ -342,7 +355,10 @@ export const ClientsDirectory: React.FC<Props> = ({
         c.uid.toLowerCase().includes(q) ||
         (ws?.name || '').toLowerCase().includes(q);
 
-      const matchesType = accountTypeFilter === 'All' || c.accountType === accountTypeFilter;
+      const matchesType =
+        Boolean(lockedDepartment) ||
+        accountTypeFilter === 'All' ||
+        c.accountType === accountTypeFilter;
       const clientStatus = normalizeStatus(c.status);
       const matchesAccountStatus =
         accountStatusFilter === 'All' || clientStatus === accountStatusFilter;
@@ -354,7 +370,8 @@ export const ClientsDirectory: React.FC<Props> = ({
       return matchesSearch && matchesType && matchesAccountStatus && matchesOnboarding;
     });
   }, [
-    clients,
+    departmentClients,
+    lockedDepartment,
     search,
     accountTypeFilter,
     accountStatusFilter,
@@ -381,7 +398,7 @@ export const ClientsDirectory: React.FC<Props> = ({
     setEditForm({
       displayName: client.displayName || '',
       organizationName: client.organizationName || '',
-      accountType: client.accountType || 'Artist',
+      accountType: normalizeAccountType(client.accountType),
     });
     setEditModalError('');
     setActionError('');
@@ -492,7 +509,7 @@ export const ClientsDirectory: React.FC<Props> = ({
         <Users size={22} className="mx-auto text-neutral-500" />
         <p className="text-sm font-semibold text-white">No clients registered yet</p>
         <p className="text-xs text-neutral-500">
-          Registered Artist, Brand, and Company accounts will appear here automatically.
+          Registered Artist and Brand accounts will appear here automatically.
         </p>
       </div>
     );
@@ -600,17 +617,22 @@ export const ClientsDirectory: React.FC<Props> = ({
           </div>
 
           <div className="md:col-span-2">
-            <select
-              aria-label="Filter by account type"
-              value={accountTypeFilter}
-              onChange={e => setAccountTypeFilter(e.target.value)}
-              className="w-full bg-[#121212] border border-[#242424] text-white px-3 py-2 text-xs focus:border-[#FF1E1E] focus:outline-none"
-            >
-              <option value="All">All Types</option>
-              <option value="Artist">Artist</option>
-              <option value="Brand">Brand</option>
-              <option value="Company">Company</option>
-            </select>
+            {lockedDepartment ? (
+              <div className="w-full bg-[#121212] border border-[#242424] text-neutral-300 px-3 py-2 text-xs font-mono">
+                Dept: <span className="text-white font-semibold">{lockedDepartment}</span>
+              </div>
+            ) : (
+              <select
+                aria-label="Filter by account type"
+                value={accountTypeFilter}
+                onChange={e => setAccountTypeFilter(e.target.value)}
+                className="w-full bg-[#121212] border border-[#242424] text-white px-3 py-2 text-xs focus:border-[#FF1E1E] focus:outline-none"
+              >
+                <option value="All">All Types</option>
+                <option value="Artist">Artist</option>
+                <option value="Brand">Brand</option>
+              </select>
+            )}
           </div>
 
           <div className="md:col-span-2">
@@ -706,6 +728,11 @@ export const ClientsDirectory: React.FC<Props> = ({
                       </td>
                       <td className="px-3 py-3 text-neutral-300 whitespace-nowrap">
                         {c.accountType}
+                        {c.rawLegacyAccountType && (
+                          <span className="ml-1.5 text-[10px] font-mono text-neutral-500">
+                            (legacy: {c.rawLegacyAccountType})
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-neutral-300 max-w-[160px] truncate">
                         {c.organizationName || '—'}
@@ -871,6 +898,7 @@ export const ClientsDirectory: React.FC<Props> = ({
                 </span>
                 <span className="font-mono text-[10px] uppercase px-2 py-0.5 border border-[#262626] bg-[#121212] text-neutral-300">
                   {selectedClient.accountType}
+                  {selectedClient.rawLegacyAccountType ? ` (legacy: ${selectedClient.rawLegacyAccountType})` : ''}
                 </span>
               </div>
 
@@ -932,7 +960,10 @@ export const ClientsDirectory: React.FC<Props> = ({
                 </div>
                 <div>
                   <dt className="text-[10px] font-mono uppercase text-neutral-500">Account Type</dt>
-                  <dd className="mt-0.5 text-neutral-200">{selectedClient.accountType}</dd>
+                  <dd className="mt-0.5 text-neutral-200">
+                    {selectedClient.accountType}
+                    {selectedClient.rawLegacyAccountType ? ` (legacy stored: ${selectedClient.rawLegacyAccountType})` : ''}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-[10px] font-mono uppercase text-neutral-500">Registered</dt>
@@ -1181,14 +1212,13 @@ export const ClientsDirectory: React.FC<Props> = ({
               onChange={e =>
                 setEditForm(f => ({
                   ...f,
-                  accountType: e.target.value as 'Artist' | 'Brand' | 'Company',
+                  accountType: e.target.value === 'Brand' ? 'Brand' : 'Artist',
                 }))
               }
               className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-sm text-white focus:border-[#FF1E1E] focus:outline-none"
             >
               <option value="Artist">Artist</option>
               <option value="Brand">Brand</option>
-              <option value="Company">Company</option>
             </select>
           </div>
           <div className="flex justify-end gap-2 pt-2">

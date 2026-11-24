@@ -348,7 +348,7 @@ export const BLOG_POSTS: BlogPost[] = [
 export interface PricingPackage {
   id: string;
   name: string;
-  audience: 'Artist' | 'Brand' | 'Company';
+  audience: 'Artist' | 'Brand';
   tier: string;
   priceLabel: string;
   deliverables: string[];
@@ -393,8 +393,8 @@ export const PRICING_PACKAGES: PricingPackage[] = [
   },
   {
     id: 'brand-professional',
-    name: 'Brand & Company System',
-    audience: 'Company',
+    name: 'Brand & Business System',
+    audience: 'Brand',
     tier: 'Professional',
     priceLabel: 'Indicative scope — custom quote on enquiry',
     summary: 'Comprehensive visual identity architecture paired with business collateral and pitch templates.',
@@ -417,13 +417,13 @@ export const FAQS: { q: string; a: string; category: string }[] = [
   },
   {
     category: 'Workspaces',
-    q: 'What is the difference between Artist OS, Brand OS, and Company workspaces?',
-    a: 'Every client account receives one private unified workspace tailored to their organization type: Artist accounts unlock Music & Releases and Content Engine workflows; Brand and Company accounts focus on Brand Identity Systems, Business Documents, and Asset Libraries alongside Active Projects and Creative Requests.',
+    q: 'What is the difference between Artist OS and Brand OS workspaces?',
+    a: 'Every client account receives one private unified workspace tailored to its client type: Artist accounts unlock Music & Releases and Content Engine workflows; Brand accounts unify Brand Identity Systems, Business Documents, commercial collateral, and Asset Libraries alongside Active Projects and Creative Requests.',
   },
   {
     category: 'Workspaces',
     q: 'How do clients get access to a private workspace?',
-    a: 'You can create an account directly using Email/Password or Google Sign-In and select Artist, Brand, or Company. You can also send a public project brief on our Contact page before creating an account.',
+    a: 'You can create an account directly using Email/Password or Google Sign-In and select Artist or Brand. You can also send a public project brief on our Contact page before creating an account.',
   },
   {
     category: 'Projects & Revisions',

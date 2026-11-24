@@ -103,10 +103,10 @@ export const AboutPage: React.FC<Props> = ({ navigate }) => (
           <div className="space-y-4">
             <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#FF1E1E]">One Unified Workspace</p>
             <h2 className="text-3xl font-bold uppercase tracking-tight text-white sm:text-4xl">
-              Tailored Experience for Artists, Brands, and Companies.
+              Tailored Experience for Artists and Brands.
             </h2>
             <p className="text-sm leading-7 text-neutral-400">
-              Instead of scattering artwork proofs, licensing contracts, brand palettes, and feedback across chat apps, every KeedoHub client account provides one private workspace—adapting cleanly into Artist OS, Brand OS, or Company OS.
+              Instead of scattering artwork proofs, licensing contracts, brand palettes, and feedback across chat apps, every KeedoHub client account provides one private workspace—adapting cleanly into Artist OS or Brand OS.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 lg:justify-end">

@@ -23,7 +23,7 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
     turnaround: string;
   }>>([]);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
-  const [audienceFilter, setAudienceFilter] = useState<'All' | 'Artist' | 'Brand' | 'Company'>('All');
+  const [audienceFilter, setAudienceFilter] = useState<'All' | 'Artist' | 'Brand'>('All');
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -86,7 +86,7 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
                   Packages &amp; Engagements
                 </p>
                 <h1 className="text-4xl sm:text-6xl font-black tracking-[-0.045em] text-white uppercase leading-[0.94]">
-                  Structured Scope for Artists, Brands &amp; Companies.
+                  Structured Scope for Artists &amp; Brands.
                 </h1>
                 <p className="text-sm sm:text-base text-neutral-400 leading-7 max-w-2xl">
                   {usingLivePackages
@@ -100,7 +100,7 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
                 role="group"
                 aria-label="Filter packages by client type"
               >
-                {(['All', 'Artist', 'Brand', 'Company'] as const).map(aud => (
+                {(['All', 'Artist', 'Brand'] as const).map(aud => (
                   <button
                     key={aud}
                     type="button"

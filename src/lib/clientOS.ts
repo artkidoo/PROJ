@@ -4,6 +4,8 @@ import {
   isValidCalendarDate,
   UNIFIED_PRODUCTION_CATEGORIES,
 } from './productionCategories';
+import { inspectAccountType } from './accountNormalization';
+
 
 export type ClientStudioSection =
   | 'artist-profile'
@@ -26,7 +28,7 @@ export type ClientTab =
   | 'account'
   | ClientStudioSection;
 
-export type ClientOSMode = 'artist' | 'brand' | 'company';
+export type ClientOSMode = 'artist' | 'brand';
 
 export interface ClientNavItem {
   id: ClientTab;
@@ -45,6 +47,7 @@ export interface ClientExperienceConfig {
   osSubtitle: string;
   isArtist: boolean;
   isBrandOrCompany: boolean;
+  accountTypeWarning?: string;
   navGroups: ClientNavGroup[];
 }
 
@@ -200,15 +203,12 @@ export function getRequestCategoriesForExperience(isArtist: boolean): string[] {
 }
 
 export function resolveClientExperience(
-  accountType?: ClientProfile['accountType'] | string,
-  workspaceType?: Workspace['type'],
+  accountType?: ClientProfile['accountType'] | string | null,
+  workspaceType?: Workspace['type'] | string | null,
 ): ClientExperienceConfig {
-  const normalized = (accountType || '').trim();
-  const isArtist =
-    normalized === 'Artist' ||
-    (!normalized && (workspaceType === 'Artist' || workspaceType === 'Personal'));
-  const isCompany = normalized === 'Company' || (!normalized && workspaceType === 'Business');
-  const osMode: ClientOSMode = isArtist ? 'artist' : isCompany ? 'company' : 'brand';
+  const inspection = inspectAccountType(accountType, workspaceType);
+  const isArtist = inspection.canonicalType === 'Artist';
+  const osMode: ClientOSMode = isArtist ? 'artist' : 'brand';
 
   const sharedGroup: ClientNavGroup = {
     group: 'Workspace',
@@ -216,7 +216,7 @@ export function resolveClientExperience(
       { id: 'overview', title: 'Overview', description: 'Workspace summary, active work, and quick actions.' },
       {
         id: 'creative-hub',
-        title: isArtist ? 'Artist Creative Hub' : isCompany ? 'Business Creative Hub' : 'Brand Creative Hub',
+        title: isArtist ? 'Artist Creative Hub' : 'Brand Creative Hub',
         description: isArtist
           ? 'Streaming packs, release promo kits, press materials, downloads, and custom creative services.'
           : 'Brand identity packs, social kits, business document systems, downloads, and custom creative services.',
@@ -235,18 +235,27 @@ export function resolveClientExperience(
           { id: 'artist-profile', title: 'Artist Profile', description: 'Public artist biography, genre, and streaming links.' },
           { id: 'releases', title: 'Music & Releases', description: 'Singles, EPs, albums, release metadata, and artwork.' },
           { id: 'content', title: 'Content Engine', description: 'Release copy, lyrics, social posts, and rollout messaging.' },
+          { id: 'documents', title: 'Artist Documents', description: 'Split sheets, EPKs, tracklist credits, release checklists & templates.' },
           { id: 'assets', title: 'Asset Library', description: 'Approved cover art, photography, visualizers, and downloads.' },
         ],
       }
     : {
-        group: osMode === 'company' ? 'Business OS' : 'Brand OS',
+        group: 'Brand OS',
         items: [
           { id: 'brand', title: 'Brand Identity', description: 'Logo lockups, color palette, typography, and brand rules.' },
           { id: 'content', title: 'Creative System', description: 'Marketing messaging, campaign copy, and brand visuals.' },
-          { id: 'documents', title: 'Business Documents', description: 'Proposals, commercial invoices, and corporate documents.' },
+          { id: 'documents', title: 'Brand & Business Docs', description: 'Brand dossiers, letters, business cards, IDs & email signatures.' },
           { id: 'assets', title: 'Asset Library', description: 'Approved logos, brand graphics, photography, and downloads.' },
         ],
       };
+
+  const billingGroup: ClientNavGroup = {
+    group: 'Billing & Agreements',
+    items: [
+      { id: 'invoices', title: 'Invoices & Receipts', description: 'Read-only billing statements, balances, and payment receipts.' },
+      { id: 'proposals', title: 'Proposals & Quotes', description: 'Review commercial scopes, approve pricing, or request revisions.' },
+    ],
+  };
 
   const accountGroup: ClientNavGroup = {
     group: 'Account',
@@ -257,16 +266,15 @@ export function resolveClientExperience(
 
   return {
     osMode,
-    osTitle: osMode === 'artist' ? 'Artist OS' : osMode === 'company' ? 'Business OS' : 'Brand OS',
+    osTitle: osMode === 'artist' ? 'Artist OS' : 'Brand OS',
     osSubtitle:
       osMode === 'artist'
         ? 'Your streaming creative packs, music releases, artist identity, and studio deliverables in one workspace.'
-        : osMode === 'company'
-          ? 'Your business creative hub, identity kits, corporate documents, and active studio production in one workspace.'
-          : 'Your brand creative hub, identity packs, campaign deliverables, and production briefs in one workspace.',
+        : 'Your brand creative hub, identity packs, campaign deliverables, and production briefs in one workspace.',
     isArtist,
     isBrandOrCompany: !isArtist,
-    navGroups: [sharedGroup, osGroup, accountGroup],
+    ...(inspection.warning ? { accountTypeWarning: inspection.warning } : {}),
+    navGroups: [sharedGroup, osGroup, billingGroup, accountGroup],
   };
 }
 

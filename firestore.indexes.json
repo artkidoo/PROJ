@@ -27,6 +27,24 @@
         { "fieldPath": "accessType", "order": "ASCENDING" },
         { "fieldPath": "includedPackageIds", "arrayConfig": "CONTAINS" }
       ]
+    },
+    {
+      "collectionGroup": "invoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clientUid", "order": "ASCENDING" },
+        { "fieldPath": "workspaceId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "proposals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clientUid", "order": "ASCENDING" },
+        { "fieldPath": "workspaceId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

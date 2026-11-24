@@ -103,18 +103,28 @@ service firebase.storage {
       );
     }
 
+    function isArtistAccountType(rawType) {
+      return rawType is string && rawType.trim().lower() == 'artist';
+    }
+
+    function isBrandAccountType(rawType) {
+      return rawType is string &&
+        rawType.trim().lower() in [
+          'brand', 'company', 'business', 'label', 'agency',
+          'enterprise', 'personal', 'startup', 'corporation', 'commercial'
+        ];
+    }
+
     function clientMatchesProductAudience(audience) {
       return isSignedIn() &&
         firestore.exists(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)) &&
         firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.onboardingComplete == true &&
         (
           audience == 'Shared' ||
-          (firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Artist' &&
+          (isArtistAccountType(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.accountType) &&
             audience == 'Artist') ||
-          (firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Brand' &&
-            audience in ['Brand', 'Brand & Business']) ||
-          (firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.accountType == 'Company' &&
-            audience in ['Business', 'Brand & Business'])
+          (isBrandAccountType(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.accountType) &&
+            audience in ['Brand', 'Business', 'Brand & Business'])
         );
     }
 

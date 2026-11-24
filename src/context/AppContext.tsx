@@ -63,6 +63,7 @@ import {
 } from 'firebase/auth';
 import { doc, DocumentReference, DocumentSnapshot, getDoc, getDocFromServer, onSnapshot, setDoc, Unsubscribe } from 'firebase/firestore';
 import { ensureClientWorkspace } from '../lib/clientWorkspace';
+import { normalizeClientCategory } from '../lib/accountNormalization';
 import {
   friendlyFirebaseAuthError,
   isAdminRecordActive,
@@ -117,13 +118,13 @@ export interface RegisterWithEmailInput {
   fullName: string;
   email: string;
   password: string;
-  accountType: 'Artist' | 'Brand' | 'Company';
+  accountType: 'Artist' | 'Brand';
   organizationName?: string;
 }
 
 export interface GoogleLoginOptions {
   intent?: 'login' | 'register';
-  accountType?: 'Artist' | 'Brand' | 'Company';
+  accountType?: 'Artist' | 'Brand';
   organizationName?: string;
   fullName?: string;
 }
@@ -333,14 +334,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  const [documents, setDocuments] = useState<CorporateDocument[]>(() => {
-    try {
-      const stored = localStorage.getItem(`${STORAGE_KEY}_documents`);
-      return stored ? JSON.parse(stored) : INITIAL_DOCUMENTS;
-    } catch {
-      return INITIAL_DOCUMENTS;
-    }
-  });
+  // Finance & commercial documents live in Firestore (/invoices, /proposals, and workspace documents);
+  // keep empty in-memory array here without reading/overwriting legacy localStorage finance records.
+  const [documents, setDocuments] = useState<CorporateDocument[]>([]);
 
   const [brandAssets, setBrandAssets] = useState<BrandAsset[]>(() => {
     try {
@@ -850,8 +846,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (passwordIssue) {
       throw new Error(passwordIssue);
     }
-    if (accountType !== 'Artist' && accountType !== 'Brand' && accountType !== 'Company') {
-      throw new Error('Choose Artist, Brand, or Company for your workspace experience.');
+    if (accountType !== 'Artist' && accountType !== 'Brand') {
+      throw new Error('Choose Artist or Brand for your workspace experience.');
     }
     if (trimmedOrg.length > 100) {
       throw new Error('Workspace name must be 100 characters or fewer.');
@@ -1136,8 +1132,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         let resolvedProfile: ClientProfile | null = existingProfile;
 
         if (intent === 'register' && (!existingProfile || existingProfile.onboardingComplete !== true)) {
-          const accountType: 'Artist' | 'Brand' | 'Company' =
-            options?.accountType === 'Brand' || options?.accountType === 'Company' ? options.accountType : 'Artist';
+          const accountType: 'Artist' | 'Brand' = options?.accountType === 'Brand' ? 'Brand' : 'Artist';
           const fallbackName = res.user.email?.split('@')[0] || 'Keedohub Member';
           const trimmedName = ((options?.fullName || res.user.displayName || fallbackName).trim() || fallbackName).slice(0, 100);
           const trimmedOrg = ((options?.organizationName || trimmedName).trim() || trimmedName).slice(0, 100);
@@ -1359,7 +1354,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       logActivity('Switched Workspace', 'dashboard', `Moved to ${ws.name} workspace`);
 
       // Guard cross-category module exposure
-      const cat = ws.clientCategory || (ws.type === 'Artist' ? 'artist' : ws.type === 'Brand' ? 'brand' : 'label');
+      const cat = normalizeClientCategory(ws.clientCategory || ws.type);
       if (cat === 'artist' && ['documents', 'cards', 'blogger'].includes(activeModule)) {
         setActiveModule('dashboard');
       } else if (cat === 'brand' && ['artists', 'releases', 'celebration', 'promotion'].includes(activeModule)) {
@@ -1612,7 +1607,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(`${STORAGE_KEY}_artists`, JSON.stringify(artists));
       localStorage.setItem(`${STORAGE_KEY}_releases`, JSON.stringify(releases));
       localStorage.setItem(`${STORAGE_KEY}_campaigns`, JSON.stringify(campaigns));
-      localStorage.setItem(`${STORAGE_KEY}_documents`, JSON.stringify(documents));
       localStorage.setItem(`${STORAGE_KEY}_brandAssets`, JSON.stringify(brandAssets));
       localStorage.setItem(`${STORAGE_KEY}_tasks`, JSON.stringify(tasks));
       localStorage.setItem(`${STORAGE_KEY}_activities`, JSON.stringify(activities));

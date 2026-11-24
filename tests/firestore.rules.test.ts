@@ -519,6 +519,16 @@ async function runClientSecurityTests() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }));
+    await assertFails(dbNewClient.doc('workspaces/ws-new-legacy').set({
+      id: 'ws-new-legacy',
+      name: 'Legacy Type Hack',
+      type: 'Company',
+      clientCategory: 'business',
+      ownerId: 'new-client-1',
+      status: 'Active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
     await assertFails(dbNewClient.doc('workspaces/ws-new-extra').set({
       id: 'ws-new-extra',
       name: 'Extra Key Hack',
@@ -630,10 +640,13 @@ async function runClientSecurityTests() {
     await assertSucceeds(dbClientA.doc('clientProfiles/client-a').update({
       displayName: 'Client A Self Updated',
       organizationName: 'Artist A Collective',
-      accountType: 'Artist',
       photoURL: 'https://example.com/avatar.png',
       updatedAt: new Date().toISOString(),
     }));
+    // Onboarded client cannot mutate accountType on clientProfiles or users
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ accountType: 'Artist' }));
+    await assertFails(dbClientA.doc('clientProfiles/client-a').update({ accountType: 'Company' }));
+    await assertFails(dbClientA.doc('users/client-a').update({ accountType: 'Brand' }));
     await assertSucceeds(dbLegacyClient.doc('clientProfiles/client-legacy').update({
       displayName: 'Legacy Client Updated',
       updatedAt: new Date().toISOString(),
@@ -699,7 +712,198 @@ async function runClientSecurityTests() {
     await assertFails(unauthDb.doc('clientDeliverables/deliv-a').get());
     await assertFails(unauthDb.doc('clientNotifications/notif-a').get());
     await assertFails(unauthDb.doc('revisionRequests/req-existing').get());
+    await assertFails(unauthDb.collection('invoices').get());
+    await assertFails(unauthDb.collection('proposals').get());
     console.log('  [PASS] Unauthenticated access correctly denied.');
+
+    // TEST 26: Phase 2 Unified Documents, Invoices & Proposals Security Rules
+    console.log('[TEST 26] Phase 2 commercial /invoices, /proposals, and non-commercial /workspaces/{id}/documents isolation...');
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
+      await seedDb.doc('workspaces/ws-suspended-p2').set({
+        id: 'ws-suspended-p2',
+        ownerId: 'client-a',
+        name: 'Suspended Workspace',
+        status: 'Suspended',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await seedDb.doc('invoices/inv-issued-a').set({
+        id: 'inv-issued-a',
+        workspaceId: 'ws-client-a',
+        clientUid: 'client-a',
+        title: 'Retainer Invoice',
+        referenceNo: 'INV-1001',
+        currency: 'USD',
+        totalAmount: 1000,
+        totalPaid: 0,
+        balanceDue: 1000,
+        status: 'Issued',
+        issuedByAdmin: true,
+      });
+      await seedDb.doc('invoices/inv-draft-a').set({
+        id: 'inv-draft-a',
+        workspaceId: 'ws-client-a',
+        clientUid: 'client-a',
+        title: 'Draft Invoice',
+        referenceNo: 'INV-DRAFT',
+        currency: 'USD',
+        totalAmount: 500,
+        totalPaid: 0,
+        balanceDue: 500,
+        status: 'Draft',
+        issuedByAdmin: true,
+      });
+      await seedDb.doc('invoices/inv-suspended-a').set({
+        id: 'inv-suspended-a',
+        workspaceId: 'ws-suspended-p2',
+        clientUid: 'client-a',
+        title: 'Suspended WS Invoice',
+        referenceNo: 'INV-SUSP',
+        currency: 'USD',
+        totalAmount: 500,
+        totalPaid: 0,
+        balanceDue: 500,
+        status: 'Issued',
+        issuedByAdmin: true,
+      });
+      await seedDb.doc('invoices/inv-issued-b').set({
+        id: 'inv-issued-b',
+        workspaceId: 'ws-client-b',
+        clientUid: 'client-b',
+        title: 'Client B Invoice',
+        referenceNo: 'INV-2001',
+        currency: 'GBP',
+        totalAmount: 800,
+        totalPaid: 0,
+        balanceDue: 800,
+        status: 'Issued',
+        issuedByAdmin: true,
+      });
+      await seedDb.doc('proposals/prop-issued-a').set({
+        id: 'prop-issued-a',
+        workspaceId: 'ws-client-a',
+        clientUid: 'client-a',
+        type: 'quotation',
+        title: 'Production Quote',
+        referenceNo: 'PROP-1001',
+        currency: 'USD',
+        totalAmount: 1500,
+        status: 'Issued',
+        issuedByAdmin: true,
+      });
+      await seedDb.doc('proposals/prop-draft-a').set({
+        id: 'prop-draft-a',
+        workspaceId: 'ws-client-a',
+        clientUid: 'client-a',
+        type: 'proposal',
+        title: 'Draft Proposal',
+        referenceNo: 'PROP-DRAFT',
+        currency: 'USD',
+        totalAmount: 1200,
+        status: 'Draft',
+        issuedByAdmin: true,
+      });
+      await seedDb.doc('workspaces/ws-client-a/documents/legacy-admin-doc').set({
+        id: 'legacy-admin-doc',
+        workspaceId: 'ws-client-a',
+        type: 'official_letter',
+        title: 'Legacy Admin Issued Record',
+        issuedByAdmin: true,
+        status: 'Issued',
+      });
+    });
+
+    // Direct client writes to /invoices and /proposals are strictly denied (Cloud Functions only)
+    await assertFails(dbClientA.doc('invoices/inv-forged').set({
+      id: 'inv-forged', workspaceId: 'ws-client-a', clientUid: 'client-a', title: 'Forged', status: 'Paid', totalAmount: 0,
+    }));
+    await assertFails(dbClientA.doc('invoices/inv-issued-a').update({ status: 'Paid', totalPaid: 1000, balanceDue: 0 }));
+    await assertFails(dbClientA.doc('invoices/inv-issued-a').delete());
+    await assertFails(dbAdmin.doc('invoices/inv-issued-a').update({ status: 'Paid' }));
+
+    await assertFails(dbClientA.doc('proposals/prop-forged').set({
+      id: 'prop-forged', workspaceId: 'ws-client-a', clientUid: 'client-a', title: 'Forged', status: 'Approved',
+    }));
+    await assertFails(dbClientA.doc('proposals/prop-issued-a').update({ status: 'Approved' }));
+    await assertFails(dbClientA.doc('proposals/prop-issued-a').delete());
+    await assertFails(dbAdmin.doc('proposals/prop-issued-a').update({ status: 'Approved' }));
+
+    // Draft / cross-client / suspended workspace reads denied; non-draft own open workspace reads allowed
+    await assertFails(dbClientA.doc('invoices/inv-draft-a').get());
+    await assertFails(dbClientA.doc('invoices/inv-issued-b').get());
+    await assertFails(dbClientA.doc('invoices/inv-suspended-a').get());
+    await assertSucceeds(dbClientA.doc('invoices/inv-issued-a').get());
+    await assertSucceeds(
+      dbClientA
+        .collection('invoices')
+        .where('clientUid', '==', 'client-a')
+        .where('workspaceId', '==', 'ws-client-a')
+        .where('status', 'in', ['Issued', 'Partially Paid', 'Paid', 'Overdue', 'Void'])
+        .get(),
+    );
+    await assertSucceeds(dbAdmin.doc('invoices/inv-draft-a').get());
+    await assertSucceeds(dbAdmin.collection('invoices').get());
+
+    await assertFails(dbClientA.doc('proposals/prop-draft-a').get());
+    await assertFails(dbClientA.doc('proposals/prop-issued-b').get());
+    await assertSucceeds(dbClientA.doc('proposals/prop-issued-a').get());
+    await assertSucceeds(
+      dbClientA
+        .collection('proposals')
+        .where('clientUid', '==', 'client-a')
+        .where('workspaceId', '==', 'ws-client-a')
+        .where('status', 'in', ['Issued', 'Sent', 'Under Review', 'Revision Requested', 'Approved', 'Declined', 'Expired'])
+        .get(),
+    );
+    await assertSucceeds(dbAdmin.doc('proposals/prop-draft-a').get());
+    await assertSucceeds(dbAdmin.collection('proposals').get());
+
+    // Workspace documents: clients cannot create commercial types or inject commercial finance fields, nor edit legacy admin-issued docs
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/documents/client-fake-inv').set({
+      id: 'client-fake-inv',
+      workspaceId: 'ws-client-a',
+      library: 'brand',
+      type: 'invoice',
+      title: 'Client Fake Invoice',
+      status: 'Draft',
+    }));
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/documents/client-injected-amt').set({
+      id: 'client-injected-amt',
+      workspaceId: 'ws-client-a',
+      library: 'artist',
+      type: 'split_sheet',
+      title: 'Split Sheet with Total',
+      totalAmount: 500,
+      status: 'Draft',
+    }));
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/documents/legacy-admin-doc').update({
+      title: 'Tampered Legacy Admin Doc',
+      type: 'official_letter',
+    }));
+    await assertFails(dbClientA.doc('workspaces/ws-client-a/documents/legacy-admin-doc').delete());
+
+    // Clients CAN create, update, and delete valid non-commercial Artist/Brand docs
+    await assertSucceeds(dbClientA.doc('workspaces/ws-client-a/documents/split-sheet-1').set({
+      id: 'split-sheet-1',
+      workspaceId: 'ws-client-a',
+      library: 'artist',
+      type: 'split_sheet',
+      title: 'Midnight Echoes Split Sheet',
+      status: 'Draft',
+      bodyContent: 'Writer A: 50%, Writer B: 50%',
+    }));
+    await assertSucceeds(dbClientA.doc('workspaces/ws-client-a/documents/split-sheet-1').update({
+      id: 'split-sheet-1',
+      workspaceId: 'ws-client-a',
+      library: 'artist',
+      type: 'split_sheet',
+      title: 'Midnight Echoes Split Sheet Final',
+      status: 'Approved',
+      bodyContent: 'Writer A: 50%, Writer B: 50%',
+    }));
+    await assertSucceeds(dbClientA.doc('workspaces/ws-client-a/documents/split-sheet-1').delete());
+    console.log('  [PASS] Phase 2 /invoices, /proposals, and non-commercial /workspaces/{id}/documents rules verified.');
 
   } catch (err: any) {
     console.error('\n[BLOCKED] Firebase Emulator is not running or test assertions failed.');

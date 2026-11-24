@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { ClientProfile } from '../../types';
 import { KeedohubLogo } from '../brand/KeedohubLogo';
+import { normalizeAccountType } from '../../lib/accountNormalization';
 
 interface SidebarProps {
   mobileMenuOpen: boolean;
@@ -66,19 +67,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
   } = useApp();
 
   const accountType = clientProfile?.accountType;
-  const isArtist = accountType === 'Artist';
-  const isBrand = accountType === 'Brand';
-  const isBusiness = accountType === 'Company';
-  const brandAccent = isArtist ? '#D97706' : isBrand ? '#2563EB' : isBusiness ? '#10B981' : '#FF1E1E';
+  const normalizedAccountType = accountType ? normalizeAccountType(accountType) : undefined;
+  const isArtist = normalizedAccountType === 'Artist';
+  const isBrand = normalizedAccountType === 'Brand';
+  const brandAccent = isArtist ? '#D97706' : isBrand ? '#2563EB' : '#FF1E1E';
 
   const pendingTasks = tasks.filter(t => t.status !== 'Done' && t.workspaceId === activeWorkspace.id).length;
   const pendingDocs = documents.filter(d => (d.status === 'Under Review' || d.status === 'Draft') && d.workspaceId === activeWorkspace.id).length;
 
   const getNavItems = (): NavItem[] => {
-    const account = accountType;
     const showBadge = (count: number) => (count > 0 ? count : undefined);
 
-    if (account === 'Artist') {
+    if (normalizedAccountType === 'Artist') {
       return [
         { id: 'dashboard', label: 'Project Status & Overview', icon: LayoutDashboard, description: 'Active projects, production stages, and timeline overview' },
         { id: 'releases', label: 'Music & Releases', icon: Disc3, badgeCount: showBadge(releases.filter(r => r.workspaceId === activeWorkspace.id).length), description: 'Singles, EPs, albums, release metadata, and artwork' },
@@ -90,13 +90,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
       ];
     }
 
-    if (account === 'Brand' || account === 'Company') {
-      const isCompany = account === 'Company';
+    if (normalizedAccountType === 'Brand') {
       return [
-        { id: 'dashboard', label: isCompany ? 'Company Overview' : 'Brand Overview', icon: LayoutDashboard, description: 'Workspace summary, active work, and quick actions' },
+        { id: 'dashboard', label: 'Brand Overview', icon: LayoutDashboard, description: 'Workspace summary, active work, and quick actions' },
         { id: 'brand', label: 'Brand Identity & Creative System', icon: Layers, description: 'Logo lockups, color palette, typography, and brand rules' },
         { id: 'documents', label: 'Business Documents', icon: FileText, badgeCount: showBadge(pendingDocs), description: 'Proposals, commercial invoices, and corporate documents' },
-        { id: 'assets', label: isCompany ? 'Asset Library' : 'Brand Asset Library', icon: FolderArchive, description: 'Approved logos, brand graphics, photography, and downloads' },
+        { id: 'assets', label: 'Brand Asset Library', icon: FolderArchive, description: 'Approved logos, brand graphics, photography, and downloads' },
         { id: 'operations', label: 'Reviews, Revisions & Requests', icon: CheckSquare, badgeCount: showBadge(pendingTasks), description: 'Review revision requests, respond to feedback' },
         { id: 'deliverables', label: 'Deliverables', icon: FileCheck2, description: 'Review published outputs, download finals, or request revisions' },
         { id: 'updates', label: 'Updates & Revisions', icon: RefreshCw, description: 'Chronological production timeline and revision responses' },
@@ -156,7 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                   {clientProfile?.displayName || 'Account'}
                 </p>
                 <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-wider">
-                  {accountType === 'Artist' ? 'Artist' : accountType === 'Brand' ? 'Brand' : accountType === 'Company' ? 'Company' : 'Client'}
+                  {normalizedAccountType || 'Client'}
                 </p>
               </div>
             </button>
@@ -187,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
         {/* Navigation list */}
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
           <div className="px-3 pb-2 text-[10px] font-mono tracking-widest uppercase flex items-center justify-between" style={{ color: brandAccent }}>
-            <span>{isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : isBusiness ? 'COMPANY WORKSPACE' : 'CLIENT WORKSPACE'}</span>
+            <span>{isArtist ? 'ARTIST WORKSPACE' : isBrand ? 'BRAND WORKSPACE' : 'CLIENT WORKSPACE'}</span>
           </div>
 
           {navItems.map((item) => {
@@ -277,7 +276,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
           </div>
 
           <p className="text-[10px] text-neutral-500 leading-tight">
-            {activeWorkspace.name} · {activeWorkspace.type} Client v1.0
+            {activeWorkspace.name} · {normalizeAccountType(activeWorkspace.type)} Client v1.0
           </p>
         </div>
       </aside>

@@ -56,9 +56,9 @@ const ECOSYSTEM_DESTINATIONS: Array<{
   {
     index: '03',
     label: 'Executive Collateral',
-    title: 'Businesses',
-    summary: 'Pitch decks, structured contracts, corporate stationery suites, and unified Business OS delivery.',
-    actionLabel: 'Business Packages',
+    title: 'Commercial & Corporate',
+    summary: 'Pitch decks, structured contracts, corporate stationery suites, and Brand OS document delivery.',
+    actionLabel: 'Brand Packages',
     route: 'pricing',
   },
   {
@@ -129,8 +129,8 @@ const CREATIVE_OS_CAPABILITIES: Array<{
   {
     code: 'OS · 03',
     scope: 'Single Workspace',
-    title: 'Business OS',
-    detail: 'Manage Business Documents, executive stationery, branded collateral briefs, and verified deliverables without music clutter.',
+    title: 'Business Documents Vault',
+    detail: 'Manage commercial proposals, invoices, executive stationery, and verified deliverables inside your Brand OS workspace.',
   },
   {
     code: 'OS · 04',
@@ -327,7 +327,7 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
             <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-3 border-t border-white/15 pt-6">
               {[
                 ['01', 'Creative Direction & Craft'],
-                ['02', 'Unified Artist, Brand & Business OS'],
+                ['02', 'Unified Artist & Brand OS'],
                 ['03', 'QA-Gated Studio Production'],
                 ['04', 'Client Review & Master Delivery'],
               ].map(([num, label]) => (
@@ -621,7 +621,7 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
                   <span className="text-[#FF1E1E]">Tailored To Your Role.</span>
                 </h2>
                 <p className="text-sm leading-7 text-neutral-400">
-                  Each Firebase account owns one unified client workspace shaped automatically around its organization type—Artist OS, Brand OS, or Business OS—while staying connected directly to studio production.
+                  Each Firebase account owns one unified client workspace shaped automatically around its client type—Artist OS or Brand OS—while staying connected directly to studio production.
                 </p>
               </div>
 
@@ -855,7 +855,7 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
                 Launch Your Next Release Or Brand Inside <span className="text-[#FF1E1E]">One Creative OS.</span>
               </h2>
               <p className="max-w-xl text-sm leading-7 text-neutral-400">
-                Submit a creative brief to our studio team or register your Artist, Brand, or Company account to enter your private production room right away.
+                Submit a creative brief to our studio team or register your Artist or Brand account to enter your private production room right away.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">

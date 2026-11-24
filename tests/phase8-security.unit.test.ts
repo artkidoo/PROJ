@@ -82,10 +82,11 @@ async function run() {
 
   assert.equal(resolveClientAudienceBucket('Artist'), 'Artist');
   assert.equal(resolveClientAudienceBucket('Brand'), 'Brand');
-  assert.equal(resolveClientAudienceBucket('Company'), 'Business');
+  assert.equal(resolveClientAudienceBucket('Company'), 'Brand');
   assert.equal(resolveClientAudienceBucket(undefined, 'Artist'), 'Artist');
-  assert.equal(resolveClientAudienceBucket(undefined, 'Business'), 'Business');
-  assert.equal(resolveClientAudienceBucket(undefined, 'Enterprise'), 'Business');
+  assert.equal(resolveClientAudienceBucket(undefined, 'Business'), 'Brand');
+  assert.equal(resolveClientAudienceBucket(undefined, 'Enterprise'), 'Brand');
+  assert.equal(resolveClientAudienceBucket('UnknownLegacyJunk', 'Artist'), 'Artist');
 
   // Artist cannot view Brand or Business products
   assert.equal(matchesProductAudience('Artist', 'Artist'), true);
@@ -94,17 +95,12 @@ async function run() {
   assert.equal(matchesProductAudience('Brand & Business', 'Artist'), false, 'Artist must never match Brand & Business product');
   assert.equal(matchesProductAudience('Shared', 'Artist'), true);
 
-  // Brand cannot view Artist products
+  // Brand receives Brand, legacy Business, and Brand & Business products, but never Artist products
   assert.equal(matchesProductAudience('Artist', 'Brand'), false, 'Brand must never match Artist product');
   assert.equal(matchesProductAudience('Brand', 'Brand'), true);
+  assert.equal(matchesProductAudience('Business', 'Brand'), true);
   assert.equal(matchesProductAudience('Brand & Business', 'Brand'), true);
   assert.equal(matchesProductAudience('Shared', 'Brand'), true);
-
-  // Business cannot view Artist products
-  assert.equal(matchesProductAudience('Artist', 'Business'), false, 'Business must never match Artist product');
-  assert.equal(matchesProductAudience('Business', 'Business'), true);
-  assert.equal(matchesProductAudience('Brand & Business', 'Business'), true);
-  assert.equal(matchesProductAudience('Shared', 'Business'), true);
 
   // =========================================================================
   // 3. DRAFT & ARCHIVED PRODUCT ISOLATION

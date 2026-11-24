@@ -1,4 +1,4 @@
-﻿import functionsTest from 'firebase-functions-test';
+import functionsTest from 'firebase-functions-test';
 import * as admin from 'firebase-admin';
 import { expect } from 'chai';
 import { LOCAL_PROJECT_ID, adminDb } from './firebase-test-helpers';
@@ -36,6 +36,10 @@ import {
   adminCreateClientWorkspace,
   adminUpdateWorkspace,
   adminUpdatePlatformSettings,
+  adminSaveInvoice,
+  adminRecordManualPayment,
+  adminSaveProposal,
+  clientRespondProposal,
 } from '../functions/src/index';
 
 const wrappedAdminUpdateClientProfile = test.wrap(adminUpdateClientProfile);
@@ -48,6 +52,10 @@ const wrappedRejectProductionDeliverable = test.wrap(rejectProductionDeliverable
 const wrappedAdminCreateClientWorkspace = test.wrap(adminCreateClientWorkspace);
 const wrappedAdminUpdateWorkspace = test.wrap(adminUpdateWorkspace);
 const wrappedAdminUpdatePlatformSettings = test.wrap(adminUpdatePlatformSettings);
+const wrappedAdminSaveInvoice = test.wrap(adminSaveInvoice);
+const wrappedAdminRecordManualPayment = test.wrap(adminRecordManualPayment);
+const wrappedAdminSaveProposal = test.wrap(adminSaveProposal);
+const wrappedClientRespondProposal = test.wrap(clientRespondProposal);
 
 
 describe('adminUpdateClientProfile', () => {
@@ -571,5 +579,154 @@ describe('adminUpdatePlatformSettings', () => {
     } catch (err: any) {
       expect(err.code).to.equal('invalid-argument');
     }
+  });
+});
+
+describe('Phase 2 commercial finance & proposal callables', () => {
+  const adminUid = 'admin-p2-finance';
+  const clientUid = 'client-p2-finance';
+  const otherClientUid = 'client-p2-other';
+  const workspaceId = 'ws-p2-finance';
+
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    await adminDb.collection('admins').doc(adminUid).set({ uid: adminUid, role: 'PlatformAdmin', status: 'Active', grantedAt: now });
+    await adminDb.collection('clientProfiles').doc(adminUid).set({ uid: adminUid, email: 'admin-p2@test.com', displayName: 'Admin P2', accountType: 'Brand', status: 'Active', onboardingComplete: true, createdAt: now, updatedAt: now });
+    await adminDb.collection('clientProfiles').doc(clientUid).set({ uid: clientUid, email: 'client-p2@test.com', displayName: 'Client P2', accountType: 'Artist', status: 'Active', onboardingComplete: true, workspaceId, createdAt: now, updatedAt: now });
+    await adminDb.collection('clientProfiles').doc(otherClientUid).set({ uid: otherClientUid, email: 'other-p2@test.com', displayName: 'Other P2', accountType: 'Brand', status: 'Active', onboardingComplete: true, createdAt: now, updatedAt: now });
+    await adminDb.collection('workspaces').doc(workspaceId).set({ id: workspaceId, name: 'P2 Workspace', ownerId: clientUid, type: 'Artist', clientCategory: 'artist', status: 'Active', createdAt: now, updatedAt: now });
+  });
+
+  afterEach(async () => {
+    const batch = adminDb.batch();
+    batch.delete(adminDb.collection('admins').doc(adminUid));
+    batch.delete(adminDb.collection('clientProfiles').doc(adminUid));
+    batch.delete(adminDb.collection('clientProfiles').doc(clientUid));
+    batch.delete(adminDb.collection('clientProfiles').doc(otherClientUid));
+    batch.delete(adminDb.collection('workspaces').doc(workspaceId));
+    batch.delete(adminDb.collection('invoices').doc('inv-p2-test'));
+    batch.delete(adminDb.collection('proposals').doc('prop-p2-test'));
+    const auditSnap = await adminDb.collection('adminAuditLogs').where('actorUid', '==', adminUid).get();
+    auditSnap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  });
+
+  it('rejects unauthenticated and non-admin callers on adminSaveInvoice', async () => {
+    try {
+      await wrappedAdminSaveInvoice({ workspaceId });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('unauthenticated');
+    }
+    try {
+      await wrappedAdminSaveInvoice({ workspaceId }, { auth: { uid: clientUid } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('permission-denied');
+    }
+  });
+
+  it('saves an invoice server-side and applies partial/full manual payments with receipts', async () => {
+    const saved = await wrappedAdminSaveInvoice({
+      id: 'inv-p2-test',
+      workspaceId,
+      referenceNo: 'INV-P2-001',
+      title: 'Mastering & Artwork',
+      currency: 'GBP',
+      issueDate: '2026-06-01',
+      dueDate: '2026-06-30',
+      recipientName: 'Client P2',
+      items: [{ description: 'Artwork Pack', quantity: 1, unitPrice: 1000 }],
+      taxRate: 10,
+      discountAmount: 100,
+      status: 'Issued',
+    }, { auth: { uid: adminUid } });
+    expect(saved.success).to.equal(true);
+    expect(saved.invoice.totalAmount).to.equal(990);
+    expect(saved.invoice.balanceDue).to.equal(990);
+
+    // Overpayment rejected
+    try {
+      await wrappedAdminRecordManualPayment({
+        invoiceId: 'inv-p2-test',
+        amount: 1200,
+        method: 'Wire Transfer',
+        date: '2026-06-05',
+      }, { auth: { uid: adminUid } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+
+    const partial = await wrappedAdminRecordManualPayment({
+      invoiceId: 'inv-p2-test',
+      amount: 400,
+      method: 'Wire Transfer',
+      date: '2026-06-05',
+    }, { auth: { uid: adminUid } });
+    expect(partial.nextStatus).to.equal('Partially Paid');
+    expect(partial.balanceDue).to.equal(590);
+    expect(partial.paymentRecord.receiptNumber).to.equal('RCT-INV-P2-001-01');
+
+    const full = await wrappedAdminRecordManualPayment({
+      invoiceId: 'inv-p2-test',
+      amount: 590,
+      method: 'ACH',
+      date: '2026-06-06',
+    }, { auth: { uid: adminUid } });
+    expect(full.nextStatus).to.equal('Paid');
+    expect(full.balanceDue).to.equal(0);
+    expect(full.paymentRecord.receiptNumber).to.equal('RCT-INV-P2-001-02');
+  });
+
+  it('saves proposal and governs clientRespondProposal approvals & revision comment requirements', async () => {
+    const created = await wrappedAdminSaveProposal({
+      id: 'prop-p2-test',
+      workspaceId,
+      type: 'quotation',
+      referenceNo: 'PROP-P2-001',
+      title: 'Release Visual Kit Quote',
+      currency: 'USD',
+      recipientName: 'Client P2',
+      bodyContent: 'Deliverables for upcoming single.',
+      items: [{ description: 'Visual Kit', quantity: 1, unitPrice: 750 }],
+      status: 'Issued',
+    }, { auth: { uid: adminUid } });
+    expect(created.success).to.equal(true);
+    expect(created.proposal.totalAmount).to.equal(750);
+
+    // Cross-client blocked
+    try {
+      await wrappedClientRespondProposal({
+        proposalId: 'prop-p2-test',
+        workspaceId,
+        response: 'Approved',
+      }, { auth: { uid: otherClientUid } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('permission-denied');
+    }
+
+    // Revision Requested requires comment
+    try {
+      await wrappedClientRespondProposal({
+        proposalId: 'prop-p2-test',
+        workspaceId,
+        response: 'Revision Requested',
+        comment: '',
+      }, { auth: { uid: clientUid } });
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('invalid-argument');
+    }
+
+    const approved = await wrappedClientRespondProposal({
+      proposalId: 'prop-p2-test',
+      workspaceId,
+      response: 'Approved',
+      comment: 'Looks good to proceed.',
+    }, { auth: { uid: clientUid } });
+    expect(approved.success).to.equal(true);
+    expect(approved.status).to.equal('Approved');
   });
 });

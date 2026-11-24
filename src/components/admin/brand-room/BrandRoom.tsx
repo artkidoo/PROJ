@@ -21,10 +21,12 @@ import {
 import {
   collection,
   doc,
+  getDoc,
   getDocFromServer,
   onSnapshot,
   orderBy,
   query,
+  setDoc,
 } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 import { isAdminRecordActive } from '../../../lib/firebaseAuth';
@@ -147,6 +149,7 @@ export const BrandRoom: React.FC = () => {
   );
   const [assets, setAssets] = useState<MarketingAsset[]>([]);
   const [projects, setProjects] = useState<ClientProject[]>([]);
+  const [optedInProjectIds, setOptedInProjectIds] = useState<Set<string>>(() => new Set());
   const [products, setProducts] = useState<CreativeProduct[]>([]);
 
   const [studioPreset, setStudioPreset] = useState<StudioLaunchPreset | null>(null);
@@ -249,6 +252,49 @@ export const BrandRoom: React.FC = () => {
     };
   }, [authStatus, firebaseUser]);
 
+  // Load private showcase consent flags from /clientProjects/{id}/admin/details
+  useEffect(() => {
+    if (authStatus !== 'authorized' || !firebaseUser || projects.length === 0) {
+      setOptedInProjectIds(new Set());
+      return;
+    }
+
+    let cancelled = false;
+    const completed = projects.filter(
+      p => p.status === 'Completed' || p.stage === 'Delivered' || p.progress >= 80,
+    );
+    if (completed.length === 0) {
+      setOptedInProjectIds(new Set());
+      return;
+    }
+
+    void Promise.all(
+      completed.map(async proj => {
+        if (proj.allowPublicShowcase === true) return proj.id;
+        try {
+          const detailSnap = await getDoc(doc(db, 'clientProjects', proj.id, 'admin', 'details'));
+          if (detailSnap.exists() && detailSnap.data()?.allowPublicShowcase === true) {
+            return proj.id;
+          }
+        } catch {
+          // Fail closed on consent lookup errors
+        }
+        return null;
+      }),
+    ).then(results => {
+      if (cancelled) return;
+      const next = new Set<string>();
+      results.forEach(id => {
+        if (id) next.add(id);
+      });
+      setOptedInProjectIds(next);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus, firebaseUser, projects]);
+
   if (authStatus === 'checking') {
     return (
       <div className="border border-[#1E1E1E] bg-[#0B0B0B] p-8 text-xs font-mono text-neutral-400">
@@ -274,6 +320,36 @@ export const BrandRoom: React.FC = () => {
   }
 
   const adminName = clientProfile?.displayName || firebaseUser.email || 'KeedoHub Admin';
+
+  const handleToggleShowcaseConsent = async (projectId: string, allow: boolean) => {
+    setCanvasError('');
+    try {
+      await setDoc(
+        doc(db, 'clientProjects', projectId, 'admin', 'details'),
+        {
+          allowPublicShowcase: allow,
+          showcaseConsentUpdatedAt: new Date().toISOString(),
+          showcaseConsentUpdatedBy: firebaseUser.uid,
+        },
+        { merge: true },
+      );
+      setOptedInProjectIds(prev => {
+        const next = new Set(prev);
+        if (allow) next.add(projectId);
+        else next.delete(projectId);
+        return next;
+      });
+      setCanvasNotice(
+        allow
+          ? 'Verified client showcase consent recorded in private project admin details.'
+          : 'Client showcase consent revoked; project removed from Brand Room showcase eligibility.',
+      );
+    } catch (err) {
+      setCanvasError(
+        err instanceof Error ? err.message : 'Unable to update client showcase consent.',
+      );
+    }
+  };
 
   const launchStudioWithPreset = (preset: StudioLaunchPreset) => {
     setStudioPreset(preset);
@@ -448,6 +524,8 @@ export const BrandRoom: React.FC = () => {
         <PortfolioShowcasesPanel
           projects={projects}
           products={products}
+          optedInProjectIds={optedInProjectIds}
+          onToggleShowcaseConsent={handleToggleShowcaseConsent}
           onCreateShowcaseFromItem={preset => launchStudioWithPreset(preset)}
         />
       )}

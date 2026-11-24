@@ -29,9 +29,11 @@ import {
   WorkspaceMembership,
   WorkspaceStatus,
 } from '../../types';
+import { normalizeAccountType, normalizeWorkspaceType } from '../../lib/accountNormalization';
 import { Modal } from '../common/Modal';
 
 interface Props {
+  lockedDepartment?: 'Artist' | 'Brand';
   initialSelectedWorkspaceId?: string;
   onSelectedWorkspaceChange?: (workspaceId: string | null) => void;
   onOpenClient?: (clientUid: string, workspaceId: string) => void;
@@ -102,10 +104,8 @@ function formatAuditDetails(raw: unknown): string {
   return String(raw);
 }
 
-function workspaceExperienceGroup(ws: Workspace): 'Artist' | 'Brand' | 'Other' {
-  if (ws.type === 'Artist' || ws.clientCategory === 'artist') return 'Artist';
-  if (ws.type === 'Brand' || ws.clientCategory === 'brand') return 'Brand';
-  return 'Other';
+function workspaceExperienceGroup(ws: Workspace): 'Artist' | 'Brand' {
+  return normalizeWorkspaceType(ws.clientCategory || ws.type);
 }
 
 function statusBadgeClasses(status: WorkspaceStatus): string {
@@ -122,6 +122,7 @@ function statusBadgeClasses(status: WorkspaceStatus): string {
 }
 
 export const WorkspacesManagement: React.FC<Props> = ({
+  lockedDepartment,
   initialSelectedWorkspaceId = '',
   onSelectedWorkspaceChange,
   onOpenClient,
@@ -184,7 +185,7 @@ export const WorkspacesManagement: React.FC<Props> = ({
   const [provisionModalOpen, setProvisionModalOpen] = useState(false);
   const [provisionEmail, setProvisionEmail] = useState('');
   const [provisionName, setProvisionName] = useState('');
-  const [provisionType, setProvisionType] = useState<'Artist' | 'Brand' | 'Business'>('Artist');
+  const [provisionType, setProvisionType] = useState<'Artist' | 'Brand'>('Artist');
   const [provisionTagline, setProvisionTagline] = useState('');
   const [provisionDescription, setProvisionDescription] = useState('');
   const [provisionAccentColor, setProvisionAccentColor] = useState('#D97706');
@@ -243,13 +244,18 @@ export const WorkspacesManagement: React.FC<Props> = ({
       snap => {
         const list = snap.docs.map(d => {
           const data = d.data() as Record<string, any>;
+          const rawAccountType = typeof data.accountType === 'string' ? data.accountType.trim() : '';
+          const normalizedType = normalizeAccountType(rawAccountType);
           return {
             ...data,
             uid: data.uid || d.id,
             displayName: data.displayName || '',
             email: data.email || '',
             organizationName: data.organizationName || '',
-            accountType: data.accountType || 'Artist',
+            accountType: normalizedType,
+            ...(rawAccountType && rawAccountType !== normalizedType
+              ? { rawLegacyAccountType: rawAccountType }
+              : {}),
             onboardingComplete: Boolean(data.onboardingComplete),
             status: data.status === 'Suspended' ? 'Suspended' : 'Active',
             createdAt: data.createdAt || '',
@@ -416,10 +422,15 @@ export const WorkspacesManagement: React.FC<Props> = ({
     }));
   }, [selectedWorkspace, servicesById]);
 
+  const departmentWorkspaces = useMemo(() => {
+    if (!lockedDepartment) return workspaces;
+    return workspaces.filter(ws => workspaceExperienceGroup(ws) === lockedDepartment);
+  }, [workspaces, lockedDepartment]);
+
   // Distinct workspace owners for filter dropdown
   const ownerFilterOptions = useMemo(() => {
     const uniqueOwnerIds = Array.from(
-      new Set(workspaces.map(w => w.ownerId).filter(Boolean))
+      new Set(departmentWorkspaces.map(w => w.ownerId).filter(Boolean))
     );
     return uniqueOwnerIds
       .map(uid => {
@@ -432,7 +443,7 @@ export const WorkspacesManagement: React.FC<Props> = ({
         };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [workspaces, clientsByUid]);
+  }, [departmentWorkspaces, clientsByUid]);
 
   // Eligible onboarded active clients without a linked workspace (for quick provisioning selection)
   const provisionableClients = useMemo(() => {
@@ -443,27 +454,28 @@ export const WorkspacesManagement: React.FC<Props> = ({
           c.onboardingComplete &&
           c.status !== 'Suspended' &&
           !c.workspaceId &&
-          !ownedUids.has(c.uid)
+          !ownedUids.has(c.uid) &&
+          (!lockedDepartment || normalizeAccountType(c.accountType || c.rawLegacyAccountType) === lockedDepartment)
       )
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
-  }, [clients, workspaces]);
+  }, [clients, workspaces, lockedDepartment]);
 
   const stats = useMemo(() => {
-    const total = workspaces.length;
-    const active = workspaces.filter(w => normalizeWorkspaceStatus(w.status) === 'Active').length;
-    const onboarding = workspaces.filter(
+    const total = departmentWorkspaces.length;
+    const active = departmentWorkspaces.filter(w => normalizeWorkspaceStatus(w.status) === 'Active').length;
+    const onboarding = departmentWorkspaces.filter(
       w => normalizeWorkspaceStatus(w.status) === 'Onboarding'
     ).length;
-    const pausedOrArchived = workspaces.filter(w => {
+    const pausedOrArchived = departmentWorkspaces.filter(w => {
       const s = normalizeWorkspaceStatus(w.status);
       return s === 'Paused' || s === 'Archived';
     }).length;
     return { total, active, onboarding, pausedOrArchived };
-  }, [workspaces]);
+  }, [departmentWorkspaces]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return workspaces.filter(ws => {
+    return departmentWorkspaces.filter(ws => {
       const owner = ws.ownerId ? clientsByUid.get(ws.ownerId) : undefined;
       const matchesSearch =
         !q ||
@@ -477,10 +489,11 @@ export const WorkspacesManagement: React.FC<Props> = ({
 
       const expGroup = workspaceExperienceGroup(ws);
       const matchesType =
-        typeFilter === 'All' ||
-        (typeFilter === 'Artist' && expGroup === 'Artist') ||
-        (typeFilter === 'Brand' && expGroup === 'Brand') ||
-        (typeFilter === 'Other' && expGroup === 'Other');
+        lockedDepartment
+          ? expGroup === lockedDepartment
+          : typeFilter === 'All' ||
+            (typeFilter === 'Artist' && expGroup === 'Artist') ||
+            (typeFilter === 'Brand' && expGroup === 'Brand');
 
       const wsStatus = normalizeWorkspaceStatus(ws.status);
       const matchesStatus = statusFilter === 'All' || wsStatus === statusFilter;
@@ -489,11 +502,11 @@ export const WorkspacesManagement: React.FC<Props> = ({
 
       return matchesSearch && matchesType && matchesStatus && matchesOwner;
     });
-  }, [workspaces, clientsByUid, search, typeFilter, statusFilter, ownerFilter]);
+  }, [departmentWorkspaces, clientsByUid, search, typeFilter, statusFilter, ownerFilter, lockedDepartment]);
 
   const hasActiveFilters =
     Boolean(search.trim()) ||
-    typeFilter !== 'All' ||
+    (!lockedDepartment && typeFilter !== 'All') ||
     statusFilter !== 'All' ||
     ownerFilter !== 'All';
 
@@ -589,12 +602,13 @@ export const WorkspacesManagement: React.FC<Props> = ({
   };
 
   const openProvisionModal = () => {
+    const defaultDept: 'Artist' | 'Brand' = lockedDepartment || 'Artist';
     setProvisionEmail('');
     setProvisionName('');
-    setProvisionType('Artist');
+    setProvisionType(defaultDept);
     setProvisionTagline('');
     setProvisionDescription('');
-    setProvisionAccentColor('#D97706');
+    setProvisionAccentColor(defaultDept === 'Brand' ? '#2563EB' : '#D97706');
     setProvisionPackageId('');
     setProvisionError('');
     setActionError('');
@@ -607,12 +621,7 @@ export const WorkspacesManagement: React.FC<Props> = ({
     if (!client) return;
     setProvisionEmail(client.email);
     setProvisionName(client.organizationName || client.displayName || '');
-    const nextType: 'Artist' | 'Brand' | 'Business' =
-      client.accountType === 'Artist'
-        ? 'Artist'
-        : client.accountType === 'Company'
-          ? 'Business'
-          : 'Brand';
+    const nextType: 'Artist' | 'Brand' = normalizeAccountType(client.accountType);
     setProvisionType(nextType);
     setProvisionAccentColor(nextType === 'Artist' ? '#D97706' : '#2563EB');
   };
@@ -789,17 +798,22 @@ export const WorkspacesManagement: React.FC<Props> = ({
           </div>
 
           <div className="md:col-span-2">
-            <select
-              aria-label="Filter by workspace experience"
-              value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
-              className="w-full bg-[#121212] border border-[#242424] text-white px-3 py-2 text-xs focus:border-[#FF1E1E] focus:outline-none"
-            >
-              <option value="All">All Experiences</option>
-              <option value="Artist">Artist</option>
-              <option value="Brand">Brand</option>
-              <option value="Other">Business / Other</option>
-            </select>
+            {lockedDepartment ? (
+              <div className="border border-[#242424] bg-[#121212] px-3 py-2 text-xs text-neutral-300 font-mono whitespace-nowrap">
+                Dept: <strong className="text-white">{lockedDepartment}</strong>
+              </div>
+            ) : (
+              <select
+                aria-label="Filter by workspace experience"
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
+                className="w-full bg-[#121212] border border-[#242424] text-white px-3 py-2 text-xs focus:border-[#FF1E1E] focus:outline-none"
+              >
+                <option value="All">All Experiences</option>
+                <option value="Artist">Artist</option>
+                <option value="Brand">Brand</option>
+              </select>
+            )}
           </div>
 
           <div className="md:col-span-2">
@@ -856,8 +870,8 @@ export const WorkspacesManagement: React.FC<Props> = ({
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-neutral-500">
           <span className="tabular-nums">
-            Showing {filtered.length} of {workspaces.length} workspace
-            {workspaces.length === 1 ? '' : 's'}
+            Showing {filtered.length} of {departmentWorkspaces.length} workspace
+            {departmentWorkspaces.length === 1 ? '' : 's'}
           </span>
           {selectedWorkspace && (
             <span className="text-neutral-400 truncate max-w-[280px]">
@@ -867,10 +881,12 @@ export const WorkspacesManagement: React.FC<Props> = ({
         </div>
       </div>
 
-      {workspaces.length === 0 ? (
+      {departmentWorkspaces.length === 0 ? (
         <div className="border border-[#1A1A1A] bg-[#0C0C0C] py-16 text-center space-y-2">
           <Building2 size={22} className="mx-auto text-neutral-500" />
-          <p className="text-sm font-semibold text-white">No workspaces stored yet</p>
+          <p className="text-sm font-semibold text-white">
+            {lockedDepartment ? `No ${lockedDepartment} workspaces stored yet` : 'No workspaces stored yet'}
+          </p>
           <p className="text-xs text-neutral-500">
             Client workspaces created during registration or provisioned by an administrator will appear here.
           </p>
@@ -1806,22 +1822,17 @@ export const WorkspacesManagement: React.FC<Props> = ({
               </label>
               <select
                 id="provision-workspace-type"
-                value={provisionType}
+                disabled={Boolean(lockedDepartment)}
+                value={lockedDepartment || provisionType}
                 onChange={e => {
-                  const next: 'Artist' | 'Brand' | 'Business' =
-                    e.target.value === 'Brand'
-                      ? 'Brand'
-                      : e.target.value === 'Business'
-                        ? 'Business'
-                        : 'Artist';
+                  const next: 'Artist' | 'Brand' = e.target.value === 'Brand' ? 'Brand' : 'Artist';
                   setProvisionType(next);
                   setProvisionAccentColor(next === 'Artist' ? '#D97706' : '#2563EB');
                 }}
-                className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white focus:border-[#FF1E1E] focus:outline-none"
+                className="w-full rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-white focus:border-[#FF1E1E] focus:outline-none disabled:opacity-60"
               >
                 <option value="Artist">Artist</option>
                 <option value="Brand">Brand</option>
-                <option value="Business">Business / Company</option>
               </select>
             </div>
             <div>

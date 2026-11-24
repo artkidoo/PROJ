@@ -5,6 +5,7 @@ import type {
   CreativeProductFileFormat,
 } from '../types/creativeProduct';
 import type { ClientProfile, Workspace } from '../types';
+import { inspectAccountType } from './accountNormalization';
 
 export interface ProductFamilyDefinition {
   id: string;
@@ -141,16 +142,10 @@ export function formatBytesCompact(bytes: number): string {
 }
 
 export function resolveClientAudienceBucket(
-  accountType?: ClientProfile['accountType'] | string,
-  workspaceType?: Workspace['type'],
-): 'Artist' | 'Brand' | 'Business' {
-  const normalized = (accountType || '').trim();
-  if (normalized === 'Artist') return 'Artist';
-  if (normalized === 'Company') return 'Business';
-  if (normalized === 'Brand') return 'Brand';
-  if (workspaceType === 'Artist' || workspaceType === 'Personal' || workspaceType === 'Label') return 'Artist';
-  if (workspaceType === 'Business' || workspaceType === 'Enterprise') return 'Business';
-  return 'Brand';
+  accountType?: ClientProfile['accountType'] | string | null,
+  workspaceType?: Workspace['type'] | string | null,
+): 'Artist' | 'Brand' {
+  return inspectAccountType(accountType, workspaceType).canonicalType;
 }
 
 export function matchesProductAudience(
@@ -159,8 +154,7 @@ export function matchesProductAudience(
 ): boolean {
   if (productAudience === 'Shared') return true;
   if (clientBucket === 'Artist') return productAudience === 'Artist';
-  if (clientBucket === 'Brand') return productAudience === 'Brand' || productAudience === 'Brand & Business';
-  return productAudience === 'Business' || productAudience === 'Brand & Business';
+  return productAudience === 'Brand' || productAudience === 'Business' || productAudience === 'Brand & Business';
 }
 
 export interface WorkspacePackageEntitlementInput {

@@ -60,10 +60,10 @@ function makeFile(overrides: Partial<CreativeProductDeliverableFile> = {}): Crea
 }
 
 function run() {
-  // 1. Audience resolution & isolation
+  // 1. Audience resolution & isolation (two canonical buckets: Artist | Brand)
   assert.equal(resolveClientAudienceBucket('Artist', 'Artist'), 'Artist');
   assert.equal(resolveClientAudienceBucket('Brand', 'Brand'), 'Brand');
-  assert.equal(resolveClientAudienceBucket('Company', 'Business'), 'Business');
+  assert.equal(resolveClientAudienceBucket('Company', 'Business'), 'Brand');
 
   const artistFree = makeProduct({ audience: 'Artist', accessType: 'Free' });
   const brandShared = makeProduct({ audience: 'Brand & Business', accessType: 'Free' });
@@ -72,14 +72,12 @@ function run() {
 
   assert.equal(isClientEligibleForProductView({ product: artistFree, clientBucket: 'Artist', workspaceId: 'ws-a' }), true);
   assert.equal(isClientEligibleForProductView({ product: artistFree, clientBucket: 'Brand', workspaceId: 'ws-b' }), false);
-  assert.equal(isClientEligibleForProductView({ product: artistFree, clientBucket: 'Business', workspaceId: 'ws-c' }), false);
 
   assert.equal(isClientEligibleForProductView({ product: brandShared, clientBucket: 'Artist', workspaceId: 'ws-a' }), false);
   assert.equal(isClientEligibleForProductView({ product: brandShared, clientBucket: 'Brand', workspaceId: 'ws-b' }), true);
-  assert.equal(isClientEligibleForProductView({ product: brandShared, clientBucket: 'Business', workspaceId: 'ws-c' }), true);
 
-  assert.equal(isClientEligibleForProductView({ product: businessOnly, clientBucket: 'Brand', workspaceId: 'ws-b' }), false);
-  assert.equal(isClientEligibleForProductView({ product: businessOnly, clientBucket: 'Business', workspaceId: 'ws-c' }), true);
+  assert.equal(isClientEligibleForProductView({ product: businessOnly, clientBucket: 'Artist', workspaceId: 'ws-a' }), false);
+  assert.equal(isClientEligibleForProductView({ product: businessOnly, clientBucket: 'Brand', workspaceId: 'ws-b' }), true);
 
   assert.equal(isClientEligibleForProductView({ product: universal, clientBucket: 'Artist', workspaceId: 'ws-a' }), true);
   assert.equal(isClientEligibleForProductView({ product: universal, clientBucket: 'Brand', workspaceId: 'ws-b' }), true);

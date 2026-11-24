@@ -73,6 +73,10 @@ import { TEMPLATE_FAMILIES } from '../../data/templateFamiliesData';
 import { MASTER_CREATIVE_TEMPLATES } from '../../data/creativeTemplatesData';
 import { buildHonestDesignForTemplate } from '../../utils/templateDesignBuilder';
 import { UNIFIED_PRODUCTION_CATEGORIES } from '../../lib/productionCategories';
+import {
+  classifyCreativeProductSegment,
+  type CreativeProductsSegment,
+} from '../../lib/adminHQNavigation';
 import { DesignCanvasEditor } from '../studio/DesignCanvasEditor';
 import artistShowcasePortrait from '../../assets/images/artist_showcase_portrait_1792791744296.jpg';
 
@@ -88,6 +92,8 @@ const FORMAT_OPTIONS = ['PNG', 'JPG', 'PDF', 'PSD', 'SVG', 'ZIP', 'MP4'] as cons
 export interface AdminCreativeProductsProps {
   initialCanvasDraft?: CanvasDesign | null;
   onConsumeInitialCanvasDraft?: () => void;
+  initialSegment?: CreativeProductsSegment;
+  onSegmentChange?: (segment: CreativeProductsSegment) => void;
 }
 
 function buildBlankCanvasForProduct(product: CreativeProduct): CanvasDesign {
@@ -193,6 +199,8 @@ function buildBlankCanvasForProduct(product: CreativeProduct): CanvasDesign {
 export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
   initialCanvasDraft,
   onConsumeInitialCanvasDraft,
+  initialSegment = 'all',
+  onSegmentChange,
 }) => {
   const { firebaseUser, canAccessAdminCenter } = useApp();
   const [adminVerified, setAdminVerified] = useState<'checking' | 'ok' | 'denied'>(() =>
@@ -205,11 +213,22 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
   const [savedDesigns, setSavedDesigns] = useState<CanvasDesign[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [segmentFilter, setSegmentFilter] = useState<CreativeProductsSegment>(initialSegment);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | CreativeProductStatus>('All');
   const [audienceFilter, setAudienceFilter] = useState<'All' | CreativeProductAudience>('All');
   const [familyFilter, setFamilyFilter] = useState('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
+
+  useEffect(() => {
+    setSegmentFilter(initialSegment);
+  }, [initialSegment]);
+
+  const handleSelectSegment = (next: CreativeProductsSegment) => {
+    setSegmentFilter(next);
+    setAudienceFilter('All');
+    onSegmentChange?.(next);
+  };
 
   const [editingProduct, setEditingProduct] = useState<CreativeProduct | null>(null);
   const [isNewDraft, setIsNewDraft] = useState(false);
@@ -305,17 +324,28 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
     const uid = firebaseUser?.uid || '';
     const now = new Date().toISOString();
     const id = doc(collection(db, 'creativeProducts')).id;
+    const defaultAudience: CreativeProductAudience = canvasOverride
+      ? canvasOverride.templateFamily === 'Artist Branding'
+        ? 'Artist'
+        : 'Brand & Business'
+      : segmentFilter === 'artist'
+        ? 'Artist'
+        : segmentFilter === 'shared'
+          ? 'Shared'
+          : 'Brand & Business';
     const base: CreativeProduct = {
       id,
       title: canvasOverride?.name || '',
       slug: slugifyProductTitle(canvasOverride?.name || id),
-      audience: canvasOverride?.templateFamily === 'Artist Branding' ? 'Artist' : 'Brand & Business',
+      audience: defaultAudience,
       productFamily:
-        canvasOverride?.templateFamily === 'Artist Branding'
+        defaultAudience === 'Artist'
           ? 'Artist Branding & Press'
-          : 'Brand Identity',
+          : defaultAudience === 'Shared'
+            ? 'Print & Merchandise'
+            : 'Brand Identity',
       category:
-        canvasOverride?.templateFamily === 'Artist Branding'
+        defaultAudience === 'Artist'
           ? ARTIST_PRODUCT_CATEGORIES[0]
           : BRAND_BUSINESS_PRODUCT_CATEGORIES[0],
       subcategory: canvasOverride?.category || 'Custom Studio Pack',
@@ -901,9 +931,25 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
     }
   };
 
+  const segmentCounts = useMemo(() => {
+    let artist = 0;
+    let brand = 0;
+    let shared = 0;
+    for (const p of products) {
+      const seg = classifyCreativeProductSegment(p.audience);
+      if (seg === 'artist') artist += 1;
+      else if (seg === 'shared') shared += 1;
+      else brand += 1;
+    }
+    return { all: products.length, artist, brand, shared };
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return products.filter(p => {
+      if (segmentFilter !== 'all' && classifyCreativeProductSegment(p.audience) !== segmentFilter) {
+        return false;
+      }
       if (statusFilter !== 'All' && p.status !== statusFilter) return false;
       if (audienceFilter !== 'All' && p.audience !== audienceFilter) return false;
       if (familyFilter !== 'All' && resolveProductFamily(p) !== familyFilter) return false;
@@ -914,7 +960,7 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
       }
       return true;
     });
-  }, [products, statusFilter, audienceFilter, familyFilter, categoryFilter, searchQuery]);
+  }, [products, segmentFilter, statusFilter, audienceFilter, familyFilter, categoryFilter, searchQuery]);
 
   const filteredWorkspaces = useMemo(() => {
     const q = workspaceSearch.trim().toLowerCase();
@@ -1016,16 +1062,51 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
         </div>
       </section>
 
+      {/* Department & Audience Partition Tabs */}
+      <div
+        role="tablist"
+        aria-label="Creative Products catalog segments"
+        className="flex flex-wrap items-center gap-2 border-b border-[#1A1A1A] pb-3"
+      >
+        {(
+          [
+            ['all', 'All Catalog Packs', segmentCounts.all],
+            ['artist', 'Artist Packs', segmentCounts.artist],
+            ['brand', 'Brand Packs', segmentCounts.brand],
+            ['shared', 'Shared Utilities', segmentCounts.shared],
+          ] as const
+        ).map(([segId, label, count]) => {
+          const active = segmentFilter === segId;
+          return (
+            <button
+              key={segId}
+              role="tab"
+              aria-selected={active}
+              type="button"
+              onClick={() => handleSelectSegment(segId)}
+              className={`px-3.5 py-2 text-xs font-medium whitespace-nowrap transition-colors border ${
+                active
+                  ? 'border-[#FF1E1E] bg-[#FF1E1E] text-white font-semibold'
+                  : 'border-[#242424] bg-[#101010] text-neutral-300 hover:text-white hover:border-[#3A3A3A]'
+              }`}
+            >
+              <span>{label}</span>
+              <span className="ml-2 font-mono text-[11px] tabular-nums opacity-85">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Metrics Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Total Products', value: products.length, accent: 'text-white' },
-          { label: 'Published', value: products.filter(p => p.status === 'Published').length, accent: 'text-emerald-400' },
-          { label: 'Artist Catalog', value: products.filter(p => p.audience === 'Artist' || p.audience === 'Shared').length, accent: 'text-amber-300' },
+          { label: 'Artist Packs', value: segmentCounts.artist, accent: 'text-amber-300' },
+          { label: 'Brand Packs', value: segmentCounts.brand, accent: 'text-blue-300' },
+          { label: 'Shared Utilities', value: segmentCounts.shared, accent: 'text-white' },
           {
-            label: 'Client Files Live',
-            value: products.reduce((sum, p) => sum + getApprovedDownloadableFiles(p.files).length, 0),
-            accent: 'text-white',
+            label: 'Published / Files Live',
+            value: `${products.filter(p => p.status === 'Published').length} / ${products.reduce((sum, p) => sum + getApprovedDownloadableFiles(p.files).length, 0)}`,
+            accent: 'text-emerald-400',
           },
         ].map(stat => (
           <div key={stat.label} className="border border-[#1D1D1D] bg-[#0B0B0B] p-4">

@@ -1,6 +1,7 @@
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
-import { ClientProfile, Workspace, WorkspaceType } from '../types';
+import { ClientProfile, Workspace } from '../types';
 import { db } from './firebase';
+import { normalizeAccountType, type CanonicalWorkspaceType } from './accountNormalization';
 import { resolveClientProjectWorkspaceId } from './workspaceResolution';
 
 export { resolveClientProjectWorkspaceId };
@@ -13,10 +14,8 @@ export class MultipleLegacyWorkspacesError extends Error {
   }
 }
 
-function workspaceTypeForAccount(accountType: ClientProfile['accountType']): WorkspaceType {
-  if (accountType === 'Artist') return 'Artist';
-  if (accountType === 'Brand') return 'Brand';
-  return 'Business';
+function workspaceTypeForAccount(accountType: ClientProfile['accountType'] | string | undefined): CanonicalWorkspaceType {
+  return normalizeAccountType(accountType);
 }
 
 function workspaceIdForUser(uid: string): string {
@@ -34,13 +33,13 @@ export function createClientWorkspaceData(
   workspaceId: string,
 ): Workspace {
   const type = workspaceTypeForAccount(profile.accountType);
-  const accentColor = type === 'Artist' ? '#D97706' : type === 'Brand' ? '#2563EB' : '#10B981';
+  const accentColor = type === 'Artist' ? '#D97706' : '#2563EB';
   const now = new Date().toISOString();
   return {
     id: workspaceId,
     name: profile.organizationName,
     type,
-    clientCategory: type === 'Business' ? 'business' : type.toLowerCase() as 'artist' | 'brand',
+    clientCategory: type === 'Artist' ? 'artist' : 'brand',
     ownerId: uid,
     status: 'Active',
     description: `${profile.organizationName} ${type} Workspace`,

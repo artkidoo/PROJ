@@ -192,7 +192,7 @@ export const ServicesPage: React.FC<Props> = ({ navigate }) => {
                 Manage briefs, proofs, and revisions in one place.
               </h2>
               <p className="text-sm text-neutral-400 max-w-2xl">
-                Review indicative packages or create your Artist, Brand, or Company account to submit requests directly inside KeedoHub Creative OS.
+                Review indicative packages or create your Artist or Brand account to submit requests directly inside KeedoHub Creative OS.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">

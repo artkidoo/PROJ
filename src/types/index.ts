@@ -87,6 +87,8 @@ export interface ClientProject {
     message: string;
     createdAt: string;
   }[];
+  allowPublicShowcase?: boolean;
+  department?: 'Artist' | 'Brand';
 }
 
 export interface ProductionTask {
@@ -223,7 +225,8 @@ export interface ClientProfile {
   displayName: string;
   email: string;
   photoURL?: string;
-  accountType: 'Artist' | 'Brand' | 'Company';
+  accountType: 'Artist' | 'Brand';
+  rawLegacyAccountType?: string;
   organizationName: string;
   workspaceId?: string;
   onboardingComplete: boolean;
@@ -680,7 +683,30 @@ export type DocumentType =
   | 'asset_handover'
   | 'split_sheet'
   | 'producer_agreement_memo'
-  | 'video_release_memo';
+  | 'video_release_memo'
+  | 'epk'
+  | 'tracklist_credits'
+  | 'master_authorization'
+  | 'album_budget'
+  | 'artist_onboarding';
+
+export type DocumentLibraryKind = 'artist' | 'brand';
+
+export type CommercialCurrency = 'USD' | 'GBP' | 'EUR' | 'NGN' | 'CAD';
+
+export type InvoiceStatus = 'Draft' | 'Issued' | 'Partially Paid' | 'Paid' | 'Overdue' | 'Void';
+
+export type ProposalType = 'quotation' | 'partnership_proposal' | 'sponsorship_proposal' | 'proposal';
+
+export type ProposalStatus =
+  | 'Draft'
+  | 'Issued'
+  | 'Sent'
+  | 'Under Review'
+  | 'Revision Requested'
+  | 'Approved'
+  | 'Declined'
+  | 'Expired';
 
 export interface DocumentItem {
   description: string;
@@ -691,16 +717,111 @@ export interface DocumentItem {
 
 export interface PaymentRecord {
   id: string;
+  receiptNumber?: string;
   amount: number;
   date: string;
   reference: string;
   method: 'Wire Transfer' | 'ACH' | 'Credit Card' | 'Check' | 'Crypto' | 'Other';
   recordedBy: string;
+  recordedByUid?: string;
+  notes?: string;
+}
+
+export interface ProposalRevisionEntry {
+  version: number;
+  actorUid: string;
+  actorName: string;
+  actorRole: 'Admin' | 'Client';
+  action: 'Created' | 'Updated' | 'Issued' | 'Revised' | 'Approved' | 'Revision Requested' | 'Declined';
+  comment?: string;
+  timestamp: string;
+}
+
+export interface InvoiceRecord {
+  id: string;
+  workspaceId: string;
+  clientUid: string;
+  projectId?: string;
+  referenceNo: string;
+  title: string;
+  currency: CommercialCurrency;
+  issueDate: string;
+  dueDate?: string;
+  recipientName: string;
+  recipientOrg?: string;
+  recipientEmail?: string;
+  recipientAddress?: string;
+  subject?: string;
+  bodyContent: string;
+  items: DocumentItem[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  payments: PaymentRecord[];
+  totalPaid: number;
+  balanceDue: number;
+  paymentTerms?: string;
+  notes?: string;
+  status: InvoiceStatus;
+  issuedByAdmin: true;
+  issuedByUid: string;
+  issuedByName?: string;
+  issuedAt?: string;
+  paidAt?: string;
+  voidedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProposalRecord {
+  id: string;
+  workspaceId: string;
+  clientUid: string;
+  projectId?: string;
+  type: ProposalType;
+  referenceNo: string;
+  title: string;
+  currency: CommercialCurrency;
+  issueDate: string;
+  validUntil?: string;
+  recipientName: string;
+  recipientOrg?: string;
+  recipientEmail?: string;
+  recipientAddress?: string;
+  subject?: string;
+  bodyContent: string;
+  items: DocumentItem[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  paymentTerms?: string;
+  notes?: string;
+  status: ProposalStatus;
+  clientResponse?: {
+    action: 'Approved' | 'Revision Requested' | 'Declined';
+    comment?: string;
+    respondedByUid: string;
+    respondedByName?: string;
+    respondedAt: string;
+  };
+  revisionHistory?: ProposalRevisionEntry[];
+  issuedByAdmin: true;
+  issuedByUid: string;
+  issuedByName?: string;
+  issuedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CorporateDocument {
   id: string;
   workspaceId?: string;
+  library?: DocumentLibraryKind;
+  projectId?: string;
   type: DocumentType;
   title: string;
   referenceNo: string;
@@ -712,8 +833,14 @@ export interface CorporateDocument {
   recipientEmail?: string;
   authorName: string;
   authorRole: string;
-  status: 'Draft' | 'Under Review' | 'Approved' | 'Issued' | 'Partially Paid' | 'Paid' | 'Overdue' | 'Cancelled' | 'Accepted' | 'Declined';
-  clientAction?: 'Accepted' | 'Declined';
+  status: 'Draft' | 'Under Review' | 'Approved' | 'Issued' | 'Partially Paid' | 'Paid' | 'Overdue' | 'Cancelled' | 'Accepted' | 'Declined' | 'Revision Requested' | 'Void';
+  currency?: CommercialCurrency;
+  subtotal?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  discountAmount?: number;
+  totalAmount?: number;
+  clientAction?: 'Accepted' | 'Declined' | 'Approved' | 'Revision Requested';
   clientActionDate?: string;
   subject?: string;
   bodyContent: string;
@@ -723,6 +850,8 @@ export interface CorporateDocument {
   payments?: PaymentRecord[];
   totalPaid?: number;
   balanceDue?: number;
+  issuedByAdmin?: boolean;
+  issuedByUid?: string;
   metadata?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
