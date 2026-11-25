@@ -1631,7 +1631,17 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                 Manage singles, EPs and albums, release metadata, readiness checklist and promotional artwork.
               </p>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {onNavigateSection && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateSection('creative-hub')}
+                  className="inline-flex items-center gap-1.5 rounded border border-[#FF1E1E]/50 bg-[#1A0909] px-2.5 py-1 text-xs font-mono text-white hover:bg-[#FF1E1E]/20 whitespace-nowrap shrink-0 mr-1"
+                >
+                  <Sparkles size={12} className="text-[#FF1E1E]" />
+                  <span>Explore Streaming &amp; Release Packs</span>
+                </button>
+              )}
               {(['All', 'Draft', 'Scheduled', 'Live', 'Archived'] as const).map(status => {
                 const count = status === 'All' ? releases.length : releases.filter(r => r.status === status).length;
                 return (
@@ -3173,6 +3183,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
         documents={documents as unknown as CorporateDocument[]}
         onOpenReleases={() => onNavigateSection?.('releases')}
         onOpenBilling={() => onNavigateSection?.('invoices')}
+        onOpenCreativeHub={onNavigateSection ? () => onNavigateSection('creative-hub') : undefined}
       />
     ) : (
       <BrandDocumentLibrary
@@ -3183,6 +3194,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
         onOpenBrandIdentity={() => onNavigateSection?.('brand')}
         onOpenBilling={() => onNavigateSection?.('invoices')}
         onOpenProposals={() => onNavigateSection?.('proposals')}
+        onOpenCreativeHub={onNavigateSection ? () => onNavigateSection('creative-hub') : undefined}
         onRequestCollateral={
           onRequestProduction
             ? () =>

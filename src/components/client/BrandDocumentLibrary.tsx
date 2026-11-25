@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ export interface BrandDocumentLibraryProps {
   onOpenBilling?: () => void;
   onOpenProposals?: () => void;
   onRequestCollateral?: () => void;
+  onOpenCreativeHub?: () => void;
 }
 
 const panelClass = 'rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 sm:p-6';
@@ -93,6 +95,7 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
   onOpenBilling,
   onOpenProposals,
   onRequestCollateral,
+  onOpenCreativeHub,
 }) => {
   const [subTab, setSubTab] = useState<'vault' | 'business-cards' | 'staff-ids' | 'email-signatures'>('vault');
   const [searchQuery, setSearchQuery] = useState('');
@@ -311,6 +314,16 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onOpenCreativeHub && (
+            <button
+              type="button"
+              onClick={onOpenCreativeHub}
+              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-1.5 text-xs text-neutral-300 hover:border-[#FF1E1E] hover:text-white whitespace-nowrap shrink-0"
+            >
+              <Sparkles size={13} className="text-[#FF1E1E]" />
+              <span>Brand &amp; Industry Packs</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => generateBrandGuidelinesPdf(buildGuidelinesPayload(workspace), workspace)}

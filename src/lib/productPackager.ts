@@ -1,11 +1,17 @@
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
-import type { CreativeProduct } from '../types/creativeProduct';
+import type { CreativeProduct, ProductVariationOption } from '../types/creativeProduct';
 import type { CanvasDesign } from '../types/designStudio';
 import { getConceptGlyphSvg, getThemeColors } from '../components/brand/LogoConcepts';
 import { getLineArtItemById } from '../data/lineArtLibrary';
 import { getLineArtSvgString } from '../components/common/LineArtRenderer';
-import { resolveProductFamily, slugifyProductTitle } from './creativeProductAccess';
+import {
+  getApprovedDownloadableFiles,
+  isClientEligibleForProductDownload,
+  resolveProductFamily,
+  slugifyProductTitle,
+  type ClientProductEligibilityParams,
+} from './creativeProductAccess';
 import { drawShapeOnCanvas2D, renderShapeToSvgString } from './canvasShapeRenderer';
 
 function escapeXml(value: string): string {
@@ -836,20 +842,28 @@ function detectDocumentSpreadKind(product: CreativeProduct, family: string): Doc
  * Generates an editable vector SVG master template with clean named groups,
  * safe-zone guides, and bracketed editable text placeholders tailored to the product domain.
  */
-export function generateEditableProductSvgBlob(product: CreativeProduct): Blob {
+export function generateEditableProductSvgBlob(
+  product: CreativeProduct,
+  variation?: ProductVariationOption,
+): Blob {
   const family = resolveProductFamily(product);
   const spreadKind = detectDocumentSpreadKind(product, family);
   const spec = product.dimensionSpecs[0];
-  const isVertical = spec?.aspectRatio?.includes('9:16');
-  const isWide = spec?.aspectRatio?.includes('16:9') || spec?.aspectRatio?.includes('21:9') || spec?.aspectRatio?.includes('3:1');
+  const aspectHint = variation?.aspectRatio || spec?.aspectRatio || '';
+  const isVertical = aspectHint.includes('9:16');
+  const isWide = aspectHint.includes('16:9') || aspectHint.includes('21:9') || aspectHint.includes('3:1');
   const width = isVertical ? 1080 : isWide ? 1920 : 1200;
   const height = isVertical ? 1920 : isWide ? 1080 : 1200;
-  const isDocument = family === 'Business Documents' || family === 'Artist Branding & Press';
-  const bg = isDocument ? '#FAFAFA' : '#080808';
+  const isDocument =
+    variation?.paletteMode === 'Monochrome Light' ||
+    (variation?.paletteMode !== 'Dark Studio' &&
+      (family === 'Business Documents' || family === 'Artist Branding & Press'));
+  const accentHex = variation?.paletteMode === 'Accent Crimson' ? '#E11D48' : '#FF1E1E';
+  const bg = variation?.paletteMode === 'Accent Crimson' ? '#14080A' : isDocument ? '#FAFAFA' : '#080808';
   const fg = isDocument ? '#111111' : '#FFFFFF';
   const muted = isDocument ? '#555555' : '#A3A3A3';
-  const border = isDocument ? '#D4D4D4' : '#262626';
-  const panelBg = isDocument ? '#FFFFFF' : '#121212';
+  const border = variation?.paletteMode === 'Accent Crimson' ? '#7F1D1D' : isDocument ? '#D4D4D4' : '#262626';
+  const panelBg = variation?.paletteMode === 'Accent Crimson' ? '#1E0B0E' : isDocument ? '#FFFFFF' : '#121212';
 
   let domainZonesMarkup = '';
   if (spreadKind === 'invoice') {
@@ -863,25 +877,25 @@ export function generateEditableProductSvgBlob(product: CreativeProduct): Blob {
     <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.58)}" fill="${fg}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.02)}">[01. Creative Deliverable Package]</text>
     <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.64)}" fill="${muted}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.02)}">[02. Production &amp; Commercial Usage Rights]</text>
     <rect x="${Math.round(width * 0.55)}" y="${Math.round(height * 0.72)}" width="${Math.round(width * 0.37)}" height="${Math.round(height * 0.11)}" fill="${panelBg}" stroke="#111111" stroke-width="2" />
-    <text x="${Math.round(width * 0.58)}" y="${Math.round(height * 0.78)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.022)}" font-weight="700">TOTAL DUE: $0,000.00</text>`;
+    <text x="${Math.round(width * 0.58)}" y="${Math.round(height * 0.78)}" fill="${accentHex}" font-family="Courier, monospace" font-size="${Math.round(width * 0.022)}" font-weight="700">TOTAL DUE: $0,000.00</text>`;
   } else if (spreadKind === 'proposal') {
     domainZonesMarkup = `
     <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.45)}" width="${Math.round(width * 0.26)}" height="${Math.round(height * 0.18)}" fill="${panelBg}" stroke="${border}" stroke-width="2" />
     <rect x="${Math.round(width * 0.37)}" y="${Math.round(height * 0.45)}" width="${Math.round(width * 0.26)}" height="${Math.round(height * 0.18)}" fill="${panelBg}" stroke="${border}" stroke-width="2" />
     <rect x="${Math.round(width * 0.66)}" y="${Math.round(height * 0.45)}" width="${Math.round(width * 0.26)}" height="${Math.round(height * 0.18)}" fill="${panelBg}" stroke="${border}" stroke-width="2" />
-    <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.51)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">PHASE 01 SCOPE</text>
-    <text x="${Math.round(width * 0.39)}" y="${Math.round(height * 0.51)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">PHASE 02 TIMELINE</text>
-    <text x="${Math.round(width * 0.68)}" y="${Math.round(height * 0.51)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">FEE SCHEDULE</text>
+    <text x="${Math.round(width * 0.10)}" y="${Math.round(height * 0.51)}" fill="${accentHex}" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">PHASE 01 SCOPE</text>
+    <text x="${Math.round(width * 0.39)}" y="${Math.round(height * 0.51)}" fill="${accentHex}" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">PHASE 02 TIMELINE</text>
+    <text x="${Math.round(width * 0.68)}" y="${Math.round(height * 0.51)}" fill="${accentHex}" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}" font-weight="700">FEE SCHEDULE</text>
     <line x1="${Math.round(width * 0.08)}" y1="${Math.round(height * 0.78)}" x2="${Math.round(width * 0.46)}" y2="${Math.round(height * 0.78)}" stroke="${fg}" stroke-width="2" />
     <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.82)}" fill="${muted}" font-family="Courier, monospace" font-size="${Math.round(width * 0.015)}">CLIENT ACCEPTANCE SIGNATURE &amp; DATE</text>`;
   } else if (spreadKind === 'brand') {
     domainZonesMarkup = `
-    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.42)}" height="${Math.round(height * 0.24)}" fill="none" stroke="#FF1E1E" stroke-dasharray="8 6" stroke-width="2" />
+    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.42)}" height="${Math.round(height * 0.24)}" fill="none" stroke="${accentHex}" stroke-dasharray="8 6" stroke-width="2" />
     <text x="${Math.round(width * 0.12)}" y="${Math.round(height * 0.59)}" fill="${fg}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.024)}" font-weight="700">[LOGO CLEAR-SPACE ZONE]</text>
     <rect x="${Math.round(width * 0.54)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.11)}" height="${Math.round(height * 0.11)}" fill="#0A0A0A" stroke="${border}" stroke-width="2" />
-    <rect x="${Math.round(width * 0.68)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.11)}" height="${Math.round(height * 0.11)}" fill="#FF1E1E" />
+    <rect x="${Math.round(width * 0.68)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.11)}" height="${Math.round(height * 0.11)}" fill="${accentHex}" />
     <rect x="${Math.round(width * 0.82)}" y="${Math.round(height * 0.46)}" width="${Math.round(width * 0.10)}" height="${Math.round(height * 0.11)}" fill="#FAFAFA" stroke="${border}" stroke-width="2" />
-    <text x="${Math.round(width * 0.54)}" y="${Math.round(height * 0.63)}" fill="${muted}" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}">SWATCH TOKENS: #0A0A0A · #FF1E1E · #FAFAFA</text>`;
+    <text x="${Math.round(width * 0.54)}" y="${Math.round(height * 0.63)}" fill="${muted}" font-family="Courier, monospace" font-size="${Math.round(width * 0.016)}">SWATCH TOKENS: #0A0A0A · ${accentHex} · #FAFAFA</text>`;
   } else {
     const deliverablesMarkup = (product.deliverablesSummary || [])
       .slice(0, 4)
@@ -895,18 +909,19 @@ export function generateEditableProductSvgBlob(product: CreativeProduct): Blob {
     ${deliverablesMarkup}`;
   }
 
+  const variationLabel = variation?.label ? ` · ${escapeXml(variation.label)}` : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
   <g id="background">
     <rect width="${width}" height="${height}" fill="${bg}" />
     <rect x="${Math.round(width * 0.04)}" y="${Math.round(height * 0.04)}" width="${Math.round(width * 0.92)}" height="${Math.round(height * 0.92)}" fill="none" stroke="${border}" stroke-width="2" />
   </g>
   <g id="brand-accent">
-    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.1)}" width="${Math.round(width * 0.12)}" height="6" fill="#FF1E1E" />
-    <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.16)}" fill="#FF1E1E" font-family="Courier, monospace" font-size="${Math.round(width * 0.018)}" font-weight="700" letter-spacing="3">${escapeXml(family.toUpperCase())} // ${escapeXml(product.audience.toUpperCase())}</text>
+    <rect x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.1)}" width="${Math.round(width * 0.12)}" height="6" fill="${accentHex}" />
+    <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.16)}" fill="${accentHex}" font-family="Courier, monospace" font-size="${Math.round(width * 0.018)}" font-weight="700" letter-spacing="3">${escapeXml(family.toUpperCase())} // ${escapeXml(product.audience.toUpperCase())}</text>
   </g>
   <g id="editable-headline">
     <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.30)}" fill="${fg}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.048)}" font-weight="800">${escapeXml(product.title.slice(0, 38))}</text>
-    <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.38)}" fill="${muted}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.024)}" font-weight="400">${escapeXml(product.subcategory || product.category)} · Edit text &amp; colors in Illustrator / Figma / Inkscape</text>
+    <text x="${Math.round(width * 0.08)}" y="${Math.round(height * 0.38)}" fill="${muted}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(width * 0.024)}" font-weight="400">${escapeXml(product.subcategory || product.category)}${variationLabel} · Edit text &amp; colors cleanly</text>
   </g>
   <g id="deliverable-zones">
     ${domainZonesMarkup}
@@ -928,8 +943,9 @@ export async function packageProductDeliverablesZip(params: {
   designs?: CanvasDesign[];
   includeDocumentPdf?: boolean;
   workspaceLabel?: string;
+  variation?: ProductVariationOption;
 }): Promise<Blob> {
-  const { product, designs = [], includeDocumentPdf = true, workspaceLabel = 'KeedoHub Studio' } = params;
+  const { product, designs = [], includeDocumentPdf = true, workspaceLabel = 'KeedoHub Studio', variation } = params;
   const zip = new JSZip();
   const slug = slugifyProductTitle(product.title || 'creative-pack');
 
@@ -942,6 +958,7 @@ export async function packageProductDeliverablesZip(params: {
     `Product Family: ${resolveProductFamily(product)}`,
     `Category: ${product.category}${product.subcategory ? ` / ${product.subcategory}` : ''}`,
     `Version: ${product.version || 'v1.0'}`,
+    ...(variation ? [`Selected Variation: ${variation.label} (${variation.paletteMode || variation.format})`] : []),
     `Generated: ${new Date().toISOString()}`,
     '',
     'INCLUDED DELIVERABLES:',
@@ -962,13 +979,13 @@ export async function packageProductDeliverablesZip(params: {
     zip.file(`01_${slug}_studio_pack.pdf`, pdfBlob);
   }
 
-  const editableSvg = generateEditableProductSvgBlob(product);
+  const editableSvg = generateEditableProductSvgBlob(product, variation);
   zip.file(`02_${slug}_editable_master.svg`, editableSvg);
 
   for (let i = 0; i < designs.length; i++) {
     const d = designs[i];
     const dSlug = slugifyProductTitle(d.name || `template-${i + 1}`);
-    const svgBlob = renderCanvasDesignToSvgBlob(d);
+    const svgBlob = renderCanvasDesignToSvgString(d);
     zip.file(`03_templates/0${i + 1}_${dSlug}_${d.width}x${d.height}.svg`, svgBlob);
     try {
       const pngBlob = await renderCanvasDesignToRasterBlob(d, 'png');
@@ -979,4 +996,122 @@ export async function packageProductDeliverablesZip(params: {
   }
 
   return await zip.generateAsync({ type: 'blob' });
+}
+
+export interface BatchZipPackagingResult {
+  blob: Blob;
+  includedProductIds: string[];
+  skippedProductIds: string[];
+}
+
+/**
+ * Packages multiple authorized Creative Products or a full Collection into one structured ZIP archive.
+ * Strictly re-validates client entitlement per resource before bundling.
+ */
+export async function packageMultipleProductsZip(params: {
+  products: CreativeProduct[];
+  eligibilityContext: Omit<ClientProductEligibilityParams, 'product'>;
+  workspaceLabel?: string;
+  designsByTemplateId?: Record<string, CanvasDesign>;
+  fetchRemoteFile?: (storagePath: string) => Promise<Blob>;
+  verifyServerAccess?: (product: CreativeProduct) => Promise<{ allowed: boolean; reason?: string }>;
+  onProgress?: (completed: number, total: number, currentTitle: string) => void;
+}): Promise<BatchZipPackagingResult> {
+  const {
+    products,
+    eligibilityContext,
+    workspaceLabel = 'KeedoHub Workspace',
+    designsByTemplateId = {},
+    fetchRemoteFile,
+    verifyServerAccess,
+    onProgress,
+  } = params;
+
+  const zip = new JSZip();
+  const includedProductIds: string[] = [];
+  const skippedProductIds: string[] = [];
+  const manifestLines: string[] = [
+    '========================================================================',
+    `KEEDOHUB CREATIVE COLLECTION ARCHIVE — ${workspaceLabel.toUpperCase()}`,
+    `Generated: ${new Date().toISOString()}`,
+    '========================================================================',
+    '',
+  ];
+
+  for (let i = 0; i < products.length; i++) {
+    const product = products[i];
+    onProgress?.(i, products.length, product.title);
+
+    const eligible = isClientEligibleForProductDownload({
+      ...eligibilityContext,
+      product,
+    });
+    if (!eligible) {
+      skippedProductIds.push(product.id);
+      manifestLines.push(`[SKIPPED - ENTITLEMENT REQUIRED] ${product.title} (${product.id})`);
+      continue;
+    }
+
+    if (verifyServerAccess) {
+      const serverCheck = await verifyServerAccess(product);
+      if (!serverCheck.allowed) {
+        skippedProductIds.push(product.id);
+        manifestLines.push(
+          `[SKIPPED - SERVER VERIFICATION DENIED] ${product.title} (${product.id})${serverCheck.reason ? `: ${serverCheck.reason}` : ''}`,
+        );
+        continue;
+      }
+    }
+
+    const approvedFiles = getApprovedDownloadableFiles(product.files);
+    if (approvedFiles.length === 0 && product.instantStudioPackEligible !== true) {
+      skippedProductIds.push(product.id);
+      manifestLines.push(`[SKIPPED - NO CLIENT DELIVERABLES] ${product.title} (${product.id})`);
+      continue;
+    }
+
+    includedProductIds.push(product.id);
+    const folderSlug = `${String(includedProductIds.length).padStart(2, '0')}_${slugifyProductTitle(product.title)}`;
+    const folder = zip.folder(folderSlug);
+    if (!folder) continue;
+
+    manifestLines.push(`[INCLUDED] ${product.title} — ${product.category} (${product.audience})`);
+
+    const linkedDesign = product.linkedTemplateId ? designsByTemplateId[product.linkedTemplateId] : undefined;
+    const itemZipBlob = await packageProductDeliverablesZip({
+      product,
+      designs: linkedDesign ? [linkedDesign] : [],
+      includeDocumentPdf: true,
+      workspaceLabel,
+    });
+
+    const nestedZip = await JSZip.loadAsync(itemZipBlob);
+    for (const [entryName, entryObj] of Object.entries(nestedZip.files)) {
+      if (!entryObj.dir) {
+        const bytes = await entryObj.async('uint8array');
+        folder.file(entryName, bytes);
+      }
+    }
+
+    if (fetchRemoteFile) {
+      for (const f of approvedFiles) {
+        try {
+          const remoteBlob = await fetchRemoteFile(f.storagePath);
+          folder.file(`files/${f.fileName}`, remoteBlob);
+        } catch {
+          // Keep studio pack assets cleanly even if an external file fetch is offline
+        }
+      }
+    }
+  }
+
+  onProgress?.(products.length, products.length, 'Finalizing archive…');
+
+  if (includedProductIds.length === 0) {
+    throw new Error('None of the selected resources are unlocked for download on your workspace.');
+  }
+
+  zip.file('00_COLLECTION_MANIFEST.txt', manifestLines.join('\n'));
+  const blob = await zip.generateAsync({ type: 'blob' });
+  return { blob, includedProductIds, skippedProductIds };
 }

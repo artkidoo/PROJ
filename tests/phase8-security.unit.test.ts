@@ -306,8 +306,8 @@ async function run() {
   // =========================================================================
   // 6. ZERO SEED FABRICATION & REAL PRODUCTION INTEGRITY
   // =========================================================================
-  console.log('[TEST 6] Seed catalog integrity check (43 seeds)');
-  assert.equal(CREATIVE_CATALOG_SEEDS.length, 43, 'Seed catalog must maintain all 43 rich creative products');
+  console.log('[TEST 6] Seed catalog integrity check (50+ seeds)');
+  assert.ok(CREATIVE_CATALOG_SEEDS.length >= 50, `Seed catalog must maintain >= 50 rich creative products (found ${CREATIVE_CATALOG_SEEDS.length})`);
   for (const seed of CREATIVE_CATALOG_SEEDS) {
     assert.equal(seed.status, 'Published');
     assert.ok(['Artist', 'Brand', 'Business', 'Brand & Business', 'Shared'].includes(seed.audience));

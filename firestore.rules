@@ -338,6 +338,70 @@ service cloud.firestore {
       );
 
       allow delete: if isPlatformAdmin();
+
+      // User-scoped Creative Resource Favourites, Personal Collections & Access History
+      match /favouriteResources/{productId} {
+        allow read: if isOwner(userId) && isWorkspaceAccountActive();
+        allow create, update: if isOwner(userId) &&
+          isWorkspaceAccountActive() &&
+          isValidId(productId) &&
+          request.resource.data.keys().hasOnly([
+            'productId', 'uid', 'workspaceId', 'audience',
+            'titleSnapshot', 'categorySnapshot', 'previewImageUrlSnapshot', 'savedAt'
+          ]) &&
+          request.resource.data.productId == productId &&
+          request.resource.data.uid == userId &&
+          isValidId(request.resource.data.workspaceId) &&
+          isWorkspaceOpen(request.resource.data.workspaceId) &&
+          request.resource.data.savedAt is string;
+        allow delete: if isOwner(userId) && isWorkspaceAccountActive();
+      }
+
+      match /resourceCollections/{collectionId} {
+        allow read: if isOwner(userId) && isWorkspaceAccountActive();
+        allow create, update: if isOwner(userId) &&
+          isWorkspaceAccountActive() &&
+          isValidId(collectionId) &&
+          request.resource.data.keys().hasOnly([
+            'id', 'uid', 'workspaceId', 'name', 'description',
+            'productIds', 'createdAt', 'updatedAt'
+          ]) &&
+          request.resource.data.id == collectionId &&
+          request.resource.data.uid == userId &&
+          isValidId(request.resource.data.workspaceId) &&
+          isWorkspaceOpen(request.resource.data.workspaceId) &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          request.resource.data.name.size() <= 80 &&
+          (!request.resource.data.keys().hasAny(['description']) ||
+            (request.resource.data.description is string && request.resource.data.description.size() <= 400)) &&
+          request.resource.data.productIds is list &&
+          request.resource.data.productIds.size() <= 100 &&
+          request.resource.data.createdAt is string &&
+          request.resource.data.updatedAt is string;
+        allow delete: if isOwner(userId) && isWorkspaceAccountActive();
+      }
+
+      match /resourceHistory/{productId} {
+        allow read: if isOwner(userId) && isWorkspaceAccountActive();
+        allow create, update: if isOwner(userId) &&
+          isWorkspaceAccountActive() &&
+          isValidId(productId) &&
+          request.resource.data.keys().hasOnly([
+            'productId', 'uid', 'workspaceId', 'lastAction', 'lastFormat',
+            'lastVariation', 'downloadCount', 'titleSnapshot',
+            'categorySnapshot', 'previewImageUrlSnapshot', 'lastAccessedAt'
+          ]) &&
+          request.resource.data.productId == productId &&
+          request.resource.data.uid == userId &&
+          isValidId(request.resource.data.workspaceId) &&
+          isWorkspaceOpen(request.resource.data.workspaceId) &&
+          request.resource.data.lastAction in ['view', 'preview', 'download'] &&
+          request.resource.data.downloadCount is number &&
+          request.resource.data.downloadCount >= 0 &&
+          request.resource.data.lastAccessedAt is string;
+        allow delete: if isOwner(userId) && isWorkspaceAccountActive();
+      }
     }
 
     // Workspaces Container
@@ -848,27 +912,45 @@ service cloud.firestore {
 
     function clientHasPackageEntitlementForProduct(productPkgIds) {
       return clientHasOpenWorkspace() &&
-        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['contractedPackageIds']) &&
-        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds is list &&
-        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds.size() > 0 &&
         (
-          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 0) ||
-          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 1) ||
-          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 2) ||
-          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 3) ||
-          clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 4)
+          (
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['activePackageIds']) &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.activePackageIds is list &&
+            productPkgIds.hasAny(get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.activePackageIds)
+          ) ||
+          (
+            !get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['activePackageIds']) &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['contractedPackageIds']) &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds is list &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds.size() > 0 &&
+            (
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 0) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 1) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 2) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 3) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 4) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 5) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 6) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 7) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 8) ||
+              clientMatchesPackageAt(productPkgIds, get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.contractedPackageIds, 9)
+            )
+          )
         );
     }
 
     function validCreativeProduct(productId, data) {
       return data.keys().hasOnly([
-          'id', 'title', 'slug', 'audience', 'productFamily', 'category', 'subcategory', 'summary',
-          'description', 'status', 'accessType', 'assignedWorkspaceIds',
-          'includedPackageIds', 'linkedServiceCategory', 'version',
-          'supportedFormats', 'deliverablesSummary', 'dimensionSpecs',
-          'previewImageUrl', 'previewStoragePath', 'previewAlt', 'files',
-          'linkedCanvasDesignId', 'linkedTemplateId', 'featured',
-          'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+          'id', 'title', 'slug', 'audience', 'productFamily', 'category', 'subcategory',
+          'resourceType', 'industryTag', 'summary', 'description', 'status', 'reviewStatus',
+          'accessType', 'assignedWorkspaceIds', 'includedPackageIds',
+          'membershipTiers', 'priceUsd', 'unlockedByDefault', 'instantStudioPackEligible',
+          'linkedServiceCategory', 'version', 'supportedFormats', 'deliverablesSummary',
+          'includedItems', 'dimensionSpecs', 'variationOptions', 'previewImageUrl',
+          'previewStoragePath', 'previewAlt', 'previewGallery', 'files',
+          'linkedCanvasDesignId', 'linkedTemplateId', 'featured', 'dropIds',
+          'viewCount', 'downloadCount', 'saveCount',
+          'createdAt', 'updatedAt', 'createdBy', 'updatedBy', 'createdByUid'
         ]) &&
         data.id == productId &&
         isValidId(productId) &&
@@ -878,28 +960,76 @@ service cloud.firestore {
         (!data.keys().hasAny(['productFamily']) || (data.productFamily is string && data.productFamily.size() <= 120)) &&
         data.category is string && data.category.size() > 0 && data.category.size() <= 120 &&
         (!data.keys().hasAny(['subcategory']) || (data.subcategory is string && data.subcategory.size() <= 120)) &&
+        (!data.keys().hasAny(['resourceType']) || (data.resourceType is string && data.resourceType.size() <= 60)) &&
+        (!data.keys().hasAny(['industryTag']) || (data.industryTag is string && data.industryTag.size() <= 120)) &&
         data.summary is string && data.summary.size() <= 600 &&
         data.description is string && data.description.size() <= 5000 &&
         data.status in ['Draft', 'Published', 'Archived'] &&
+        (!data.keys().hasAny(['reviewStatus']) || data.reviewStatus in ['Draft', 'Pending Review', 'Published', 'Archived']) &&
         data.accessType in ['Free', 'IncludedInPackage', 'AdminAssigned', 'RequestRequired'] &&
         data.assignedWorkspaceIds is list && data.assignedWorkspaceIds.size() <= 200 &&
         (!data.keys().hasAny(['includedPackageIds']) || (data.includedPackageIds is list && data.includedPackageIds.size() <= 50)) &&
-        (data.status != 'Published' ||
-          data.accessType != 'IncludedInPackage' ||
-          (data.keys().hasAny(['includedPackageIds']) && data.includedPackageIds is list && data.includedPackageIds.size() > 0) ||
-          data.assignedWorkspaceIds.size() > 0) &&
+        (!data.keys().hasAny(['membershipTiers']) || (data.membershipTiers is list && data.membershipTiers.size() <= 15)) &&
+        (!data.keys().hasAny(['priceUsd']) || (data.priceUsd is number && data.priceUsd >= 0)) &&
+        (!data.keys().hasAny(['unlockedByDefault']) || data.unlockedByDefault is bool) &&
+        (!data.keys().hasAny(['instantStudioPackEligible']) || data.instantStudioPackEligible is bool) &&
+        (data.status != 'Published' || (
+          data.summary.size() > 0 &&
+          data.description.size() > 0 &&
+          data.previewImageUrl.size() > 0 &&
+          data.deliverablesSummary.size() > 0 &&
+          (
+            data.accessType != 'IncludedInPackage' ||
+            (data.keys().hasAny(['includedPackageIds']) && data.includedPackageIds is list && data.includedPackageIds.size() > 0) ||
+            data.assignedWorkspaceIds.size() > 0
+          ) &&
+          (
+            data.accessType == 'RequestRequired' ||
+            (data.keys().hasAny(['instantStudioPackEligible']) && data.instantStudioPackEligible == true) ||
+            data.files.size() > 0
+          )
+        )) &&
         data.linkedServiceCategory is string && data.linkedServiceCategory.size() <= 120 &&
         data.version is string && data.version.size() <= 40 &&
         data.supportedFormats is list && data.supportedFormats.size() <= 20 &&
         data.deliverablesSummary is list && data.deliverablesSummary.size() <= 30 &&
+        (!data.keys().hasAny(['includedItems']) || (data.includedItems is list && data.includedItems.size() <= 40)) &&
         data.dimensionSpecs is list && data.dimensionSpecs.size() <= 30 &&
+        (!data.keys().hasAny(['variationOptions']) || (data.variationOptions is list && data.variationOptions.size() <= 20)) &&
         data.previewImageUrl is string && data.previewImageUrl.size() <= 2048 &&
+        (!data.keys().hasAny(['previewGallery']) || (data.previewGallery is list && data.previewGallery.size() <= 15)) &&
+        (!data.keys().hasAny(['dropIds']) || (data.dropIds is list && data.dropIds.size() <= 30)) &&
         data.files is list && data.files.size() <= 50 &&
         data.createdAt is string && data.updatedAt is string &&
         data.createdBy is string && data.updatedBy is string;
     }
 
-    // Phase 6 Creative Products Catalog & Deliverables
+    function validCreativeDrop(dropId, data) {
+      return data.keys().hasOnly([
+          'id', 'title', 'slug', 'monthKey', 'headline', 'description',
+          'audience', 'accessLevel', 'status', 'heroImageUrl',
+          'productIds', 'highlightTags', 'publishDate', 'expiresAt',
+          'createdByUid', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == dropId &&
+        isValidId(dropId) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 160 &&
+        data.slug is string && data.slug.size() > 0 && data.slug.size() <= 160 &&
+        data.monthKey is string && data.monthKey.matches('^[0-9]{4}-[0-9]{2}$') &&
+        data.headline is string && data.headline.size() <= 300 &&
+        data.description is string && data.description.size() <= 3000 &&
+        data.audience in ['Artist', 'Brand', 'Business', 'Brand & Business', 'Shared'] &&
+        data.accessLevel in ['Free', 'Restricted'] &&
+        data.status in ['Draft', 'Scheduled', 'Published', 'Archived'] &&
+        data.heroImageUrl is string && data.heroImageUrl.size() <= 2048 &&
+        data.productIds is list && data.productIds.size() <= 60 &&
+        (!data.keys().hasAny(['highlightTags']) || (data.highlightTags is list && data.highlightTags.size() <= 15)) &&
+        data.publishDate is string &&
+        data.createdAt is string &&
+        data.updatedAt is string;
+    }
+
+    // Phase 6 & Phase 4 Creative Products Catalog & Deliverables
     match /creativeProducts/{productId} {
       allow read: if isPlatformAdmin() || (
         isWorkspaceAccountActive() &&
@@ -908,6 +1038,7 @@ service cloud.firestore {
         clientMatchesProductAudience(resource.data.audience) &&
         (
           resource.data.accessType in ['Free', 'RequestRequired'] ||
+          resource.data.get('unlockedByDefault', false) == true ||
           clientHasWorkspaceAccessToProduct(resource.data.assignedWorkspaceIds) ||
           (
             resource.data.accessType == 'IncludedInPackage' &&
@@ -922,6 +1053,33 @@ service cloud.firestore {
       match /internalSpecs/{specId} {
         allow read, write: if isPlatformAdmin();
       }
+    }
+
+    // Monthly Creative Resource Drops
+    match /creativeDrops/{dropId} {
+      allow read: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        clientHasOpenWorkspace() &&
+        resource.data.status == 'Published' &&
+        clientMatchesProductAudience(resource.data.audience)
+      );
+      allow create, update: if isPlatformAdmin() && validCreativeDrop(dropId, request.resource.data);
+      allow delete: if isPlatformAdmin() && isValidId(dropId);
+    }
+
+    // Resource Analytics & Deduplication (Server-Written Only, Admin-Read Only)
+    match /resourceAnalyticsEvents/{eventId} {
+      allow read: if isPlatformAdmin();
+      allow write: if false;
+    }
+
+    match /resourceAnalyticsSummaries/{productId} {
+      allow read: if isPlatformAdmin();
+      allow write: if false;
+    }
+
+    match /resourceAnalyticsDedup/{dedupId} {
+      allow read, write: if false;
     }
 
     function validBrandRoomAsset(assetId, data) {

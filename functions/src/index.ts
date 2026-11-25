@@ -351,6 +351,86 @@ export const convertServiceEnquiryToProject = functions.https.onCall(async (data
   return { success: true, projectId: projectRef.id };
 });
 
+async function computeActiveWorkspacePackageIds(
+  contractedPackageIds: unknown,
+  packageEntitlements: unknown,
+  overrideServiceStatus?: { serviceId: string; isActive: boolean },
+): Promise<string[]> {
+  const rawContracted = Array.isArray(contractedPackageIds)
+    ? contractedPackageIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map(id => id.trim())
+    : [];
+
+  const nowMs = Date.now();
+  const entitlementById = new Map<string, { status?: string; expiresAt?: string }>();
+  if (Array.isArray(packageEntitlements)) {
+    for (const entry of packageEntitlements) {
+      if (!entry || typeof entry !== 'object') continue;
+      const obj = entry as Record<string, unknown>;
+      const pkgId = typeof obj.packageId === 'string' ? obj.packageId.trim() : '';
+      if (!pkgId) continue;
+      entitlementById.set(pkgId, {
+        status: typeof obj.status === 'string' ? obj.status : undefined,
+        expiresAt: typeof obj.expiresAt === 'string' ? obj.expiresAt : undefined,
+      });
+    }
+  }
+
+  const candidateIds = Array.from(new Set([...rawContracted, ...entitlementById.keys()]));
+  const eligibleIds: string[] = [];
+
+  for (const pkgId of candidateIds) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(pkgId) || pkgId.length > 128) {
+      continue;
+    }
+    const ent = entitlementById.get(pkgId);
+    if (ent) {
+      const normalizedStatus = (ent.status || 'Active').trim().toLowerCase();
+      if (['inactive', 'paused', 'expired', 'revoked', 'cancelled', 'canceled'].includes(normalizedStatus)) {
+        continue;
+      }
+      if (ent.expiresAt !== undefined && ent.expiresAt !== '') {
+        const expMs = Date.parse(ent.expiresAt);
+        if (Number.isNaN(expMs) || expMs <= nowMs) {
+          continue;
+        }
+      }
+    }
+
+    if (overrideServiceStatus && overrideServiceStatus.serviceId === pkgId) {
+      if (!overrideServiceStatus.isActive) continue;
+      eligibleIds.push(pkgId);
+      continue;
+    }
+
+    const svcSnap = await db.collection('services').doc(pkgId).get();
+    if (!svcSnap.exists || svcSnap.get('isActive') !== true) {
+      continue;
+    }
+    eligibleIds.push(pkgId);
+  }
+
+  return Array.from(new Set(eligibleIds));
+}
+
+async function syncWorkspacesUsingServicePackage(serviceId: string, isActive: boolean) {
+  const snap = await db.collection('workspaces')
+    .where('contractedPackageIds', 'array-contains', serviceId)
+    .get();
+  if (snap.empty) return;
+  const now = new Date().toISOString();
+  const batch = db.batch();
+  for (const wsDoc of snap.docs) {
+    const data = wsDoc.data() || {};
+    const activeIds = await computeActiveWorkspacePackageIds(
+      data.contractedPackageIds,
+      data.packageEntitlements,
+      { serviceId, isActive },
+    );
+    batch.update(wsDoc.ref, { activePackageIds: activeIds, updatedAt: now });
+  }
+  await batch.commit();
+}
+
 export const adminCreateClientWorkspace = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
   await assertActiveAdmin(context.auth.uid);
@@ -390,8 +470,13 @@ export const adminCreateClientWorkspace = functions.https.onCall(async (data, co
   const description = typeof data.description === 'string' ? data.description.trim().slice(0, 1000) : '';
   const tagline = typeof data.tagline === 'string' ? data.tagline.trim().slice(0, 160) : '';
   const packageId = typeof data.packageId === 'string' ? data.packageId.trim() : '';
-  if (packageId && !(await db.collection('services').doc(packageId).get()).exists) {
-    throw new functions.https.HttpsError('not-found', 'The selected service package no longer exists.');
+  let packageActive = false;
+  if (packageId) {
+    const pkgSnap = await db.collection('services').doc(packageId).get();
+    if (!pkgSnap.exists) {
+      throw new functions.https.HttpsError('not-found', 'The selected service package no longer exists.');
+    }
+    packageActive = pkgSnap.get('isActive') !== false;
   }
   const now = new Date().toISOString();
   const workspaceRef = db.collection('workspaces').doc();
@@ -404,7 +489,7 @@ export const adminCreateClientWorkspace = functions.https.onCall(async (data, co
     status: 'Onboarding',
     description: description || `${name} ${type} Workspace`,
     contactEmail: email,
-    ...(packageId ? { contractedPackageIds: [packageId] } : {}),
+    ...(packageId ? { contractedPackageIds: [packageId], activePackageIds: packageActive ? [packageId] : [] } : { activePackageIds: [] }),
     brand: {
       name,
       primaryColor: accentColor,
@@ -460,6 +545,11 @@ export const adminUpdateWorkspace = functions.https.onCall(async (data, context)
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
   await assertActiveAdmin(context.auth.uid);
   const workspaceId = requireText(data?.workspaceId, 'Workspace ID', 128);
+  const workspaceRef = db.collection('workspaces').doc(workspaceId);
+  const workspaceSnap = await workspaceRef.get();
+  if (!workspaceSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Workspace not found.');
+  }
   const updates: Record<string, unknown> = {};
   if (data.status !== undefined) {
     if (!['Active', 'Onboarding', 'Paused', 'Archived'].includes(data.status)) {
@@ -468,16 +558,26 @@ export const adminUpdateWorkspace = functions.https.onCall(async (data, context)
     updates.status = data.status;
   }
   if (data.contractedPackageIds !== undefined) {
-    if (!Array.isArray(data.contractedPackageIds) || data.contractedPackageIds.length > 50 ||
+    if (!Array.isArray(data.contractedPackageIds) || data.contractedPackageIds.length > 100 ||
         data.contractedPackageIds.some((id: unknown) => typeof id !== 'string' || id.length > 128)) {
       throw new functions.https.HttpsError('invalid-argument', 'Service assignments are invalid.');
     }
     updates.contractedPackageIds = [...new Set(data.contractedPackageIds)];
   }
+  if (data.packageEntitlements !== undefined) {
+    if (!Array.isArray(data.packageEntitlements) || data.packageEntitlements.length > 100) {
+      throw new functions.https.HttpsError('invalid-argument', 'Package entitlements are invalid.');
+    }
+    updates.packageEntitlements = data.packageEntitlements;
+  }
   if (Object.keys(updates).length === 0) {
     throw new functions.https.HttpsError('invalid-argument', 'No supported workspace updates were provided.');
   }
-  const workspaceRef = db.collection('workspaces').doc(workspaceId);
+  if (data.contractedPackageIds !== undefined || data.packageEntitlements !== undefined) {
+    const nextContracted = updates.contractedPackageIds ?? workspaceSnap.get('contractedPackageIds');
+    const nextEntitlements = updates.packageEntitlements ?? workspaceSnap.get('packageEntitlements');
+    updates.activePackageIds = await computeActiveWorkspacePackageIds(nextContracted, nextEntitlements);
+  }
   const now = new Date().toISOString();
   const batch = db.batch();
   batch.update(workspaceRef, { ...updates, updatedAt: now });
@@ -486,12 +586,12 @@ export const adminUpdateWorkspace = functions.https.onCall(async (data, context)
     actorName: context.auth.token.name || context.auth.uid,
     action: 'update_workspace',
     target: workspaceId,
-    targetUid: (await workspaceRef.get()).get('ownerId') || '',
+    targetUid: workspaceSnap.get('ownerId') || '',
     details: JSON.stringify(updates),
     createdAt: now,
   });
   await batch.commit();
-  return { success: true };
+  return { success: true, activePackageIds: updates.activePackageIds };
 });
 
 export const adminListPlatformRoles = functions.https.onCall(async (_data, context) => {
@@ -573,6 +673,7 @@ export const adminSaveServicePackage = functions.https.onCall(async (data, conte
     createdAt: now,
   });
   await batch.commit();
+  await syncWorkspacesUsingServicePackage(serviceId, Boolean(data.isActive));
   return { success: true };
 });
 
@@ -596,6 +697,7 @@ export const adminSetServicePackageActive = functions.https.onCall(async (data, 
     createdAt: now,
   });
   await batch.commit();
+  await syncWorkspacesUsingServicePackage(serviceId, data.isActive);
   return { success: true };
 });
 
@@ -702,6 +804,14 @@ function requireText(value: unknown, label: string, maxLength: number): string {
     throw new functions.https.HttpsError('invalid-argument', `${label} is required and must be ${maxLength} characters or fewer.`);
   }
   return value.trim();
+}
+
+function requireSafeDocId(value: unknown, label: string): string {
+  const id = requireText(value, label, 128);
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    throw new functions.https.HttpsError('invalid-argument', `${label} contains invalid characters.`);
+  }
+  return id;
 }
 
 async function findClientProfileByEmail(email: string) {
@@ -1916,4 +2026,289 @@ export const clientRespondProposal = functions.https.onCall(async (data, context
     clientResponse: validated.clientResponse,
   };
 });
+
+// ============================================================================
+// PHASE 4: CREATIVE RESOURCE ECOSYSTEM CALLABLES (ENTITLEMENTS & ANALYTICS)
+// ============================================================================
+
+const BRAND_RAW_TYPES = new Set([
+  'brand', 'business', 'company', 'label', 'agency', 'enterprise', 'personal', 'startup', 'corporation', 'commercial',
+]);
+
+function matchesClientAudienceServer(rawAccountType: unknown, productAudience: unknown): boolean {
+  const aud = String(productAudience || '').trim();
+  if (aud === 'Shared') return true;
+  const acct = typeof rawAccountType === 'string' ? rawAccountType.trim().toLowerCase() : '';
+  if (acct === 'artist') return aud === 'Artist';
+  if (BRAND_RAW_TYPES.has(acct)) return ['Brand', 'Business', 'Brand & Business'].includes(aud);
+  return false;
+}
+
+export const adminSyncWorkspaceEntitlements = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  await assertActiveAdmin(context.auth.uid);
+  const rawWorkspaceId = typeof data?.workspaceId === 'string' ? data.workspaceId.trim() : '';
+  const now = new Date().toISOString();
+  if (rawWorkspaceId) {
+    const targetWorkspaceId = requireSafeDocId(rawWorkspaceId, 'Workspace ID');
+    const wsRef = db.collection('workspaces').doc(targetWorkspaceId);
+    const wsSnap = await wsRef.get();
+    if (!wsSnap.exists) throw new functions.https.HttpsError('not-found', 'Workspace not found.');
+    const activeIds = await computeActiveWorkspacePackageIds(wsSnap.get('contractedPackageIds'), wsSnap.get('packageEntitlements'));
+    await wsRef.update({ activePackageIds: activeIds, updatedAt: now });
+    return { success: true, updatedCount: 1, activePackageIds: activeIds };
+  }
+  const allSnap = await db.collection('workspaces').get();
+  let updatedCount = 0;
+  for (const wsDoc of allSnap.docs) {
+    const activeIds = await computeActiveWorkspacePackageIds(wsDoc.get('contractedPackageIds'), wsDoc.get('packageEntitlements'));
+    await wsDoc.ref.update({ activePackageIds: activeIds, updatedAt: now });
+    updatedCount += 1;
+  }
+  return { success: true, updatedCount };
+});
+
+export const verifyCreativeResourceAccess = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  const uid = context.auth.uid;
+  const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const productId = requireSafeDocId(payload.productId, 'Product ID');
+  const workspaceId = requireSafeDocId(payload.workspaceId, 'Workspace ID');
+
+  const [profileSnap, productSnap, workspaceSnap, membershipSnap] = await Promise.all([
+    db.collection('clientProfiles').doc(uid).get(),
+    db.collection('creativeProducts').doc(productId).get(),
+    db.collection('workspaces').doc(workspaceId).get(),
+    db.collection('workspaces').doc(workspaceId).collection('memberships').doc(uid).get(),
+  ]);
+
+  if (!profileSnap.exists || profileSnap.get('onboardingComplete') !== true || isSuspendedProfileStatus(profileSnap.get('status'))) {
+    throw new functions.https.HttpsError('permission-denied', 'Active client profile required.');
+  }
+  if (!workspaceSnap.exists || !['Active', 'Onboarding'].includes(String(workspaceSnap.get('status') || 'Active'))) {
+    throw new functions.https.HttpsError('permission-denied', 'Workspace is not active.');
+  }
+  const isOwner = workspaceSnap.get('ownerId') === uid;
+  const isMember = membershipSnap.exists && membershipSnap.get('status') === 'Active';
+  if (!isOwner && !isMember) {
+    throw new functions.https.HttpsError('permission-denied', 'You are not a member of this workspace.');
+  }
+  if (!productSnap.exists || productSnap.get('status') !== 'Published') {
+    throw new functions.https.HttpsError('not-found', 'Published creative resource not found.');
+  }
+
+  const productData = productSnap.data() || {};
+  const effectiveAccountType =
+    profileSnap.get('accountType') || workspaceSnap.get('clientCategory') || workspaceSnap.get('type');
+  if (!matchesClientAudienceServer(effectiveAccountType, productData.audience)) {
+    return { allowed: false, reason: 'Audience restriction: not eligible for this account experience.', authorizedFiles: [] };
+  }
+
+  const assignedIds = Array.isArray(productData.assignedWorkspaceIds) ? productData.assignedWorkspaceIds : [];
+  const includedPkgIds = Array.isArray(productData.includedPackageIds) ? productData.includedPackageIds : [];
+  const isFree = productData.accessType === 'Free' || productData.unlockedByDefault === true;
+  const isAssigned = assignedIds.includes(workspaceId);
+
+  let isPackageEligible = false;
+  if (productData.accessType === 'IncludedInPackage' && includedPkgIds.length > 0) {
+    const activeIds = await computeActiveWorkspacePackageIds(
+      workspaceSnap.get('contractedPackageIds'),
+      workspaceSnap.get('packageEntitlements'),
+    );
+    isPackageEligible = includedPkgIds.some((pid: unknown) => typeof pid === 'string' && activeIds.includes(pid));
+  }
+
+  const allowed = isFree || isAssigned || isPackageEligible;
+  if (!allowed) {
+    return {
+      allowed: false,
+      reason: productData.accessType === 'RequestRequired'
+        ? 'Custom request required before download.'
+        : 'Requires an active linked service package or direct workspace assignment.',
+      authorizedFiles: [],
+    };
+  }
+
+  const files = Array.isArray(productData.files)
+    ? productData.files.filter((f: unknown): f is Record<string, unknown> => {
+        if (!f || typeof f !== 'object') return false;
+        const fileObj = f as Record<string, unknown>;
+        const approved = fileObj.isApprovedForClient === true || fileObj.approvedForClientDownload === true;
+        const sp = typeof fileObj.storagePath === 'string' ? fileObj.storagePath : '';
+        return (
+          approved &&
+          sp.startsWith('products/') &&
+          sp.includes('/deliverables/') &&
+          !sp.includes('/internal/') &&
+          !sp.includes('..') &&
+          !sp.includes('\\')
+        );
+      })
+    : [];
+
+  return {
+    allowed: true,
+    reason: isFree ? 'Free resource' : isAssigned ? 'Assigned to workspace' : 'Included in active package',
+    instantStudioPackEligible: Boolean(productData.instantStudioPackEligible),
+    authorizedFiles: files.map(f => ({
+      id: f.id,
+      fileName: f.fileName,
+      storagePath: f.storagePath,
+      format: typeof f.fileFormat === 'string' ? f.fileFormat : typeof f.format === 'string' ? f.format : 'OTHER',
+    })),
+  };
+});
+
+const ALLOWED_ANALYTICS_ACTIONS = new Set([
+  'view',
+  'preview',
+  'download_attempt',
+  'download_success',
+  'download_denied',
+  'favourite_add',
+  'favourite_remove',
+  'collection_add',
+  'drop_view',
+]);
+
+export const recordCreativeResourceEvent = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+  const uid = context.auth.uid;
+  const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const action = typeof payload.action === 'string' ? payload.action.trim() : '';
+  if (!ALLOWED_ANALYTICS_ACTIONS.has(action)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid analytics action.');
+  }
+
+  const rawProductId = typeof payload.productId === 'string' ? payload.productId.trim() : '';
+  const rawDropId = typeof payload.dropId === 'string' ? payload.dropId.trim() : '';
+  if (!rawProductId && !rawDropId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Product ID or Drop ID is required.');
+  }
+  const productId = rawProductId ? requireSafeDocId(rawProductId, 'Product ID') : '';
+  const dropId = rawDropId ? requireSafeDocId(rawDropId, 'Drop ID') : '';
+  const workspaceId = requireSafeDocId(payload.workspaceId, 'Workspace ID');
+
+  const [profileSnap, workspaceSnap, membershipSnap, prodSnap, dropSnap] = await Promise.all([
+    db.collection('clientProfiles').doc(uid).get(),
+    db.collection('workspaces').doc(workspaceId).get(),
+    db.collection('workspaces').doc(workspaceId).collection('memberships').doc(uid).get(),
+    productId ? db.collection('creativeProducts').doc(productId).get() : Promise.resolve(null),
+    dropId ? db.collection('creativeDrops').doc(dropId).get() : Promise.resolve(null),
+  ]);
+
+  if (!profileSnap.exists || profileSnap.get('onboardingComplete') !== true || isSuspendedProfileStatus(profileSnap.get('status'))) {
+    throw new functions.https.HttpsError('permission-denied', 'Active client profile required.');
+  }
+  if (!workspaceSnap.exists || !['Active', 'Onboarding'].includes(String(workspaceSnap.get('status') || 'Active'))) {
+    throw new functions.https.HttpsError('permission-denied', 'Workspace is not active.');
+  }
+  const isOwner = workspaceSnap.get('ownerId') === uid;
+  const isMember = membershipSnap.exists && membershipSnap.get('status') === 'Active';
+  if (!isOwner && !isMember) {
+    throw new functions.https.HttpsError('permission-denied', 'You are not a member of this workspace.');
+  }
+
+  const effectiveAccountType =
+    profileSnap.get('accountType') || workspaceSnap.get('clientCategory') || workspaceSnap.get('type');
+
+  let audience = 'Unknown';
+  let category = '';
+  let accessType = '';
+  let title = '';
+
+  if (productId) {
+    if (!prodSnap || !prodSnap.exists || prodSnap.get('status') !== 'Published') {
+      throw new functions.https.HttpsError('not-found', 'Published creative resource not found.');
+    }
+    const prodAudience = String(prodSnap.get('audience') || '');
+    if (!matchesClientAudienceServer(effectiveAccountType, prodAudience)) {
+      throw new functions.https.HttpsError('permission-denied', 'Resource is not eligible for this account experience.');
+    }
+    audience = prodAudience;
+    category = String(prodSnap.get('category') || '');
+    accessType = String(prodSnap.get('accessType') || '');
+    title = String(prodSnap.get('title') || '');
+  }
+
+  if (dropId) {
+    if (!dropSnap || !dropSnap.exists || dropSnap.get('status') !== 'Published') {
+      throw new functions.https.HttpsError('not-found', 'Published creative drop not found.');
+    }
+    const dropAudience = String(dropSnap.get('audience') || '');
+    if (!matchesClientAudienceServer(effectiveAccountType, dropAudience)) {
+      throw new functions.https.HttpsError('permission-denied', 'Drop is not eligible for this account experience.');
+    }
+    if (!productId) {
+      audience = dropAudience;
+      title = String(dropSnap.get('title') || '');
+    }
+  }
+
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const entityId = productId || dropId;
+  const shouldDedupe = ['view', 'preview', 'drop_view'].includes(action);
+
+  if (shouldDedupe) {
+    const dedupKey = `${uid}_${action}_${entityId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 140);
+    const dedupRef = db.collection('resourceAnalyticsDedup').doc(dedupKey);
+    const dedupSnap = await dedupRef.get();
+    const lastMs = dedupSnap.exists ? Number(dedupSnap.get('lastEventMs') || 0) : 0;
+    if (nowMs - lastMs < 10 * 60 * 1000) {
+      return { success: true, deduplicated: true };
+    }
+    await dedupRef.set({ uid, action, entityId, lastEventMs: nowMs, updatedAt: nowIso });
+  }
+
+  const eventRef = db.collection('resourceAnalyticsEvents').doc();
+  const eventPayload = {
+    id: eventRef.id,
+    ...(productId ? { productId } : {}),
+    ...(dropId ? { dropId } : {}),
+    action,
+    uid,
+    workspaceId,
+    audience,
+    ...(category ? { category } : {}),
+    ...(accessType ? { accessType } : {}),
+    ...(typeof payload.format === 'string' && payload.format ? { format: payload.format.trim().slice(0, 20) } : {}),
+    createdAt: nowIso,
+  };
+
+  if (productId) {
+    const summaryRef = db.collection('resourceAnalyticsSummaries').doc(productId);
+    await db.runTransaction(async transaction => {
+      const summarySnap = await transaction.get(summaryRef);
+      const existingData = summarySnap.exists ? (summarySnap.data() || {}) : {};
+      const summaryPatch: Record<string, unknown> = {
+        productId,
+        ...(title ? { title } : {}),
+        ...(audience ? { audience } : {}),
+        ...(category ? { category } : {}),
+        ...(accessType ? { accessType } : {}),
+        lastEventAt: nowIso,
+      };
+      if (action === 'view') summaryPatch.viewCount = admin.firestore.FieldValue.increment(1);
+      if (action === 'preview') summaryPatch.previewCount = admin.firestore.FieldValue.increment(1);
+      if (action === 'download_success') summaryPatch.downloadCount = admin.firestore.FieldValue.increment(1);
+      if (action === 'download_denied') summaryPatch.deniedCount = admin.firestore.FieldValue.increment(1);
+      if (action === 'favourite_add') summaryPatch.favouriteCount = admin.firestore.FieldValue.increment(1);
+      if (action === 'favourite_remove') {
+        const currentFavs = Number(existingData.favouriteCount || 0);
+        summaryPatch.favouriteCount = Math.max(0, Number.isFinite(currentFavs) ? currentFavs - 1 : 0);
+      }
+      if (action === 'collection_add') summaryPatch.collectionAddCount = admin.firestore.FieldValue.increment(1);
+      if (action === 'drop_view') summaryPatch.dropViewCount = admin.firestore.FieldValue.increment(1);
+
+      transaction.create(eventRef, eventPayload);
+      transaction.set(summaryRef, summaryPatch, { merge: true });
+    });
+  } else {
+    await eventRef.create(eventPayload);
+  }
+
+  return { success: true, deduplicated: false };
+});
+
 

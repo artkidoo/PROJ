@@ -334,6 +334,7 @@ export interface Workspace {
   artistProfile?: ArtistWorkspaceProfile;
   brandProfile?: BrandWorkspaceProfile;
   contractedPackageIds?: string[];
+  activePackageIds?: string[];
   packageEntitlements?: WorkspacePackageEntitlement[];
   createdAt: string;
   updatedAt?: string;

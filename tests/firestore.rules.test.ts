@@ -905,6 +905,278 @@ async function runClientSecurityTests() {
     await assertSucceeds(dbClientA.doc('workspaces/ws-client-a/documents/split-sheet-1').delete());
     console.log('  [PASS] Phase 2 /invoices, /proposals, and non-commercial /workspaces/{id}/documents rules verified.');
 
+    // =========================================================================
+    // PHASE 4 CREATIVE ECOSYSTEM SECURITY RULES
+    // =========================================================================
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const adm = ctx.firestore();
+      await adm.doc('workspaces/ws-client-a').update({
+        activePackageIds: ['pkg-1', 'pkg-2', 'pkg-3', 'pkg-4', 'pkg-5', 'pkg-6', 'pkg-7', 'pkg-8'],
+      });
+      await adm.doc('workspaces/ws-client-b').update({
+        activePackageIds: ['pkg-1'],
+      });
+      await adm.doc('creativeProducts/prod-pkg-8').set({
+        id: 'prod-pkg-8',
+        slug: 'unlimited-pkg-8',
+        title: 'Unlimited Package 8 Kit',
+        summary: 'Active package pack',
+        description: 'Detailed creative package kit.',
+        audience: 'Artist',
+        category: 'Music Release Promo Packs',
+        status: 'Published',
+        accessType: 'IncludedInPackage',
+        includedPackageIds: ['pkg-8'],
+        assignedWorkspaceIds: [],
+        instantStudioPackEligible: true,
+        linkedServiceCategory: 'Artist Launch',
+        version: '1.0.0',
+        supportedFormats: ['ZIP'],
+        deliverablesSummary: ['Master Pack'],
+        dimensionSpecs: [],
+        previewImageUrl: 'https://example.com/preview.jpg',
+        files: [],
+        createdAt: '2026-11-25T00:00:00.000Z',
+        updatedAt: '2026-11-25T00:00:00.000Z',
+        createdBy: 'admin-user',
+        updatedBy: 'admin-user',
+      });
+      await adm.doc('creativeProducts/prod-pkg-locked').set({
+        id: 'prod-pkg-locked',
+        slug: 'locked-pkg',
+        title: 'Locked Premium Pack',
+        summary: 'Requires pkg-vip',
+        description: 'Premium pack.',
+        audience: 'Artist',
+        category: 'Music Release Promo Packs',
+        status: 'Published',
+        accessType: 'IncludedInPackage',
+        includedPackageIds: ['pkg-vip'],
+        assignedWorkspaceIds: [],
+        instantStudioPackEligible: true,
+        linkedServiceCategory: 'Artist Launch',
+        version: '1.0.0',
+        supportedFormats: ['ZIP'],
+        deliverablesSummary: ['VIP Kit'],
+        dimensionSpecs: [],
+        previewImageUrl: 'https://example.com/vip.jpg',
+        files: [],
+        createdAt: '2026-11-25T00:00:00.000Z',
+        updatedAt: '2026-11-25T00:00:00.000Z',
+        createdBy: 'admin-user',
+        updatedBy: 'admin-user',
+      });
+      await adm.doc('creativeProducts/prod-brand-pub').set({
+        id: 'prod-brand-pub',
+        slug: 'brand-pub',
+        title: 'Brand Only Pack',
+        summary: 'For Brand accounts only',
+        description: 'Brand deck pack.',
+        audience: 'Brand & Business',
+        category: 'Brand Identity',
+        status: 'Published',
+        accessType: 'Free',
+        unlockedByDefault: true,
+        includedPackageIds: [],
+        assignedWorkspaceIds: [],
+        instantStudioPackEligible: true,
+        linkedServiceCategory: 'Brand Systems',
+        version: '1.0.0',
+        supportedFormats: ['PDF'],
+        deliverablesSummary: ['Brand Guide PDF'],
+        dimensionSpecs: [],
+        previewImageUrl: 'https://example.com/brand.jpg',
+        files: [],
+        createdAt: '2026-11-25T00:00:00.000Z',
+        updatedAt: '2026-11-25T00:00:00.000Z',
+        createdBy: 'admin-user',
+        updatedBy: 'admin-user',
+      });
+      await adm.doc('creativeDrops/drop-nov-2026').set({
+        id: 'drop-nov-2026',
+        slug: 'nov-2026-drop',
+        title: 'November Rollout Drop',
+        monthKey: '2026-11',
+        headline: 'Artist drop',
+        description: 'Drop description',
+        audience: 'Artist',
+        accessLevel: 'Free',
+        status: 'Published',
+        heroImageUrl: 'https://example.com/hero.jpg',
+        productIds: ['prod-pkg-8'],
+        publishDate: '2026-11-01T00:00:00.000Z',
+        createdAt: '2026-11-01T00:00:00.000Z',
+        updatedAt: '2026-11-01T00:00:00.000Z',
+      });
+      await adm.doc('creativeDrops/drop-draft-2026').set({
+        id: 'drop-draft-2026',
+        slug: 'draft-2026-drop',
+        title: 'Unpublished Draft Drop',
+        monthKey: '2026-12',
+        headline: 'Draft drop',
+        description: 'Hidden draft drop',
+        audience: 'Artist',
+        accessLevel: 'Free',
+        status: 'Draft',
+        heroImageUrl: 'https://example.com/hero.jpg',
+        productIds: [],
+        publishDate: '2026-12-01T00:00:00.000Z',
+        createdAt: '2026-11-01T00:00:00.000Z',
+        updatedAt: '2026-11-01T00:00:00.000Z',
+      });
+      await adm.doc('resourceAnalyticsSummaries/prod-pkg-8').set({
+        productId: 'prod-pkg-8',
+        viewCount: 12,
+        downloadCount: 4,
+      });
+      await adm.doc('resourceAnalyticsEvents/evt-1').set({
+        id: 'evt-1',
+        productId: 'prod-pkg-8',
+        action: 'view',
+        uid: 'client-a',
+        workspaceId: 'ws-client-a',
+        audience: 'Artist',
+        createdAt: '2026-11-25T00:00:00.000Z',
+      });
+    });
+
+    // Package index 8 unlocked (>5 limit removed); unentitled package locked; Artist/Brand isolation
+    await assertSucceeds(dbClientA.doc('creativeProducts/prod-pkg-8').get());
+    await assertFails(dbClientA.doc('creativeProducts/prod-pkg-locked').get());
+    await assertFails(dbClientA.doc('creativeProducts/prod-brand-pub').get());
+    await assertFails(dbClientB.doc('creativeProducts/prod-pkg-8').get());
+    await assertSucceeds(dbClientA.doc('creativeDrops/drop-nov-2026').get());
+    await assertFails(dbClientB.doc('creativeDrops/drop-nov-2026').get());
+    await assertFails(dbClientA.doc('creativeDrops/drop-draft-2026').get());
+    await assertSucceeds(dbAdmin.doc('creativeDrops/drop-draft-2026').get());
+
+    // Admin-only publishing & strict product publish validation
+    await assertFails(dbClientA.doc('creativeDrops/drop-nov-2026').update({ title: 'Client Tamper' }));
+    await assertFails(dbClientA.doc('creativeProducts/client-forged').set({
+      id: 'client-forged',
+      slug: 'client-forged',
+      title: 'Forged Client Pack',
+      summary: 'Attempted client publish',
+      description: 'Should fail',
+      audience: 'Artist',
+      category: 'Music Release Promo Packs',
+      status: 'Published',
+      accessType: 'Free',
+      assignedWorkspaceIds: [],
+      instantStudioPackEligible: true,
+      linkedServiceCategory: 'Artist Launch',
+      version: '1.0.0',
+      supportedFormats: ['ZIP'],
+      deliverablesSummary: ['Pack'],
+      dimensionSpecs: [],
+      previewImageUrl: 'https://example.com/p.jpg',
+      files: [],
+      createdAt: '2026-11-25T00:00:00.000Z',
+      updatedAt: '2026-11-25T00:00:00.000Z',
+      createdBy: 'client-a',
+      updatedBy: 'client-a',
+    }));
+    await assertFails(dbAdmin.doc('creativeProducts/invalid-pub').set({
+      id: 'invalid-pub',
+      slug: 'invalid-pub',
+      title: 'Missing Preview Publish',
+      summary: '',
+      description: '',
+      audience: 'Artist',
+      category: 'Music Release Promo Packs',
+      status: 'Published',
+      accessType: 'IncludedInPackage',
+      includedPackageIds: [],
+      assignedWorkspaceIds: [],
+      linkedServiceCategory: 'Artist Launch',
+      version: '1.0.0',
+      supportedFormats: ['ZIP'],
+      deliverablesSummary: [],
+      dimensionSpecs: [],
+      previewImageUrl: '',
+      files: [],
+      createdAt: '2026-11-25T00:00:00.000Z',
+      updatedAt: '2026-11-25T00:00:00.000Z',
+      createdBy: 'admin-user',
+      updatedBy: 'admin-user',
+    }));
+    await assertSucceeds(dbAdmin.doc('creativeProducts/valid-pub').set({
+      id: 'valid-pub',
+      slug: 'valid-pub',
+      title: 'Valid Studio Pack',
+      summary: 'Complete pack summary',
+      description: 'Full description for publishing.',
+      audience: 'Shared',
+      category: 'Shared Utilities',
+      status: 'Published',
+      accessType: 'Free',
+      unlockedByDefault: true,
+      assignedWorkspaceIds: [],
+      includedPackageIds: [],
+      instantStudioPackEligible: true,
+      linkedServiceCategory: 'Studio Guides',
+      version: '1.0.0',
+      supportedFormats: ['PDF'],
+      deliverablesSummary: ['Guide PDF'],
+      dimensionSpecs: [],
+      previewImageUrl: 'https://example.com/valid.jpg',
+      files: [],
+      createdAt: '2026-11-25T00:00:00.000Z',
+      updatedAt: '2026-11-25T00:00:00.000Z',
+      createdBy: 'admin-user',
+      updatedBy: 'admin-user',
+    }));
+
+    // User-scoped favourites, collections, history (self access only + workspace checks)
+    await assertSucceeds(dbClientA.doc('users/client-a/favouriteResources/prod-pkg-8').set({
+      productId: 'prod-pkg-8',
+      uid: 'client-a',
+      workspaceId: 'ws-client-a',
+      audience: 'Artist',
+      savedAt: '2026-11-25T00:00:00.000Z',
+    }));
+    await assertFails(dbClientB.doc('users/client-a/favouriteResources/prod-pkg-8').get());
+    await assertFails(dbClientB.doc('users/client-a/favouriteResources/prod-pkg-8').set({
+      productId: 'prod-pkg-8',
+      uid: 'client-a',
+      workspaceId: 'ws-client-a',
+      audience: 'Artist',
+      savedAt: '2026-11-25T00:00:00.000Z',
+    }));
+    await assertFails(dbClientB.doc('users/client-a/favouriteResources/prod-pkg-8').delete());
+
+    await assertSucceeds(dbClientA.doc('users/client-a/resourceCollections/col-1').set({
+      id: 'col-1',
+      uid: 'client-a',
+      workspaceId: 'ws-client-a',
+      name: 'EP Rollout',
+      productIds: ['prod-pkg-8'],
+      createdAt: '2026-11-25T00:00:00.000Z',
+      updatedAt: '2026-11-25T00:00:00.000Z',
+    }));
+    await assertFails(dbClientB.doc('users/client-a/resourceCollections/col-1').get());
+    await assertFails(dbClientB.doc('users/client-a/resourceCollections/col-1').update({ name: 'Hijack' }));
+    await assertFails(dbClientB.doc('users/client-a/resourceCollections/col-1').delete());
+
+    await assertSucceeds(dbClientA.doc('users/client-a/resourceHistory/prod-pkg-8').set({
+      productId: 'prod-pkg-8',
+      uid: 'client-a',
+      workspaceId: 'ws-client-a',
+      lastAction: 'download',
+      downloadCount: 1,
+      lastAccessedAt: '2026-11-25T00:00:00.000Z',
+    }));
+    await assertFails(dbClientB.doc('users/client-a/resourceHistory/prod-pkg-8').get());
+
+    // Analytics events/summaries/dedup are strictly server-written, admin-read
+    await assertFails(dbClientA.doc('resourceAnalyticsSummaries/prod-pkg-8').get());
+    await assertFails(dbClientA.doc('resourceAnalyticsSummaries/prod-pkg-8').set({ productId: 'prod-pkg-8', downloadCount: 999 }));
+    await assertFails(dbClientA.doc('resourceAnalyticsEvents/evt-1').get());
+    await assertFails(dbClientA.doc('resourceAnalyticsEvents/evt-forged').set({ id: 'evt-forged', productId: 'prod-pkg-8', action: 'download_success' }));
+    await assertSucceeds(dbAdmin.doc('resourceAnalyticsSummaries/prod-pkg-8').get());
+    await assertSucceeds(dbAdmin.doc('resourceAnalyticsEvents/evt-1').get());
+    console.log('  [PASS] Phase 4 Creative Ecosystem rules (packages >5, audience isolation, publish gate, favourites, collections, analytics) verified.');
+
   } catch (err: any) {
     console.error('\n[BLOCKED] Firebase Emulator is not running or test assertions failed.');
     console.error('Reason: Firebase Emulator Suite requires Java runtime (JRE >= 11).');

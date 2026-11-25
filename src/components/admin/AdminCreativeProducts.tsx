@@ -7,6 +7,8 @@ import {
 } from 'firebase/firestore';
 import {
   Archive,
+  BarChart3,
+  Calendar,
   CheckCircle2,
   Download,
   Edit3,
@@ -14,13 +16,11 @@ import {
   FileArchive,
   FileCheck2,
   FolderPlus,
-  Globe,
   Image as ImageIcon,
   Lock,
   Package,
   Plus,
   Search,
-  Send,
   ShieldAlert,
   Sparkles,
   Trash2,
@@ -31,12 +31,18 @@ import { db } from '../../lib/firebase';
 import { isAdminRecordActive } from '../../lib/firebaseAuth';
 import { useApp } from '../../context/AppContext';
 import type {
+  CreativeDropAccessLevel,
+  CreativeDropStatus,
   CreativeProduct,
   CreativeProductAccessType,
   CreativeProductAudience,
   CreativeProductDeliverableFile,
   CreativeProductSpecItem,
   CreativeProductStatus,
+  CreativeResourceDrop,
+  CreativeResourceType,
+  ResourceAnalyticsEvent,
+  ResourceAnalyticsSummary,
 } from '../../types/creativeProduct';
 import type { ServicePackage, Workspace } from '../../types';
 import type { CanvasDesign } from '../../types/designStudio';
@@ -51,15 +57,19 @@ import {
   STREAMING_PLATFORM_DIMENSIONS,
 } from '../../lib/creativeProductAccess';
 import {
+  deleteCreativeDropRecord,
   deleteCreativeProductRecord,
   deleteProductDeliverableStorageFile,
   downloadProductStorageFile,
+  saveCreativeDrop,
   saveCreativeProduct,
   saveProductInternalSpec,
+  updateCreativeDropStatus,
   updateCreativeProductStatus,
   uploadProductDeliverableFile,
   uploadProductPreviewBlob,
   uploadProductPreviewImage,
+  validateProductForPublish,
 } from '../../lib/creativeProducts';
 import {
   generateEditableProductSvgBlob,
@@ -68,7 +78,11 @@ import {
   renderCanvasDesignToRasterBlob,
   renderCanvasDesignToSvgBlob,
 } from '../../lib/productPackager';
-import { CREATIVE_CATALOG_SEEDS } from '../../data/creativeCatalogSeeds';
+import {
+  CREATIVE_PREVIEW_IMAGES,
+  DEFAULT_VARIATION_OPTIONS,
+} from '../../lib/creativeResourcePreviews';
+import { CREATIVE_CATALOG_SEEDS, STARTER_CREATIVE_DROPS } from '../../data/creativeCatalogSeeds';
 import { TEMPLATE_FAMILIES } from '../../data/templateFamiliesData';
 import { MASTER_CREATIVE_TEMPLATES } from '../../data/creativeTemplatesData';
 import { buildHonestDesignForTemplate } from '../../utils/templateDesignBuilder';
@@ -88,6 +102,17 @@ const ACCESS_TYPES: { id: CreativeProductAccessType; label: string; hint: string
   { id: 'RequestRequired', label: 'Request Required (Custom Studio)', hint: 'Clients browse specs & request customization into production pipeline' },
 ];
 const FORMAT_OPTIONS = ['PNG', 'JPG', 'PDF', 'PSD', 'SVG', 'ZIP', 'MP4'] as const;
+const RESOURCE_TYPES: CreativeResourceType[] = [
+  'Template',
+  'Document Suite',
+  'Social Pack',
+  'Press & EPK',
+  'Brand Kit',
+  'Mockup & Print',
+  'Motion & Canvas',
+  'Shared Utility',
+];
+type AdminProductWorkspaceTab = 'catalog' | 'drops' | 'analytics';
 
 export interface AdminCreativeProductsProps {
   initialCanvasDraft?: CanvasDesign | null;
@@ -207,7 +232,11 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
     firebaseUser && canAccessAdminCenter ? 'checking' : 'denied'
   );
 
+  const [workspaceTab, setWorkspaceTab] = useState<AdminProductWorkspaceTab>('catalog');
   const [products, setProducts] = useState<CreativeProduct[]>([]);
+  const [drops, setDrops] = useState<CreativeResourceDrop[]>([]);
+  const [analyticsSummaries, setAnalyticsSummaries] = useState<ResourceAnalyticsSummary[]>([]);
+  const [analyticsEvents, setAnalyticsEvents] = useState<ResourceAnalyticsEvent[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
   const [savedDesigns, setSavedDesigns] = useState<CanvasDesign[]>([]);
@@ -235,6 +264,8 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
   const [internalNotes, setInternalNotes] = useState('');
   const [internalSourceFiles, setInternalSourceFiles] = useState<CreativeProductDeliverableFile[]>([]);
   const [deliverablesText, setDeliverablesText] = useState('');
+  const [newGalleryUrl, setNewGalleryUrl] = useState('');
+  const [newGalleryCaption, setNewGalleryCaption] = useState('');
   const [newSpec, setNewSpec] = useState<CreativeProductSpecItem>({
     platform: '',
     dimensions: '',
@@ -245,6 +276,12 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
   const [newDeliverableDimensions, setNewDeliverableDimensions] = useState('');
   const [newDeliverableApproved, setNewDeliverableApproved] = useState(true);
   const [workspaceSearch, setWorkspaceSearch] = useState('');
+
+  // Drops Editor state
+  const [editingDrop, setEditingDrop] = useState<CreativeResourceDrop | null>(null);
+  const [dropTagsText, setDropTagsText] = useState('');
+  const [confirmDeleteDropId, setConfirmDeleteDropId] = useState<string | null>(null);
+  const [hydrationProgress, setHydrationProgress] = useState('');
 
   const [previewProduct, setPreviewProduct] = useState<CreativeProduct | null>(null);
   const [activeCanvasSession, setActiveCanvasSession] = useState<{
@@ -299,6 +336,33 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
         setLoading(false);
       }
     );
+    const unsubDrops = onSnapshot(
+      collection(db, 'creativeDrops'),
+      snap => {
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...d.data() } as CreativeResourceDrop))
+          .sort((a, b) => (b.monthKey || '').localeCompare(a.monthKey || ''));
+        setDrops(list);
+      },
+      err => console.warn('Drops listener warning:', err.message),
+    );
+    const unsubSummaries = onSnapshot(
+      collection(db, 'resourceAnalyticsSummaries'),
+      snap => {
+        setAnalyticsSummaries(snap.docs.map(d => d.data() as ResourceAnalyticsSummary));
+      },
+      err => console.warn('Analytics summary listener warning:', err.message),
+    );
+    const unsubEvents = onSnapshot(
+      collection(db, 'resourceAnalyticsEvents'),
+      snap => {
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...d.data() } as ResourceAnalyticsEvent))
+          .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        setAnalyticsEvents(list);
+      },
+      err => console.warn('Analytics events listener warning:', err.message),
+    );
     const unsubWorkspaces = onSnapshot(collection(db, 'workspaces'), snap => {
       setWorkspaces(snap.docs.map(d => ({ id: d.id, ...d.data() } as Workspace)));
     });
@@ -314,6 +378,9 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
     });
     return () => {
       unsubProducts();
+      unsubDrops();
+      unsubSummaries();
+      unsubEvents();
       unsubWorkspaces();
       unsubServices();
       unsubDesigns();
@@ -445,6 +512,171 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
           ? `Seeded ${added} starter Creative Product(s) for Artist, Brand & Business Creative Hubs.`
           : 'All starter Creative Products are already present in the catalog.'
       );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const hydrateAllSeedStudioPacks = async () => {
+    if (!firebaseUser) return;
+    const targets = products.filter(
+      p => p.instantStudioPackEligible === true && getApprovedDownloadableFiles(p.files).length === 0,
+    );
+    if (targets.length === 0) {
+      setNotice('All eligible Studio Pack products already have approved Storage deliverable bundles.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    let hydrated = 0;
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        const product = targets[i];
+        setHydrationProgress(`Hydrating ${i + 1}/${targets.length}: ${product.title}`);
+        const slug = slugifyProductTitle(product.title);
+        const resolvedDesign = resolveLinkedTemplateDesign(product.linkedTemplateId);
+        const linkedDesigns = resolvedDesign ? [resolvedDesign] : [];
+
+        const pdfBlob = generateStructuredDocumentPdfBlob(product, 'KeedoHub Studio');
+        const svgBlob = generateEditableProductSvgBlob(product);
+        const zipBlob = await packageProductDeliverablesZip({
+          product,
+          designs: linkedDesigns,
+          includeDocumentPdf: true,
+        });
+
+        const [pdfRec, svgRec, zipRec] = await Promise.all([
+          uploadProductDeliverableFile({
+            productId: product.id,
+            file: pdfBlob,
+            fileName: `${slug}-studio-pack.pdf`,
+            label: `${product.title} — Master Guide PDF`,
+            dimensions: product.dimensionSpecs[0]?.dimensions || 'A4 / Digital PDF',
+            version: product.version || 'v1.0',
+            isApprovedForClient: true,
+            isInternalSource: false,
+            uploadedBy: firebaseUser.uid,
+          }),
+          uploadProductDeliverableFile({
+            productId: product.id,
+            file: svgBlob,
+            fileName: `${slug}-editable-master.svg`,
+            label: `${product.title} — Editable Vector (SVG)`,
+            dimensions: product.dimensionSpecs[0]?.dimensions || 'Scalable Vector',
+            version: product.version || 'v1.0',
+            isApprovedForClient: true,
+            isInternalSource: false,
+            uploadedBy: firebaseUser.uid,
+          }),
+          uploadProductDeliverableFile({
+            productId: product.id,
+            file: zipBlob,
+            fileName: `${slug}-complete-bundle.zip`,
+            label: `${product.title} — Complete Studio Bundle (ZIP)`,
+            dimensions: 'PDF + SVG + Spec Sheet',
+            version: product.version || 'v1.0',
+            isApprovedForClient: true,
+            isInternalSource: false,
+            uploadedBy: firebaseUser.uid,
+          }),
+        ]);
+
+        await saveCreativeProduct({
+          ...product,
+          files: [zipRec, pdfRec, svgRec, ...(product.files || [])],
+          supportedFormats: Array.from(new Set([...(product.supportedFormats || []), 'PDF', 'SVG', 'ZIP'])),
+          updatedBy: firebaseUser.uid,
+        });
+        hydrated += 1;
+      }
+      setNotice(`Hydrated real PDF, SVG & ZIP deliverables into Storage for ${hydrated} Creative Product(s).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHydrationProgress('');
+      setBusy(false);
+    }
+  };
+
+  const seedStarterDrops = async () => {
+    if (!firebaseUser) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const existingIds = new Set(drops.map(d => d.id));
+      let added = 0;
+      for (const dropSeed of STARTER_CREATIVE_DROPS) {
+        if (existingIds.has(dropSeed.id)) continue;
+        await saveCreativeDrop({
+          ...dropSeed,
+          createdByUid: firebaseUser.uid,
+        });
+        added += 1;
+      }
+      setNotice(
+        added > 0
+          ? `Seeded ${added} starter Monthly Creative Drop(s).`
+          : 'All starter Monthly Creative Drops are already present.',
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startNewDrop = () => {
+    const id = doc(collection(db, 'creativeDrops')).id;
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const draft: CreativeResourceDrop = {
+      id,
+      title: '',
+      slug: id,
+      monthKey,
+      headline: '',
+      description: '',
+      audience: 'Artist',
+      accessLevel: 'Free',
+      status: 'Draft',
+      heroImageUrl: CREATIVE_PREVIEW_IMAGES.monthlyDropHeroImg,
+      productIds: [],
+      highlightTags: [],
+      publishDate: now.toISOString(),
+      createdByUid: firebaseUser?.uid || '',
+    };
+    setEditingDrop(draft);
+    setDropTagsText('');
+    setConfirmDeleteDropId(null);
+  };
+
+  const handleSaveDrop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDrop || !firebaseUser) return;
+    if (!editingDrop.title.trim()) {
+      setError('Drop title is required.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const saved = await saveCreativeDrop({
+        ...editingDrop,
+        title: editingDrop.title.trim(),
+        slug: slugifyProductTitle(editingDrop.slug || editingDrop.title),
+        highlightTags: dropTagsText
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean),
+        createdByUid: editingDrop.createdByUid || firebaseUser.uid,
+      });
+      setEditingDrop(null);
+      setNotice(`Saved Monthly Drop "${saved.title}".`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1007,37 +1239,297 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
         </div>
       )}
 
-      {/* Top Operations Bar */}
-      <section className="border border-[#1E1E1E] bg-[#0C0C0C] p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">
-            <span>Creative Products &amp; Template-to-Product Studio</span>
+      {/* Top Operations Bar & Sub-Section Tabs (Inside Admin HQ Pillar 5) */}
+      <section className="border border-[#1E1E1E] bg-[#0C0C0C] p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">
+              <span>Creative Products · Monthly Drops · Resource Analytics</span>
+            </div>
+            <h3 className="text-lg font-bold text-white">Creative Ecosystem Management Studio</h3>
+            <p className="text-xs text-neutral-400 max-w-2xl">
+              Manage 50+ Artist, Brand &amp; Shared resources, hydrate Studio ZIP/PDF/SVG bundles, curate scheduled Monthly Drops, and monitor usage analytics.
+            </p>
           </div>
-          <h3 className="text-lg font-bold text-white">Creative Hub Catalog &amp; Packaging Studio</h3>
-          <p className="text-xs text-neutral-400 max-w-2xl">
-            Manage Product Families, render real PNG/SVG/PDF/ZIP deliverables directly from 36 Template Family compositions &amp; 60+ Master Templates, approve files, and publish to client workspaces.
-          </p>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void seedStarterCatalog()}
+              className="inline-flex items-center gap-1.5 border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-neutral-200 hover:text-white hover:border-[#FF1E1E] disabled:opacity-50"
+            >
+              <FolderPlus size={14} className="text-[#FF1E1E]" />
+              <span>Seed Full Catalog ({CREATIVE_CATALOG_SEEDS.length})</span>
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void hydrateAllSeedStudioPacks()}
+              className="inline-flex items-center gap-1.5 border border-emerald-700/50 bg-emerald-950/25 px-3 py-2 text-xs font-medium text-emerald-200 hover:text-white hover:border-emerald-400 disabled:opacity-50"
+            >
+              <FileCheck2 size={14} />
+              <span>{hydrationProgress || 'Hydrate Seed Storage Packs'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => startNewProduct()}
+              className="inline-flex items-center gap-1.5 bg-[#FF1E1E] px-4 py-2 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
+            >
+              <Plus size={14} />
+              <span>New Creative Product</span>
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void seedStarterCatalog()}
-            className="inline-flex items-center gap-1.5 border border-[#2E2E2E] bg-[#141414] px-3.5 py-2 text-xs font-medium text-neutral-200 hover:text-white hover:border-[#FF1E1E] disabled:opacity-50"
-          >
-            <FolderPlus size={14} className="text-[#FF1E1E]" />
-            <span>Seed Full Catalog ({CREATIVE_CATALOG_SEEDS.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => startNewProduct()}
-            className="inline-flex items-center gap-1.5 bg-[#FF1E1E] px-4 py-2 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
-          >
-            <Plus size={14} />
-            <span>New Creative Product</span>
-          </button>
+
+        {/* Workspace Sub-Tabs inside Pillar 5 */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-[#181818] pt-3">
+          {(
+            [
+              { id: 'catalog', label: `Catalog & Studio (${products.length})`, icon: Package },
+              { id: 'drops', label: `Monthly Drops (${drops.length})`, icon: Calendar },
+              { id: 'analytics', label: `Resource Analytics (${analyticsSummaries.length})`, icon: BarChart3 },
+            ] as const
+          ).map(tab => {
+            const Icon = tab.icon;
+            const active = workspaceTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setWorkspaceTab(tab.id)}
+                className={`inline-flex items-center gap-2 border px-3.5 py-1.5 text-xs font-mono transition-colors ${
+                  active
+                    ? 'border-[#FF1E1E] bg-[#FF1E1E] text-white font-semibold'
+                    : 'border-[#242424] bg-[#111111] text-neutral-300 hover:text-white hover:border-[#3A3A3A]'
+                }`}
+              >
+                <Icon size={13} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
+
+      {workspaceTab === 'drops' && (
+        <section className="space-y-4">
+          <div className="border border-[#1E1E1E] bg-[#0B0B0B] p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-bold text-white">Monthly Creative Resource Drops</h4>
+              <p className="text-xs text-neutral-400">
+                Bundle curated resources into scheduled or live monthly drops for Artist, Brand &amp; Shared audiences.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void seedStarterDrops()}
+                className="border border-[#2E2E2E] bg-[#141414] px-3 py-1.5 text-xs text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
+              >
+                Seed Starter Drops ({STARTER_CREATIVE_DROPS.length})
+              </button>
+              <button
+                type="button"
+                onClick={startNewDrop}
+                className="inline-flex items-center gap-1.5 bg-[#FF1E1E] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-red-600"
+              >
+                <Plus size={13} />
+                <span>New Monthly Drop</span>
+              </button>
+            </div>
+          </div>
+
+          {drops.length === 0 ? (
+            <div className="border border-dashed border-[#2A2A2A] bg-[#0B0B0B] p-10 text-center space-y-3">
+              <Calendar size={26} className="mx-auto text-neutral-600" />
+              <p className="text-sm font-semibold text-neutral-200">No Monthly Creative Drops Created Yet</p>
+              <button
+                type="button"
+                onClick={() => void seedStarterDrops()}
+                className="border border-[#333] bg-[#141414] px-4 py-2 text-xs text-white hover:border-[#FF1E1E]"
+              >
+                Seed 3 Starter Monthly Drops
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {drops.map(drop => (
+                <div key={drop.id} className="border border-[#202020] bg-[#0C0C0C] p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-mono uppercase text-[#FF1E1E]">
+                        {drop.monthKey} · {drop.audience} · {drop.accessLevel}
+                      </p>
+                      <h5 className="text-sm font-bold text-white mt-0.5">{drop.title}</h5>
+                      <p className="text-xs text-neutral-400 mt-1 line-clamp-2">{drop.description}</p>
+                    </div>
+                    <span className={`border px-2 py-0.5 text-[10px] font-mono ${
+                      drop.status === 'Published'
+                        ? 'border-emerald-600/50 bg-emerald-950/40 text-emerald-300'
+                        : 'border-neutral-700 bg-neutral-900 text-neutral-300'
+                    }`}>
+                      {drop.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-mono text-neutral-500 border-t border-[#181818] pt-2.5">
+                    <span>{drop.productIds.length} bundled resource(s)</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingDrop(drop);
+                          setDropTagsText((drop.highlightTags || []).join(', '));
+                          setConfirmDeleteDropId(null);
+                        }}
+                        className="border border-[#2E2E2E] bg-[#141414] px-2.5 py-1 text-neutral-200 hover:border-white"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void updateCreativeDropStatus(
+                            drop.id,
+                            drop.status === 'Published' ? 'Archived' : 'Published',
+                          )
+                        }
+                        className="border border-[#2E2E2E] bg-[#141414] px-2.5 py-1 text-neutral-200 hover:border-[#FF1E1E]"
+                      >
+                        {drop.status === 'Published' ? 'Archive' : 'Publish'}
+                      </button>
+                      {confirmDeleteDropId === drop.id ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await deleteCreativeDropRecord(drop.id);
+                            setConfirmDeleteDropId(null);
+                            setNotice(`Deleted drop "${drop.title}".`);
+                          }}
+                          className="bg-[#FF1E1E] px-2.5 py-1 text-white font-semibold"
+                        >
+                          Confirm
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteDropId(drop.id)}
+                          className="border border-[#2E2E2E] p-1 text-neutral-400 hover:text-red-400"
+                          aria-label={`Delete drop ${drop.title}`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {workspaceTab === 'analytics' && (() => {
+        const totals = analyticsSummaries.reduce(
+          (acc, s) => ({
+            views: acc.views + (s.viewCount || 0),
+            previews: acc.previews + (s.previewCount || 0),
+            downloads: acc.downloads + (s.downloadCount || 0),
+            denied: acc.denied + (s.deniedCount || 0),
+            favourites: acc.favourites + (s.favouriteCount || 0),
+            collections: acc.collections + (s.collectionAddCount || 0),
+          }),
+          { views: 0, previews: 0, downloads: 0, denied: 0, favourites: 0, collections: 0 },
+        );
+        const topSummaries = [...analyticsSummaries]
+          .sort((a, b) => (b.downloadCount + b.viewCount) - (a.downloadCount + a.viewCount))
+          .slice(0, 20);
+
+        return (
+          <section className="space-y-5">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                ['Total Views', totals.views, 'text-white'],
+                ['Slide Previews', totals.previews, 'text-neutral-200'],
+                ['Downloads', totals.downloads, 'text-emerald-400'],
+                ['Denied Gates', totals.denied, 'text-amber-300'],
+                ['Favourites', totals.favourites, 'text-[#FF1E1E]'],
+                ['Collection Saves', totals.collections, 'text-blue-300'],
+              ].map(([label, val, color]) => (
+                <div key={String(label)} className="border border-[#1E1E1E] bg-[#0B0B0B] p-4">
+                  <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">{label}</p>
+                  <p className={`mt-1.5 text-2xl font-black font-mono tabular-nums ${color}`}>{val}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_0.9fr] gap-4">
+              <div className="border border-[#1E1E1E] bg-[#0B0B0B] p-4 space-y-3">
+                <h4 className="text-xs font-mono uppercase tracking-widest text-white">
+                  Top Creative Resources by Engagement
+                </h4>
+                {topSummaries.length === 0 ? (
+                  <p className="text-xs text-neutral-500 py-6 text-center">
+                    No client resource engagement events recorded yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto border border-[#1A1A1A]">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-[#1A1A1A] bg-[#121212] text-[10px] font-mono uppercase text-neutral-400">
+                          <th className="px-3 py-2">Resource</th>
+                          <th className="px-3 py-2">Audience</th>
+                          <th className="px-3 py-2 text-right">Views</th>
+                          <th className="px-3 py-2 text-right">Downloads</th>
+                          <th className="px-3 py-2 text-right">Faves</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#181818]">
+                        {topSummaries.map(row => (
+                          <tr key={row.productId} className="bg-[#0B0B0B]">
+                            <td className="px-3 py-2 font-medium text-white truncate max-w-[220px]">
+                              {row.title || row.productId}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-neutral-400">{row.audience || '—'}</td>
+                            <td className="px-3 py-2 text-right font-mono tabular-nums text-neutral-300">{row.viewCount || 0}</td>
+                            <td className="px-3 py-2 text-right font-mono tabular-nums text-emerald-400">{row.downloadCount || 0}</td>
+                            <td className="px-3 py-2 text-right font-mono tabular-nums text-[#FF1E1E]">{row.favouriteCount || 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="border border-[#1E1E1E] bg-[#0B0B0B] p-4 space-y-3">
+                <h4 className="text-xs font-mono uppercase tracking-widest text-white">
+                  Recent Resource Telemetry ({analyticsEvents.length})
+                </h4>
+                {analyticsEvents.length === 0 ? (
+                  <p className="text-xs text-neutral-500 py-6 text-center">No recent telemetry events.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                    {analyticsEvents.slice(0, 25).map(ev => (
+                      <div key={ev.id} className="border border-[#1A1A1A] bg-[#101010] px-3 py-2 text-[11px] flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="font-mono font-bold text-[#FF1E1E]">{ev.action}</span>
+                          <span className="text-neutral-300 ml-2 truncate">{ev.productId || ev.dropId}</span>
+                        </div>
+                        <span className="font-mono text-[10px] text-neutral-500 shrink-0 tabular-nums">
+                          {ev.createdAt?.slice(0, 16).replace('T', ' ')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+
+      {workspaceTab === 'catalog' && (<>
 
       {/* 4-Layer Architecture Clarity Strip */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
@@ -1307,6 +1799,7 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
           })}
         </div>
       )}
+      </>)}
 
       {/* ========================================================
           PRODUCT EDITOR & DELIVERABLE FILES DRAWER / MODAL
@@ -1446,6 +1939,108 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
                   </label>
                 </div>
 
+                {/* Phase 4 Resource Type, Industry Tag, Pricing & Instant Pack Eligibility */}
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-mono uppercase tracking-widest text-neutral-500">Resource Classification Type</span>
+                  <select
+                    value={editingProduct.resourceType || 'Template'}
+                    onChange={e => setEditingProduct({ ...editingProduct, resourceType: e.target.value as CreativeResourceType })}
+                    className="w-full border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-sm text-white"
+                  >
+                    {RESOURCE_TYPES.map(rt => <option key={rt} value={rt}>{rt}</option>)}
+                  </select>
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-[10px] font-mono uppercase tracking-widest text-neutral-500">Industry Tag (Optional)</span>
+                    <input
+                      value={editingProduct.industryTag || ''}
+                      onChange={e => setEditingProduct({ ...editingProduct, industryTag: e.target.value })}
+                      placeholder="Hospitality, Retail, Startup…"
+                      className="w-full border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[10px] font-mono uppercase tracking-widest text-neutral-500">Standalone Value ($ USD)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={editingProduct.priceUsd ?? ''}
+                      onChange={e =>
+                        setEditingProduct({
+                          ...editingProduct,
+                          priceUsd: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      placeholder="Optional"
+                      className="w-full border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-sm text-white font-mono"
+                    />
+                  </label>
+                </div>
+
+                <div className="md:col-span-2 grid sm:grid-cols-2 gap-3 border border-[#1E1E1E] bg-[#0F0F0F] p-3">
+                  <label className="flex items-center gap-2 text-xs text-neutral-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editingProduct.instantStudioPackEligible)}
+                      onChange={e =>
+                        setEditingProduct({
+                          ...editingProduct,
+                          instantStudioPackEligible: e.target.checked,
+                          variationOptions:
+                            editingProduct.variationOptions && editingProduct.variationOptions.length > 0
+                              ? editingProduct.variationOptions
+                              : DEFAULT_VARIATION_OPTIONS,
+                        })
+                      }
+                      className="accent-[#FF1E1E]"
+                    />
+                    <span>Enable Verified Instant Studio Pack Export (PDF/SVG/ZIP)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-neutral-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editingProduct.unlockedByDefault)}
+                      onChange={e =>
+                        setEditingProduct({ ...editingProduct, unlockedByDefault: e.target.checked })
+                      }
+                      className="accent-[#FF1E1E]"
+                    />
+                    <span>Unlocked by Default for Matching Audience</span>
+                  </label>
+                </div>
+
+                {/* Live Publish Readiness Gate Checklist */}
+                {(() => {
+                  const readiness = validateProductForPublish({
+                    ...editingProduct,
+                    deliverablesSummary: deliverablesText.split('\n').map(s => s.trim()).filter(Boolean),
+                  });
+                  return (
+                    <div
+                      className={`md:col-span-2 border p-3 text-xs ${
+                        readiness.valid
+                          ? 'border-emerald-900/60 bg-emerald-950/20 text-emerald-200'
+                          : 'border-amber-900/60 bg-amber-950/20 text-amber-200'
+                      }`}
+                    >
+                      <p className="font-mono text-[10px] uppercase tracking-wider font-bold">
+                        {readiness.valid
+                          ? 'Publish Readiness: All Quality & Deliverable Gates Passed'
+                          : `Publish Readiness Checklist (${readiness.missingRequirements.length} remaining)`}
+                      </p>
+                      {!readiness.valid && (
+                        <ul className="mt-1.5 space-y-0.5 text-[11px] text-amber-100/90">
+                          {readiness.missingRequirements.map(req => (
+                            <li key={req}>· {req}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <label className="md:col-span-2 block">
                   <span className="mb-1 block text-[10px] font-mono uppercase tracking-widest text-neutral-500">Short Summary</span>
                   <input
@@ -1515,12 +2110,55 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
                       className="h-14 w-14 object-cover border border-[#333] shrink-0"
                     />
                     <div className="min-w-0 flex-1 space-y-1">
-                      <p className="text-[11px] font-semibold text-white">Product Thumbnail Preview</p>
+                      <p className="text-[11px] font-semibold text-white">Product Thumbnail &amp; Multi-Slide Gallery</p>
                       <label className="inline-flex items-center gap-1.5 border border-[#333] bg-[#181818] px-2.5 py-1 text-[11px] text-neutral-200 hover:text-white cursor-pointer">
                         <ImageIcon size={12} />
                         <span>Upload Preview Image</span>
                         <input type="file" accept="image/png,image/jpeg,image/webp,image/avif" className="hidden" onChange={handlePreviewUpload} />
                       </label>
+                    </div>
+                  </div>
+
+                  {/* Additional Multi-Slide Preview URLs */}
+                  <div className="border border-[#1E1E1E] bg-[#0F0F0F] p-2.5 space-y-2">
+                    <p className="text-[10px] font-mono uppercase text-neutral-400">
+                      Additional Preview Slides ({editingProduct.previewGallery?.length || 0})
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-1.5">
+                      <input
+                        value={newGalleryUrl}
+                        onChange={e => setNewGalleryUrl(e.target.value)}
+                        placeholder="Extra preview image URL…"
+                        className="border border-[#2A2A2A] bg-[#141414] px-2 py-1 text-[11px] text-white"
+                      />
+                      <input
+                        value={newGalleryCaption}
+                        onChange={e => setNewGalleryCaption(e.target.value)}
+                        placeholder="Caption"
+                        className="border border-[#2A2A2A] bg-[#141414] px-2 py-1 text-[11px] text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!newGalleryUrl.trim()) return;
+                          setEditingProduct({
+                            ...editingProduct,
+                            previewGallery: [
+                              ...(editingProduct.previewGallery || []),
+                              {
+                                url: newGalleryUrl.trim(),
+                                alt: `${editingProduct.title} showcase`,
+                                caption: newGalleryCaption.trim() || 'Additional Angle Preview',
+                              },
+                            ],
+                          });
+                          setNewGalleryUrl('');
+                          setNewGalleryCaption('');
+                        }}
+                        className="border border-[#333] bg-[#181818] px-2.5 py-1 text-[11px] text-white hover:border-[#FF1E1E]"
+                      >
+                        + Slide
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2250,6 +2888,155 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
               }
             }}
           />
+        </div>
+      )}
+
+      {/* Monthly Drop Create / Edit Modal */}
+      {editingDrop && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={e => void handleSaveDrop(e)}
+            className="w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-[#2B2B2B] bg-[#0B0B0B] p-6 space-y-4"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#1E1E1E] pb-3">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">
+                  Monthly Creative Drop Curation
+                </p>
+                <h3 className="text-lg font-bold text-white">{editingDrop.title || 'New Monthly Drop'}</h3>
+              </div>
+              <button type="button" onClick={() => setEditingDrop(null)} className="text-neutral-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Drop Title *</span>
+                <input
+                  required
+                  value={editingDrop.title}
+                  onChange={e => setEditingDrop({ ...editingDrop, title: e.target.value })}
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Month Key (YYYY-MM)</span>
+                <input
+                  required
+                  value={editingDrop.monthKey}
+                  onChange={e => setEditingDrop({ ...editingDrop, monthKey: e.target.value })}
+                  placeholder="2026-11"
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white font-mono"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Audience</span>
+                <select
+                  value={editingDrop.audience}
+                  onChange={e => setEditingDrop({ ...editingDrop, audience: e.target.value as CreativeProductAudience })}
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white"
+                >
+                  {AUDIENCES.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Access Level</span>
+                <select
+                  value={editingDrop.accessLevel}
+                  onChange={e => setEditingDrop({ ...editingDrop, accessLevel: e.target.value as CreativeDropAccessLevel })}
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white"
+                >
+                  <option value="Free">Free / Open to Matching Workspaces</option>
+                  <option value="Restricted">Restricted (Follows Product Package Locks)</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Status</span>
+                <select
+                  value={editingDrop.status}
+                  onChange={e => setEditingDrop({ ...editingDrop, status: e.target.value as CreativeDropStatus })}
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white"
+                >
+                  <option value="Draft">Draft</option>
+                  <option value="Scheduled">Scheduled</option>
+                  <option value="Published">Published</option>
+                  <option value="Archived">Archived</option>
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Headline</span>
+                <input
+                  value={editingDrop.headline}
+                  onChange={e => setEditingDrop({ ...editingDrop, headline: e.target.value })}
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Description</span>
+                <textarea
+                  rows={2}
+                  value={editingDrop.description}
+                  onChange={e => setEditingDrop({ ...editingDrop, description: e.target.value })}
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[10px] font-mono uppercase text-neutral-500">Highlight Tags (comma separated)</span>
+                <input
+                  value={dropTagsText}
+                  onChange={e => setDropTagsText(e.target.value)}
+                  placeholder="Spotify Canvas, Rollout Countdown, Instant Export"
+                  className="w-full border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-white"
+                />
+              </label>
+              <div className="sm:col-span-2 space-y-2 border border-[#1E1E1E] bg-[#0F0F0F] p-3">
+                <p className="text-[10px] font-mono uppercase text-neutral-400">
+                  Included Creative Resources ({editingDrop.productIds.length} selected)
+                </p>
+                <div className="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
+                  {products.map(prod => {
+                    const checked = editingDrop.productIds.includes(prod.id);
+                    return (
+                      <label key={prod.id} className="flex items-center gap-2 border border-[#1D1D1D] bg-[#131313] px-2.5 py-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setEditingDrop({
+                              ...editingDrop,
+                              productIds: checked
+                                ? editingDrop.productIds.filter(id => id !== prod.id)
+                                : [...editingDrop.productIds, prod.id],
+                            })
+                          }
+                          className="accent-[#FF1E1E]"
+                        />
+                        <span className="truncate text-white">{prod.title}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-[#1E1E1E] pt-3">
+              <button
+                type="button"
+                onClick={() => setEditingDrop(null)}
+                className="border border-[#333] bg-[#141414] px-4 py-2 text-xs text-neutral-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="bg-[#FF1E1E] px-5 py-2 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                {busy ? 'Saving…' : 'Save Monthly Drop'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

@@ -40,6 +40,8 @@ import {
   adminRecordManualPayment,
   adminSaveProposal,
   clientRespondProposal,
+  verifyCreativeResourceAccess,
+  recordCreativeResourceEvent,
 } from '../functions/src/index';
 
 const wrappedAdminUpdateClientProfile = test.wrap(adminUpdateClientProfile);
@@ -56,6 +58,8 @@ const wrappedAdminSaveInvoice = test.wrap(adminSaveInvoice);
 const wrappedAdminRecordManualPayment = test.wrap(adminRecordManualPayment);
 const wrappedAdminSaveProposal = test.wrap(adminSaveProposal);
 const wrappedClientRespondProposal = test.wrap(clientRespondProposal);
+const wrappedVerifyCreativeResourceAccess = test.wrap(verifyCreativeResourceAccess);
+const wrappedRecordCreativeResourceEvent = test.wrap(recordCreativeResourceEvent);
 
 
 describe('adminUpdateClientProfile', () => {
@@ -728,5 +732,172 @@ describe('Phase 2 commercial finance & proposal callables', () => {
     }, { auth: { uid: clientUid } });
     expect(approved.success).to.equal(true);
     expect(approved.status).to.equal('Approved');
+  });
+});
+
+describe('Phase 4 creative resource access & analytics callables', () => {
+  const artistUid = 'client-p4-artist';
+  const brandUid = 'client-p4-brand';
+  const artistWsId = 'ws-p4-artist';
+  const brandWsId = 'ws-p4-brand';
+
+  beforeEach(async () => {
+    const now = new Date().toISOString();
+    await Promise.all([
+      adminDb.collection('clientProfiles').doc(artistUid).set({
+        uid: artistUid,
+        email: 'artist-p4@test.com',
+        accountType: 'Artist',
+        status: 'Active',
+        onboardingComplete: true,
+        workspaceId: artistWsId,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      adminDb.collection('clientProfiles').doc(brandUid).set({
+        uid: brandUid,
+        email: 'brand-p4@test.com',
+        accountType: 'Brand',
+        status: 'Active',
+        onboardingComplete: true,
+        workspaceId: brandWsId,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      adminDb.collection('workspaces').doc(artistWsId).set({
+        id: artistWsId,
+        ownerId: artistUid,
+        type: 'Artist',
+        clientCategory: 'artist',
+        status: 'Active',
+        contractedPackageIds: ['pkg-active'],
+        packageEntitlements: [{ packageId: 'pkg-expired', status: 'Active', expiresAt: '2020-01-01T00:00:00.000Z' }],
+      }),
+      adminDb.collection('workspaces').doc(brandWsId).set({
+        id: brandWsId,
+        ownerId: brandUid,
+        type: 'Brand',
+        clientCategory: 'brand',
+        status: 'Active',
+        contractedPackageIds: [],
+      }),
+      adminDb.collection('services').doc('pkg-active').set({ id: 'pkg-active', isActive: true }),
+      adminDb.collection('services').doc('pkg-expired').set({ id: 'pkg-expired', isActive: true }),
+      adminDb.collection('creativeProducts').doc('prod-p4-pkg').set({
+        id: 'prod-p4-pkg',
+        title: 'Artist Tour Kit',
+        audience: 'Artist',
+        category: 'Music Release Promo Packs',
+        accessType: 'IncludedInPackage',
+        includedPackageIds: ['pkg-active'],
+        assignedWorkspaceIds: [],
+        status: 'Published',
+        instantStudioPackEligible: true,
+        files: [
+          {
+            id: 'f-approved',
+            fileName: 'tour-kit.zip',
+            fileFormat: 'ZIP',
+            storagePath: 'products/prod-p4-pkg/deliverables/f-approved/tour-kit.zip',
+            isApprovedForClient: true,
+          },
+          {
+            id: 'f-internal',
+            fileName: 'source.psd',
+            fileFormat: 'PSD',
+            storagePath: 'products/prod-p4-pkg/internal/f-internal/source.psd',
+            isApprovedForClient: false,
+          },
+        ],
+      }),
+      adminDb.collection('creativeProducts').doc('prod-p4-expired').set({
+        id: 'prod-p4-expired',
+        title: 'Expired Package Kit',
+        audience: 'Artist',
+        category: 'Music Release Promo Packs',
+        accessType: 'IncludedInPackage',
+        includedPackageIds: ['pkg-expired'],
+        assignedWorkspaceIds: [],
+        status: 'Published',
+        files: [],
+      }),
+      adminDb.collection('creativeProducts').doc('prod-p4-draft').set({
+        id: 'prod-p4-draft',
+        title: 'Draft Pack',
+        audience: 'Artist',
+        status: 'Draft',
+        accessType: 'Free',
+        files: [],
+      }),
+    ]);
+  });
+
+  afterEach(async () => {
+    const batch = adminDb.batch();
+    batch.delete(adminDb.collection('clientProfiles').doc(artistUid));
+    batch.delete(adminDb.collection('clientProfiles').doc(brandUid));
+    batch.delete(adminDb.collection('workspaces').doc(artistWsId));
+    batch.delete(adminDb.collection('workspaces').doc(brandWsId));
+    batch.delete(adminDb.collection('services').doc('pkg-active'));
+    batch.delete(adminDb.collection('services').doc('pkg-expired'));
+    batch.delete(adminDb.collection('creativeProducts').doc('prod-p4-pkg'));
+    batch.delete(adminDb.collection('creativeProducts').doc('prod-p4-expired'));
+    batch.delete(adminDb.collection('creativeProducts').doc('prod-p4-draft'));
+    batch.delete(adminDb.collection('resourceAnalyticsSummaries').doc('prod-p4-pkg'));
+    await batch.commit();
+  });
+
+  it('authorizes active package files using isApprovedForClient/fileFormat and blocks internal files', async () => {
+    const res = await wrappedVerifyCreativeResourceAccess(
+      { productId: 'prod-p4-pkg', workspaceId: artistWsId },
+      { auth: { uid: artistUid } },
+    );
+    expect(res.allowed).to.equal(true);
+    expect(res.authorizedFiles).to.have.lengthOf(1);
+    expect(res.authorizedFiles[0].id).to.equal('f-approved');
+    expect(res.authorizedFiles[0].format).to.equal('ZIP');
+  });
+
+  it('blocks wrong audience, expired entitlements, and unpublished draft products', async () => {
+    const wrongAud = await wrappedVerifyCreativeResourceAccess(
+      { productId: 'prod-p4-pkg', workspaceId: brandWsId },
+      { auth: { uid: brandUid } },
+    );
+    expect(wrongAud.allowed).to.equal(false);
+
+    const expired = await wrappedVerifyCreativeResourceAccess(
+      { productId: 'prod-p4-expired', workspaceId: artistWsId },
+      { auth: { uid: artistUid } },
+    );
+    expect(expired.allowed).to.equal(false);
+
+    try {
+      await wrappedVerifyCreativeResourceAccess(
+        { productId: 'prod-p4-draft', workspaceId: artistWsId },
+        { auth: { uid: artistUid } },
+      );
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('not-found');
+    }
+  });
+
+  it('prevents cross-audience analytics manipulation and clamps favouriteCount non-negative', async () => {
+    try {
+      await wrappedRecordCreativeResourceEvent(
+        { productId: 'prod-p4-pkg', workspaceId: brandWsId, action: 'download_success' },
+        { auth: { uid: brandUid } },
+      );
+      throw new Error('Should have thrown');
+    } catch (err: any) {
+      expect(err.code).to.equal('permission-denied');
+    }
+
+    await wrappedRecordCreativeResourceEvent(
+      { productId: 'prod-p4-pkg', workspaceId: artistWsId, action: 'favourite_remove' },
+      { auth: { uid: artistUid } },
+    );
+    const summarySnap = await adminDb.collection('resourceAnalyticsSummaries').doc('prod-p4-pkg').get();
+    expect(summarySnap.get('favouriteCount')).to.equal(0);
   });
 });

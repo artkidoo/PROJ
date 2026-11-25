@@ -141,6 +141,58 @@ async function runStorageSecurityTests() {
       clientAStorage.ref('workspaces/ws-client-a/assets/large-file.zip').put(new Uint8Array(50 * 1024 * 1024 + 1024), { contentType: 'application/zip' }).then(() => undefined)
     );
 
+    // SECTION 6: Phase 4 Creative Product Storage deliverables vs internal source isolation
+    console.log('[SECTION 6] Creative Product storage deliverable, package & internal protection');
+    await Promise.all([
+      adminDb.doc('services/pkg-music-promo-deluxe').set({ id: 'pkg-music-promo-deluxe', isActive: true }),
+      adminDb.doc('creativeProducts/prod-pack-free').set({
+        id: 'prod-pack-free', audience: 'Artist', status: 'Published', accessType: 'Free',
+        assignedWorkspaceIds: [], includedPackageIds: [],
+      }),
+      adminDb.doc('creativeProducts/prod-pack-pkg').set({
+        id: 'prod-pack-pkg', audience: 'Artist', status: 'Published', accessType: 'IncludedInPackage',
+        assignedWorkspaceIds: [], includedPackageIds: ['pkg-music-promo-deluxe'],
+      }),
+      adminDb.doc('creativeProducts/prod-pack-req').set({
+        id: 'prod-pack-req', audience: 'Artist', status: 'Published', accessType: 'RequestRequired',
+        assignedWorkspaceIds: [], includedPackageIds: [],
+      }),
+      adminDb.doc('creativeProducts/prod-brand-only').set({
+        id: 'prod-brand-only', audience: 'Brand & Business', status: 'Published', accessType: 'Free',
+        assignedWorkspaceIds: [], includedPackageIds: [],
+      }),
+    ]);
+
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const s = ctx.storage(bucketUrl);
+      await s.ref('products/prod-pack-free/deliverables/f1/pack.zip').put(new Uint8Array([80, 75, 3, 4]), { contentType: 'application/zip' });
+      await s.ref('products/prod-pack-pkg/deliverables/f1/premium.zip').put(new Uint8Array([80, 75, 3, 4]), { contentType: 'application/zip' });
+      await s.ref('products/prod-pack-req/deliverables/f1/custom.zip').put(new Uint8Array([80, 75, 3, 4]), { contentType: 'application/zip' });
+      await s.ref('products/prod-brand-only/deliverables/f1/brand.zip').put(new Uint8Array([80, 75, 3, 4]), { contentType: 'application/zip' });
+      await s.ref('products/prod-pack-free/internal/src-1/master.psd').put(new Uint8Array([1, 2, 3]), { contentType: 'application/octet-stream' });
+    });
+
+    await assertSucceeds(adminStorage.ref('products/prod-pack-free/internal/src-1/master.psd').getMetadata());
+    await assertFails(clientAStorage.ref('products/prod-pack-free/internal/src-1/master.psd').getMetadata());
+    await assertFails(clientAStorage.ref('products/prod-pack-free/deliverables/f1/hack.zip').put(new Uint8Array([1]), { contentType: 'application/zip' }).then(() => undefined));
+
+    // Free Artist file accessible to Artist (clientA), denied to Brand (clientB) & unauthenticated
+    await assertSucceeds(clientAStorage.ref('products/prod-pack-free/deliverables/f1/pack.zip').getMetadata());
+    await assertFails(clientBStorage.ref('products/prod-pack-free/deliverables/f1/pack.zip').getMetadata());
+    await assertFails(guestStorage.ref('products/prod-pack-free/deliverables/f1/pack.zip').getMetadata());
+    await assertFails(clientAStorage.ref('products/prod-brand-only/deliverables/f1/brand.zip').getMetadata());
+
+    // RequestRequired & unentitled IncludedInPackage deliverables denied
+    await assertFails(clientAStorage.ref('products/prod-pack-req/deliverables/f1/custom.zip').getMetadata());
+    await assertFails(clientAStorage.ref('products/prod-pack-pkg/deliverables/f1/premium.zip').getMetadata());
+
+    // Unlock IncludedInPackage via activePackageIds on ws-client-a, then verify access & suspended denial
+    await adminDb.doc('workspaces/ws-client-a').update({ activePackageIds: ['pkg-music-promo-deluxe'] });
+    await assertSucceeds(clientAStorage.ref('products/prod-pack-pkg/deliverables/f1/premium.zip').getMetadata());
+    await adminDb.doc('clientProfiles/client-a').update({ status: 'Suspended' });
+    await assertFails(clientAStorage.ref('products/prod-pack-pkg/deliverables/f1/premium.zip').getMetadata());
+    await adminDb.doc('clientProfiles/client-a').update({ status: 'Active' });
+
     console.log('ALL STORAGE RULES ASSERTIONS COMPLETED SUCCESSFULLY (DB=' + FIRESTORE_DATABASE_ID + ')');
   } catch (err: any) {
     console.error('[BLOCKED] Firebase Emulator is not running or test assertions failed.');

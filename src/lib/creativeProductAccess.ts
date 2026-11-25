@@ -68,10 +68,20 @@ export const BRAND_BUSINESS_PRODUCT_FAMILIES: ProductFamilyDefinition[] = [
   },
 ];
 
+export const SHARED_PRODUCT_FAMILIES: ProductFamilyDefinition[] = [
+  {
+    id: 'Shared Utilities & Studio Guides',
+    label: 'Shared Utilities & Studio Guides',
+    category: 'Shared Utilities',
+    description: 'Universal social safe-zone grids, print bleed calibration sheets, typography pairing specimens, and launch planning checklists for both Artists and Brands.',
+  },
+];
+
 export const ALL_PRODUCT_FAMILIES = Array.from(
   new Set([
     ...ARTIST_PRODUCT_FAMILIES.map(f => f.label),
     ...BRAND_BUSINESS_PRODUCT_FAMILIES.map(f => f.label),
+    ...SHARED_PRODUCT_FAMILIES.map(f => f.label),
   ]),
 );
 
@@ -89,9 +99,12 @@ export const BRAND_BUSINESS_PRODUCT_CATEGORIES = [
   'Marketing & Promotional',
 ] as const;
 
+export const SHARED_PRODUCT_CATEGORIES = ['Shared Utilities'] as const;
+
 export const ALL_PRODUCT_CATEGORIES = [
   ...ARTIST_PRODUCT_CATEGORIES,
   ...BRAND_BUSINESS_PRODUCT_CATEGORIES,
+  ...SHARED_PRODUCT_CATEGORIES,
 ] as const;
 
 export const STREAMING_PLATFORM_DIMENSIONS = [
@@ -110,11 +123,14 @@ export function resolveProductFamily(
     return product.productFamily.trim();
   }
   const cat = (product.category || '').trim();
+  if (product.audience === 'Shared' || cat === 'Shared Utilities') {
+    return 'Shared Utilities & Studio Guides';
+  }
   const isArtist = product.audience === 'Artist';
   const list = isArtist ? ARTIST_PRODUCT_FAMILIES : BRAND_BUSINESS_PRODUCT_FAMILIES;
   const match = list.find(f => f.category === cat || f.label.toLowerCase() === cat.toLowerCase());
   if (match) return match.label;
-  const fallbackMatch = [...ARTIST_PRODUCT_FAMILIES, ...BRAND_BUSINESS_PRODUCT_FAMILIES].find(
+  const fallbackMatch = [...ARTIST_PRODUCT_FAMILIES, ...BRAND_BUSINESS_PRODUCT_FAMILIES, ...SHARED_PRODUCT_FAMILIES].find(
     f => f.category === cat,
   );
   return fallbackMatch?.label || cat || 'Studio Resources';
@@ -166,12 +182,13 @@ export interface WorkspacePackageEntitlementInput {
 export interface ClientProductEligibilityParams {
   product: Pick<
     CreativeProduct,
-    'status' | 'audience' | 'accessType' | 'assignedWorkspaceIds' | 'includedPackageIds'
+    'status' | 'audience' | 'accessType' | 'assignedWorkspaceIds' | 'includedPackageIds' | 'unlockedByDefault' | 'instantStudioPackEligible' | 'files'
   >;
   clientBucket: 'Artist' | 'Brand' | 'Business';
   workspaceId: string;
   workspaceStatus?: Workspace['status'] | string;
   contractedPackageIds?: unknown;
+  activePackageIds?: unknown;
   activeServicePackageIds?: readonly string[] | ReadonlySet<string>;
   packageEntitlements?: readonly WorkspacePackageEntitlementInput[];
   nowIso?: string;
@@ -202,6 +219,7 @@ export function resolveActiveWorkspacePackageIds(params: {
   workspaceId: string;
   workspaceStatus?: Workspace['status'] | string;
   contractedPackageIds?: unknown;
+  activePackageIds?: unknown;
   activeServicePackageIds?: readonly string[] | ReadonlySet<string>;
   packageEntitlements?: readonly WorkspacePackageEntitlementInput[];
   nowIso?: string;
@@ -210,6 +228,7 @@ export function resolveActiveWorkspacePackageIds(params: {
     workspaceId,
     workspaceStatus,
     contractedPackageIds,
+    activePackageIds,
     activeServicePackageIds,
     packageEntitlements,
     nowIso,
@@ -220,7 +239,9 @@ export function resolveActiveWorkspacePackageIds(params: {
   }
 
   const contracted = sanitizeIdList(contractedPackageIds);
-  if (contracted.length === 0) return [];
+  const serverActive = sanitizeIdList(activePackageIds);
+  const candidateIds = Array.from(new Set([...contracted, ...serverActive]));
+  if (candidateIds.length === 0) return [];
 
   const activeCatalogSet =
     activeServicePackageIds === undefined
@@ -241,7 +262,7 @@ export function resolveActiveWorkspacePackageIds(params: {
 
   const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
 
-  return contracted.filter(pkgId => {
+  return candidateIds.filter(pkgId => {
     if (activeCatalogSet !== null && !activeCatalogSet.has(pkgId)) {
       return false;
     }
@@ -292,6 +313,10 @@ export function isClientEligibleForProductView(params: ClientProductEligibilityP
   if (!isWorkspaceStatusEligible(workspaceStatus)) return false;
   if (!matchesProductAudience(product.audience, clientBucket)) return false;
 
+  if (product.unlockedByDefault === true) {
+    return true;
+  }
+
   if (product.accessType === 'AdminAssigned') {
     return hasExplicitWorkspaceAssignment(params);
   }
@@ -312,7 +337,7 @@ export function isClientEligibleForProductDownload(params: ClientProductEligibil
     return false;
   }
   const { product } = params;
-  if (product.accessType === 'Free') {
+  if (product.accessType === 'Free' || product.unlockedByDefault === true) {
     return true;
   }
   if (product.accessType === 'AdminAssigned') {

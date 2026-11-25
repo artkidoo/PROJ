@@ -56,6 +56,7 @@ export interface ArtistDocumentLibraryProps {
   documents: CorporateDocument[];
   onOpenReleases?: () => void;
   onOpenBilling?: () => void;
+  onOpenCreativeHub?: () => void;
 }
 
 interface MusicTemplateDef {
@@ -250,6 +251,7 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
   documents,
   onOpenReleases,
   onOpenBilling,
+  onOpenCreativeHub,
 }) => {
   const templates = useMemo(() => buildMusicTemplates(workspace.name), [workspace.name]);
 
@@ -645,6 +647,16 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onOpenCreativeHub && (
+            <button
+              type="button"
+              onClick={onOpenCreativeHub}
+              className="inline-flex items-center gap-1.5 rounded border border-[#2A2A2A] bg-[#121212] px-3 py-1.5 text-xs text-neutral-300 hover:border-[#FF1E1E] hover:text-white whitespace-nowrap shrink-0"
+            >
+              <Sparkles size={13} className="text-[#FF1E1E]" />
+              <span>Press &amp; Release Packs</span>
+            </button>
+          )}
           {onOpenReleases && (
             <button
               type="button"

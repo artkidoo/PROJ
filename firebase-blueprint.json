@@ -356,12 +356,99 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "title", "categoryArea", "platform", "status"]
+    },
+    "CreativeResourceDrop": {
+      "title": "Monthly Creative Resource Drop",
+      "description": "Curated monthly creative resource drop linking /creativeProducts with audience and access gating",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "monthKey": { "type": "string" },
+        "audience": { "type": "string" },
+        "accessLevel": { "type": "string" },
+        "status": { "type": "string" },
+        "productIds": { "type": "array" },
+        "publishDate": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "monthKey", "audience", "status"]
+    },
+    "FavouriteResource": {
+      "title": "Favourite Resource",
+      "description": "User-scoped saved favourite creative resource",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "uid": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "audience": { "type": "string" },
+        "savedAt": { "type": "string" }
+      },
+      "required": ["productId", "uid", "workspaceId", "savedAt"]
+    },
+    "ResourceCollection": {
+      "title": "Resource Collection",
+      "description": "User-scoped curated resource collection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "name": { "type": "string" },
+        "productIds": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "uid", "workspaceId", "name"]
+    },
+    "ResourceAccessHistoryItem": {
+      "title": "Resource Access History Item",
+      "description": "User-scoped access and download history entry",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "uid": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "lastAction": { "type": "string" },
+        "downloadCount": { "type": "number" },
+        "lastAccessedAt": { "type": "string" }
+      },
+      "required": ["productId", "uid", "workspaceId", "lastAction", "lastAccessedAt"]
+    },
+    "ResourceAnalyticsSummary": {
+      "title": "Resource Analytics Summary",
+      "description": "Server-aggregated creative resource usage counters readable by Admin HQ only",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "viewCount": { "type": "number" },
+        "previewCount": { "type": "number" },
+        "downloadCount": { "type": "number" },
+        "deniedCount": { "type": "number" },
+        "favouriteCount": { "type": "number" },
+        "collectionAddCount": { "type": "number" },
+        "lastEventAt": { "type": "string" }
+      },
+      "required": ["productId"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/PlatformUser" },
       "description": "Platform user profiles"
+    },
+    "/users/{userId}/favouriteResources/{productId}": {
+      "schema": { "$ref": "#/entities/FavouriteResource" },
+      "description": "User-scoped saved favourite creative resources"
+    },
+    "/users/{userId}/resourceCollections/{collectionId}": {
+      "schema": { "$ref": "#/entities/ResourceCollection" },
+      "description": "User-scoped personal creative resource collections"
+    },
+    "/users/{userId}/resourceHistory/{productId}": {
+      "schema": { "$ref": "#/entities/ResourceAccessHistoryItem" },
+      "description": "User-scoped creative resource view and download history"
     },
     "/services/{serviceId}": {
       "schema": { "$ref": "#/entities/ServicePackage" },
@@ -374,6 +461,14 @@
     "/creativeProducts/{productId}/internalSpecs/{specId}": {
       "schema": { "$ref": "#/entities/CreativeProductInternalSpec" },
       "description": "Admin-only internal Canvas JSON specs and confidential production source metadata"
+    },
+    "/creativeDrops/{dropId}": {
+      "schema": { "$ref": "#/entities/CreativeResourceDrop" },
+      "description": "Monthly curated creative resource drops linked to /creativeProducts"
+    },
+    "/resourceAnalyticsSummaries/{productId}": {
+      "schema": { "$ref": "#/entities/ResourceAnalyticsSummary" },
+      "description": "Admin-only server-aggregated resource engagement and download counters"
     },
     "/brandRoomIdentity/{identityId}": {
       "schema": { "$ref": "#/entities/BrandRoomIdentity" },
