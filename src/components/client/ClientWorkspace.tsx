@@ -13,10 +13,10 @@ import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import {
   Activity,
-  ArrowRight,
-  Bell,
+  Archive,
   Briefcase,
   CheckCircle2,
+  ExternalLink,
   FileCheck2,
   FileText,
   FolderKanban,
@@ -29,17 +29,21 @@ import {
   Package,
   Palette,
   Plus,
+  Search,
   Send,
   Settings,
   ShieldCheck,
   Sparkles,
   Upload,
   User,
+  Wand2,
   X,
 } from 'lucide-react';
 import {
   ClientProfile,
   ClientProject,
+  CreativeProduct,
+  CreativeResourceDrop,
   InvoiceRecord,
   ProductionActivity,
   ProductionDeliverable,
@@ -48,11 +52,14 @@ import {
   ProductionTask,
   ProposalRecord,
   RequestAttachment,
+  ResourceAccessHistoryItem,
+  ServicePackage,
   Workspace,
 } from '../../types';
+import type { CreativeStarterParams } from '../../types/creativeProduction';
 import { useApp } from '../../context/AppContext';
 import { db, functions, storage } from '../../lib/firebase';
-import { deriveClientInvoiceStatus } from '../../lib/financeDocuments';
+import { deriveClientInvoiceStatus, formatMoney } from '../../lib/financeDocuments';
 import { ensureClientWorkspace, resolveClientProjectWorkspaceId } from '../../lib/clientWorkspace';
 import { defaultCategoryForAudience } from '../../lib/productionCategories';
 import { isInternalStoragePath } from '../../lib/productionPromotion';
@@ -67,6 +74,7 @@ import {
   StudioRelease,
 } from './ClientStudio';
 import {
+  ClientOSMode,
   ClientTab,
   formatDynamicRequestBrief,
   getRequestCategoriesForExperience,
@@ -75,9 +83,23 @@ import {
   validatePersonalAccountUpdate,
 } from '../../lib/clientOS';
 import { normalizeAccountType } from '../../lib/accountNormalization';
+import {
+  splitCurrentAndArchivedDrops,
+  subscribeClientCreativeDrops,
+  subscribeUserResourceHistory,
+} from '../../lib/creativeEcosystem';
+import {
+  isClientEligibleForProductView,
+  isWorkspaceStatusEligible,
+  resolveActiveWorkspacePackageIds,
+  resolveClientAudienceBucket,
+} from '../../lib/creativeProductAccess';
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { ClientOnboarding } from './ClientOnboarding';
 import { ClientCreativeHub } from './ClientCreativeHub';
+import { WorkspaceHome } from './WorkspaceHome';
+import { WorkspaceStudioHub } from './WorkspaceStudioHub';
+import { WorkspaceSearchModal } from './WorkspaceSearchModal';
 
 const STAGE_ORDER = [
   'New Request',
@@ -101,6 +123,7 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
 const TAB_ICONS: Record<ClientTab, React.ComponentType<{ size?: number; className?: string }>> = {
   overview: Sparkles,
   'creative-hub': Package,
+  studio: Wand2,
   projects: FolderKanban,
   requests: Inbox,
   deliverables: FileCheck2,
@@ -182,9 +205,19 @@ export const ClientWorkspace: React.FC = () => {
   const [replySubmittingId, setReplySubmittingId] = useState('');
   const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'clarification' | 'accepted' | 'rejected'>('all');
 
-  const [projectStageFilter, setProjectStageFilter] = useState<'all' | 'production' | 'review' | 'delivered'>('all');
+  const [projectStageFilter, setProjectStageFilter] = useState<'all' | 'production' | 'review' | 'delivered' | 'archived'>('all');
   const [deliverableStatusFilter, setDeliverableStatusFilter] = useState<'all' | 'awaiting' | 'approved' | 'revisions'>('all');
   const [updatesFilter, setUpdatesFilter] = useState<'all' | 'activity' | 'revisions'>('all');
+  const [selectedProject, setSelectedProject] = useState<ClientProject | null>(null);
+  const [archivedProjectIds, setArchivedProjectIds] = useState<string[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pendingStudioStarter, setPendingStudioStarter] = useState<CreativeStarterParams | null>(null);
+
+  // Connected Phase 4 Resource Ecosystem & Studio Package Entitlements
+  const [activeServices, setActiveServices] = useState<ServicePackage[]>([]);
+  const [publishedProductsByKey, setPublishedProductsByKey] = useState<Record<string, CreativeProduct[]>>({});
+  const [creativeDrops, setCreativeDrops] = useState<CreativeResourceDrop[]>([]);
+  const [resourceHistory, setResourceHistory] = useState<ResourceAccessHistoryItem[]>([]);
   const [requestSuccessSummary, setRequestSuccessSummary] = useState<{
     title: string;
     category: string;
@@ -219,6 +252,44 @@ export const ClientWorkspace: React.FC = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mobileMenuOpen]);
+
+  useEffect(() => {
+    const onShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', onShortcut);
+    return () => window.removeEventListener('keydown', onShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (!activeWorkspace?.id) {
+      setArchivedProjectIds([]);
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(`keedohub_archived_projects_${activeWorkspace.id}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setArchivedProjectIds(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+    } catch {
+      setArchivedProjectIds([]);
+    }
+  }, [activeWorkspace?.id]);
+
+  const toggleArchiveProject = (projectId: string) => {
+    if (!activeWorkspace?.id) return;
+    setArchivedProjectIds(prev => {
+      const next = prev.includes(projectId) ? prev.filter(id => id !== projectId) : [...prev, projectId];
+      try {
+        window.localStorage.setItem(`keedohub_archived_projects_${activeWorkspace.id}`, JSON.stringify(next));
+      } catch {
+        // Ignore restricted storage mode
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -472,6 +543,218 @@ export const ClientWorkspace: React.FC = () => {
     };
   }, [firebaseUser, activeWorkspace, contextClientProfile?.status]);
 
+  // Phase 5 Artist OS / Brand OS Switching & Experience Resolution
+  const [experienceOverride, setExperienceOverride] = useState<ClientOSMode | null>(() => {
+    try {
+      const stored = window.localStorage.getItem(`keedohub_os_mode_${firebaseUser?.uid || 'guest'}`);
+      if (stored === 'artist' || stored === 'brand') return stored;
+    } catch {
+      // Ignore local storage error
+    }
+    return null;
+  });
+
+  const handleSetExperienceOverride = (mode: ClientOSMode | null) => {
+    setExperienceOverride(mode);
+    try {
+      if (mode) {
+        window.localStorage.setItem(`keedohub_os_mode_${firebaseUser?.uid || 'guest'}`, mode);
+      } else {
+        window.localStorage.removeItem(`keedohub_os_mode_${firebaseUser?.uid || 'guest'}`);
+      }
+    } catch {
+      // Ignore local storage error
+    }
+  };
+
+  const experience = useMemo(
+    () => resolveClientExperience(clientProfile?.accountType, activeWorkspace?.type, experienceOverride),
+    [clientProfile?.accountType, activeWorkspace?.type, experienceOverride],
+  );
+
+  // Phase 4 / Phase 5 Connected Studio Packages, Resource Drops, History & Published Products
+  const clientBucket = useMemo(
+    () => resolveClientAudienceBucket(experience.isArtist ? 'Artist' : 'Brand', activeWorkspace?.type),
+    [experience.isArtist, activeWorkspace?.type],
+  );
+
+  const allowedQueryAudiences = useMemo(
+    () =>
+      clientBucket === 'Artist'
+        ? (['Artist', 'Shared'] as const)
+        : (['Brand', 'Business', 'Brand & Business', 'Shared'] as const),
+    [clientBucket],
+  );
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || clientProfile?.onboardingComplete !== true || contextClientProfile?.status === 'Suspended') {
+      setActiveServices([]);
+      return;
+    }
+    const unsub = onSnapshot(
+      query(collection(db, 'services'), where('isActive', '==', true)),
+      snap => {
+        setActiveServices(snap.docs.map(d => ({ id: d.id, ...d.data() } as ServicePackage)));
+      },
+      () => setActiveServices([]),
+    );
+    return () => unsub();
+  }, [activeWorkspace?.id, clientProfile?.onboardingComplete, contextClientProfile?.status]);
+
+  const activeServicePackageIds = useMemo(
+    () => new Set(activeServices.map(s => s.id)),
+    [activeServices],
+  );
+
+  const validPackageIds = useMemo(() => {
+    if (!activeWorkspace) return [];
+    return resolveActiveWorkspacePackageIds({
+      workspaceId: activeWorkspace.id,
+      workspaceStatus: activeWorkspace.status,
+      contractedPackageIds: activeWorkspace.contractedPackageIds,
+      activePackageIds: activeWorkspace.activePackageIds,
+      activeServicePackageIds,
+      packageEntitlements: activeWorkspace.packageEntitlements,
+    });
+  }, [activeWorkspace, activeServicePackageIds]);
+
+  useEffect(() => {
+    if (
+      !activeWorkspace?.id ||
+      clientProfile?.onboardingComplete !== true ||
+      contextClientProfile?.status === 'Suspended' ||
+      !isWorkspaceStatusEligible(activeWorkspace.status)
+    ) {
+      setPublishedProductsByKey({});
+      return;
+    }
+    const unsubs: Array<() => void> = [];
+    for (const aud of allowedQueryAudiences) {
+      const openKey = `open:${aud}`;
+      unsubs.push(
+        onSnapshot(
+          query(
+            collection(db, 'creativeProducts'),
+            where('status', '==', 'Published'),
+            where('audience', '==', aud),
+            where('accessType', 'in', ['Free', 'RequestRequired']),
+          ),
+          snap => {
+            setPublishedProductsByKey(prev => ({
+              ...prev,
+              [openKey]: snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct)),
+            }));
+          },
+          () => {},
+        ),
+      );
+      const unlockedKey = `unlocked:${aud}`;
+      unsubs.push(
+        onSnapshot(
+          query(
+            collection(db, 'creativeProducts'),
+            where('status', '==', 'Published'),
+            where('audience', '==', aud),
+            where('unlockedByDefault', '==', true),
+          ),
+          snap => {
+            setPublishedProductsByKey(prev => ({
+              ...prev,
+              [unlockedKey]: snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct)),
+            }));
+          },
+          () => {},
+        ),
+      );
+      const assignedKey = `assigned:${aud}`;
+      unsubs.push(
+        onSnapshot(
+          query(
+            collection(db, 'creativeProducts'),
+            where('status', '==', 'Published'),
+            where('audience', '==', aud),
+            where('assignedWorkspaceIds', 'array-contains', activeWorkspace.id),
+          ),
+          snap => {
+            setPublishedProductsByKey(prev => ({
+              ...prev,
+              [assignedKey]: snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct)),
+            }));
+          },
+          () => {},
+        ),
+      );
+      for (const pkgId of validPackageIds) {
+        const pkgKey = `pkg:${aud}:${pkgId}`;
+        unsubs.push(
+          onSnapshot(
+            query(
+              collection(db, 'creativeProducts'),
+              where('status', '==', 'Published'),
+              where('audience', '==', aud),
+              where('accessType', '==', 'IncludedInPackage'),
+              where('includedPackageIds', 'array-contains', pkgId),
+            ),
+            snap => {
+              setPublishedProductsByKey(prev => ({
+                ...prev,
+                [pkgKey]: snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct)),
+              }));
+            },
+            () => {},
+          ),
+        );
+      }
+    }
+    return () => unsubs.forEach(u => u());
+  }, [activeWorkspace?.id, activeWorkspace?.status, clientProfile?.onboardingComplete, contextClientProfile?.status, allowedQueryAudiences, validPackageIds]);
+
+  const publishedProducts = useMemo(() => {
+    if (!activeWorkspace) return [];
+    const merged = new Map<string, CreativeProduct>();
+    for (const rows of Object.values(publishedProductsByKey)) {
+      for (const p of rows) merged.set(p.id, p);
+    }
+    return Array.from(merged.values()).filter(product =>
+      isClientEligibleForProductView({
+        product,
+        clientBucket,
+        workspaceId: activeWorkspace.id,
+        workspaceStatus: activeWorkspace.status,
+        contractedPackageIds: activeWorkspace.contractedPackageIds,
+        activePackageIds: activeWorkspace.activePackageIds,
+        activeServicePackageIds,
+        packageEntitlements: activeWorkspace.packageEntitlements,
+      }),
+    );
+  }, [publishedProductsByKey, activeWorkspace, clientBucket, activeServicePackageIds]);
+
+  useEffect(() => {
+    if (
+      !activeWorkspace?.id ||
+      clientProfile?.onboardingComplete !== true ||
+      contextClientProfile?.status === 'Suspended' ||
+      !isWorkspaceStatusEligible(activeWorkspace.status)
+    ) {
+      setCreativeDrops([]);
+      return;
+    }
+    return subscribeClientCreativeDrops([...allowedQueryAudiences], setCreativeDrops);
+  }, [activeWorkspace?.id, activeWorkspace?.status, clientProfile?.onboardingComplete, contextClientProfile?.status, allowedQueryAudiences]);
+
+  const activeDrops = useMemo(
+    () => splitCurrentAndArchivedDrops(creativeDrops, clientBucket).currentDrops,
+    [creativeDrops, clientBucket],
+  );
+
+  useEffect(() => {
+    if (!firebaseUser?.uid || contextClientProfile?.status === 'Suspended') {
+      setResourceHistory([]);
+      return;
+    }
+    return subscribeUserResourceHistory(firebaseUser.uid, setResourceHistory);
+  }, [firebaseUser?.uid, contextClientProfile?.status]);
+
   // Load projects, tasks, deliverables, revisions, activity for the single workspace.
   useEffect(() => {
     setError('');
@@ -615,11 +898,6 @@ export const ClientWorkspace: React.FC = () => {
     };
   }, [firebaseUser, clientProfile?.workspaceId, activeWorkspace, contextClientProfile?.status]);
 
-  const experience = useMemo(
-    () => resolveClientExperience(clientProfile?.accountType, activeWorkspace?.type),
-    [clientProfile?.accountType, activeWorkspace?.type],
-  );
-
   const availableRequestCategories = useMemo(
     () => getRequestCategoriesForExperience(experience.isArtist),
     [experience.isArtist],
@@ -700,11 +978,6 @@ export const ClientWorkspace: React.FC = () => {
       workspaceProjects.filter(
         p => p.requestStatus === 'Pending' || p.requestStatus === 'Clarification Requested' || p.stage === 'New Request',
       ),
-    [workspaceProjects],
-  );
-
-  const activeProjectsList = useMemo(
-    () => workspaceProjects.filter(p => p.stage !== 'Delivered' && p.requestStatus !== 'Rejected'),
     [workspaceProjects],
   );
 
@@ -1095,6 +1368,105 @@ export const ClientWorkspace: React.FC = () => {
     }
   };
 
+  const launchStudioWithStarter = (starter: CreativeStarterParams) => {
+    setSelectedProject(null);
+    setPendingStudioStarter(starter);
+    selectTab('studio');
+  };
+
+  const handleStudioSaveToAssetLibrary = async (params: {
+    blob: Blob;
+    fileName: string;
+    category: string;
+    releaseId?: string;
+    projectId?: string;
+  }) => {
+    if (!activeWorkspace || !firebaseUser) return;
+    const assetId = crypto.randomUUID();
+    const safeName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, '_') || 'studio-master.png';
+    const storagePath = `workspaces/${activeWorkspace.id}/assets/${assetId}/${safeName}`;
+    const uploaded = await uploadBytes(ref(storage, storagePath), params.blob, {
+      contentType: params.blob.type || 'image/png',
+    });
+    const downloadUrl = await getDownloadURL(uploaded.ref);
+    const bytes = params.blob.size;
+    const sizeLabel = bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    await setDoc(doc(db, 'workspaces', activeWorkspace.id, 'brandAssets', assetId), {
+      id: assetId,
+      workspaceId: activeWorkspace.id,
+      name: params.fileName,
+      category: params.category,
+      mimeType: params.blob.type || 'image/png',
+      fileType: 'PNG',
+      fileSize: sizeLabel,
+      fileSizeBytes: bytes,
+      storagePath,
+      downloadUrl,
+      version: '1.0',
+      status: 'Draft',
+      dimensions: '',
+      usageRules: '',
+      isVector: false,
+      releaseId: params.releaseId || '',
+      projectId: params.projectId || '',
+      description: 'Created in Creative Studio & Production Engine',
+      isInternal: false,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: firebaseUser.uid,
+    });
+  };
+
+  const handleStudioAttachToRelease = async (releaseId: string, artworkBlob: Blob) => {
+    if (!activeWorkspace || !firebaseUser || !releaseId) return;
+    const assetId = crypto.randomUUID();
+    const storagePath = `workspaces/${activeWorkspace.id}/assets/${assetId}/release-cover-${Date.now()}.png`;
+    const uploaded = await uploadBytes(ref(storage, storagePath), artworkBlob, {
+      contentType: artworkBlob.type || 'image/png',
+    });
+    const downloadUrl = await getDownloadURL(uploaded.ref);
+    const now = new Date().toISOString();
+    const bytes = artworkBlob.size;
+    const sizeLabel = bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    await setDoc(doc(db, 'workspaces', activeWorkspace.id, 'brandAssets', assetId), {
+      id: assetId,
+      workspaceId: activeWorkspace.id,
+      name: `release-cover-${releaseId.slice(0, 8)}.png`,
+      category: 'Artwork',
+      mimeType: 'image/png',
+      fileType: 'PNG',
+      fileSize: sizeLabel,
+      fileSizeBytes: bytes,
+      storagePath,
+      downloadUrl,
+      version: '1.0',
+      status: 'Approved',
+      dimensions: '3000x3000',
+      usageRules: '',
+      isVector: false,
+      releaseId,
+      projectId: '',
+      description: 'Master release cover generated in Artist Studio',
+      isInternal: false,
+      uploadedAt: now,
+      uploadedBy: firebaseUser.uid,
+    });
+    await updateDoc(doc(db, 'workspaces', activeWorkspace.id, 'releases', releaseId), {
+      artworkPath: storagePath,
+      artworkUrl: downloadUrl,
+      updatedAt: now,
+    });
+  };
+
+  const handleStudioAttachToProject = async (projectId: string, deliverableBlob: Blob) => {
+    if (!activeWorkspace || !firebaseUser || !projectId) return;
+    await handleStudioSaveToAssetLibrary({
+      blob: deliverableBlob,
+      fileName: `project-${projectId.slice(0, 8)}-studio-master-${Date.now()}.png`,
+      category: experience.isArtist ? 'Promotional' : 'Campaigns',
+      projectId,
+    });
+  };
+
   if (contextClientProfile?.status === 'Suspended') {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#080808] px-4">
@@ -1177,7 +1549,6 @@ export const ClientWorkspace: React.FC = () => {
 
   const accountName = clientProfile?.displayName || firebaseUser?.displayName || 'Workspace Owner';
   const accountAvatar = clientProfile?.photoURL || firebaseUser?.photoURL || '';
-  const approvedAssets = studioAssets.filter(asset => asset.status === 'Approved');
 
   const sidebarContent = (
     <div className="flex h-full flex-col bg-[#0A0A0A] border-r border-[#1A1A1A]">
@@ -1209,10 +1580,20 @@ export const ClientWorkspace: React.FC = () => {
 
       {/* Workspace Identity Summary */}
       <div className="px-4 py-3.5 border-b border-[#181818] bg-[#0C0C0C]">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Workspace</p>
-        <p className="mt-0.5 text-sm font-bold text-white truncate">{activeWorkspace.name}</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Workspace</p>
+          <button
+            type="button"
+            onClick={() => handleSetExperienceOverride(experience.isArtist ? 'brand' : 'artist')}
+            className="text-[10px] font-mono text-neutral-400 hover:text-white px-1.5 py-0.5 rounded border border-[#222222] bg-[#141414] hover:border-[#383838] transition-colors"
+            title={`Switch to ${experience.isArtist ? 'Brand OS' : 'Artist OS'}`}
+          >
+            ⇄ Switch to {experience.isArtist ? 'Brand OS' : 'Artist OS'}
+          </button>
+        </div>
+        <p className="mt-1 text-sm font-bold text-white truncate">{activeWorkspace.name}</p>
         <p className="mt-0.5 text-[11px] font-mono text-neutral-500 truncate">
-          {normalizeAccountType(clientProfile?.accountType || activeWorkspace.type)} · {activeWorkspace.status || 'Active'}
+          {experience.osTitle} {experienceOverride ? '(Custom View)' : ''} · {activeWorkspace.status || 'Active'}
         </p>
       </div>
 
@@ -1305,404 +1686,31 @@ export const ClientWorkspace: React.FC = () => {
   );
 
   const renderOverview = () => (
-    <div className="space-y-6">
-      {/* Personalized Welcome Banner */}
-      <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">
-            {experience.osTitle} · {activeWorkspace.name}
-          </p>
-          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-            Welcome back, {accountName}.
-          </h2>
-          <p className="text-sm text-neutral-400 max-w-2xl">{experience.osSubtitle}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => openRequestModal()}
-            className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-red-600 whitespace-nowrap shrink-0"
-          >
-            <Plus size={14} />
-            <span>New Request</span>
-          </button>
-          {awaitingDeliverables.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                setDeliverableStatusFilter('awaiting');
-                selectTab('deliverables');
-              }}
-              className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-950/20 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:text-white whitespace-nowrap shrink-0"
-            >
-              <FileCheck2 size={14} />
-              <span>Review {awaitingDeliverables.length} Deliverable(s)</span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => selectTab(experience.isArtist ? 'content' : 'documents')}
-            className="inline-flex items-center gap-1.5 rounded border border-[#2A2A2A] bg-[#141414] px-3.5 py-2 text-xs font-medium text-neutral-200 hover:text-white whitespace-nowrap shrink-0"
-          >
-            <span>{experience.isArtist ? 'Open Content Engine' : 'Business Documents'}</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-      </section>
-
-      {workspaceProjects.some(p => p.requestStatus === 'Clarification Requested') && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-950/20 p-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold text-amber-200">
-              Clarification requested by KeedoHub production team
-            </p>
-            <p className="text-xs text-amber-100/80 mt-0.5">
-              One or more of your creative requests needs an answer before production can proceed.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setRequestStatusFilter('clarification');
-              selectTab('requests');
-            }}
-            className="rounded bg-amber-500/20 border border-amber-400/50 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-500/30 whitespace-nowrap shrink-0"
-          >
-            Reply to Request
-          </button>
-        </div>
-      )}
-
-      {/* Real Operational Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <button
-          type="button"
-          onClick={() => selectTab('projects')}
-          className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 text-left hover:border-[#3A3A3A] transition-colors"
-        >
-          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Active Projects</p>
-          <p className="mt-2 text-2xl font-black text-white font-mono tabular-nums">{activeProjectsList.length}</p>
-          <p className="mt-1 text-xs text-neutral-500">{workspaceProjects.length} total in workspace</p>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setDeliverableStatusFilter('awaiting');
-            selectTab('deliverables');
-          }}
-          className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 text-left hover:border-[#3A3A3A] transition-colors"
-        >
-          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Awaiting Review</p>
-          <p className={`mt-2 text-2xl font-black font-mono tabular-nums ${awaitingDeliverables.length > 0 ? 'text-amber-400' : 'text-white'}`}>
-            {awaitingDeliverables.length}
-          </p>
-          <p className="mt-1 text-xs text-neutral-500">{approvedDeliverables.length} approved final output(s)</p>
-        </button>
-        <button
-          type="button"
-          onClick={() => selectTab('requests')}
-          className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 text-left hover:border-[#3A3A3A] transition-colors"
-        >
-          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Open Requests</p>
-          <p className="mt-2 text-2xl font-black text-white font-mono tabular-nums">{openRequests.length}</p>
-          <p className="mt-1 text-xs text-neutral-500">
-            {workspaceProjects.filter(p => p.requestStatus === 'Clarification Requested').length} needing reply
-          </p>
-        </button>
-        {experience.isArtist ? (
-          <button
-            type="button"
-            onClick={() => selectTab('releases')}
-            className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 text-left hover:border-[#3A3A3A] transition-colors"
-          >
-            <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Music Releases</p>
-            <p className="mt-2 text-2xl font-black text-white font-mono tabular-nums">{studioReleases.length}</p>
-            <p className="mt-1 text-xs text-neutral-500">
-              {studioReleases.filter(r => r.status === 'Live').length} live · {studioAssets.length} assets
-            </p>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => selectTab('assets')}
-            className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 text-left hover:border-[#3A3A3A] transition-colors"
-          >
-            <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Brand Assets &amp; Docs</p>
-            <p className="mt-2 text-2xl font-black text-white font-mono tabular-nums">{studioAssets.length}</p>
-            <p className="mt-1 text-xs text-neutral-500">
-              {approvedAssets.length} approved · {studioDocuments.length} business docs
-            </p>
-          </button>
-        )}
-      </div>
-
-      {/* Main Overview Two-Column Grid */}
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
-        {/* Current Projects & Production Status */}
-        <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 space-y-4">
-          <div className="flex items-center justify-between gap-2 border-b border-[#1A1A1A] pb-3">
-            <div>
-              <h3 className="text-sm font-bold text-white">Current Projects &amp; Production Status</h3>
-              <p className="text-xs text-neutral-500">Live progress across active production briefs.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => selectTab('projects')}
-              className="text-xs font-medium text-neutral-300 hover:text-white whitespace-nowrap shrink-0"
-            >
-              View all
-            </button>
-          </div>
-          {loading ? (
-            <p className="text-sm text-neutral-500 py-4">Loading projects…</p>
-          ) : workspaceProjects.length === 0 ? (
-            <div className="rounded border border-dashed border-[#2C2C2C] p-6 text-center space-y-3">
-              <p className="text-sm text-neutral-400">No production projects in this workspace yet.</p>
-              <button
-                type="button"
-                onClick={() => openRequestModal()}
-                className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-red-600"
-              >
-                <Plus size={13} />
-                Submit First Creative Request
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {workspaceProjects.slice(0, 4).map(project => (
-                <div key={project.id} className="rounded border border-[#1E1E1E] bg-[#111] p-3.5 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-white truncate">{project.title}</p>
-                    <span className="text-[11px] font-mono text-neutral-300 shrink-0">
-                      {project.stage || project.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded bg-[#242424]">
-                      <div
-                        className="h-full bg-[#FF1E1E]"
-                        style={{ width: `${Math.min(100, Math.max(0, project.progress || 0))}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] font-mono text-neutral-400 tabular-nums">{project.progress || 0}%</span>
-                  </div>
-                  <p className="text-[11px] font-mono text-neutral-500 tabular-nums">
-                    {project.category} · Target delivery: {project.expectedDeliveryDate || 'TBC'}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Quick Actions & Creative Requests Attention */}
-        <div className="space-y-5">
-          <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 space-y-3">
-            <h3 className="text-sm font-bold text-white">Quick Actions</h3>
-            <div className="grid grid-cols-1 gap-2">
-              {experience.isArtist ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('creative-hub')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Artist Creative Hub &amp; Streaming Packs</span>
-                    <ArrowRight size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('releases')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Manage Music &amp; Releases ({studioReleases.length})</span>
-                    <ArrowRight size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('content')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Release Content Engine ({studioContentItems.length})</span>
-                    <ArrowRight size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('assets')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Artist Asset Library ({studioAssets.length})</span>
-                    <ArrowRight size={13} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('creative-hub')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Brand Creative Hub & Packs</span>
-                    <ArrowRight size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('brand')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Brand Identity &amp; Guidelines</span>
-                    <ArrowRight size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('content')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Creative Copy &amp; Messaging ({studioContentItems.length})</span>
-                    <ArrowRight size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectTab('documents')}
-                    className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-                  >
-                    <span>Proposals, Invoices &amp; Documents ({studioDocuments.length})</span>
-                    <ArrowRight size={13} />
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => selectTab('account')}
-                className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
-              >
-                <span>Account Profile &amp; Settings</span>
-                <ArrowRight size={13} />
-              </button>
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-white">Recent Deliverables &amp; Assets</h3>
-              <button
-                type="button"
-                onClick={() => selectTab('deliverables')}
-                className="text-xs text-neutral-400 hover:text-white"
-              >
-                All deliverables
-              </button>
-            </div>
-            {workspaceDeliverables.length === 0 && approvedAssets.length === 0 ? (
-              <p className="text-xs text-neutral-500">
-                Published deliverables and approved studio assets will appear here once ready.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {workspaceDeliverables.slice(0, 3).map(del => (
-                  <div key={del.id} className="flex items-center justify-between gap-2 rounded border border-[#1E1E1E] bg-[#111] px-3 py-2 text-xs">
-                    <div className="min-w-0">
-                      <p className="font-medium text-white truncate">{del.title}</p>
-                      <p className="text-[10px] font-mono text-neutral-500">{del.reviewStatus}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => selectTab('deliverables')}
-                      className="text-[11px] text-red-300 hover:text-white shrink-0"
-                    >
-                      Open
-                    </button>
-                  </div>
-                ))}
-                {approvedAssets.slice(0, 2).map(asset => (
-                  <div key={asset.id} className="flex items-center justify-between gap-2 rounded border border-[#1E1E1E] bg-[#111] px-3 py-2 text-xs">
-                    <div className="min-w-0">
-                      <p className="font-medium text-white truncate">{asset.name}</p>
-                      <p className="text-[10px] font-mono text-emerald-400">Approved Asset · {asset.category}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => selectTab('assets')}
-                      className="text-[11px] text-neutral-300 hover:text-white shrink-0"
-                    >
-                      Library
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
-
-      {/* Creative Requests & Recent Activity */}
-      <div className="grid gap-5 md:grid-cols-2">
-        <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-bold text-white">Creative Requests Status</h3>
-            <button type="button" onClick={() => selectTab('requests')} className="text-xs text-neutral-400 hover:text-white">
-              Manage requests
-            </button>
-          </div>
-          {workspaceProjects.length === 0 ? (
-            <p className="text-xs text-neutral-500">No requests submitted yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {workspaceProjects.slice(0, 4).map(req => (
-                <div key={req.id} className="flex items-center justify-between gap-3 rounded border border-[#1E1E1E] bg-[#111] px-3 py-2.5 text-xs">
-                  <div className="min-w-0">
-                    <p className="font-medium text-white truncate">{req.title}</p>
-                    <p className="text-[11px] text-neutral-500 truncate">{req.category}</p>
-                  </div>
-                  <span
-                    className={`font-mono text-[11px] shrink-0 ${
-                      req.requestStatus === 'Clarification Requested'
-                        ? 'text-amber-300'
-                        : req.requestStatus === 'Accepted'
-                          ? 'text-emerald-400'
-                          : req.requestStatus === 'Rejected'
-                            ? 'text-red-300'
-                            : 'text-neutral-300'
-                    }`}
-                  >
-                    {req.requestStatus || req.stage || 'Pending'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-              <Bell size={14} className="text-[#FF1E1E]" />
-              <span>Notifications &amp; Recent Activity</span>
-            </h3>
-            <button type="button" onClick={() => selectTab('updates')} className="text-xs text-neutral-400 hover:text-white">
-              Full log
-            </button>
-          </div>
-          {recentActivity.length === 0 && recentRevisions.length === 0 ? (
-            <p className="text-xs text-neutral-500">No recent activity yet. Updates from KeedoHub production appear here.</p>
-          ) : (
-            <div className="space-y-2">
-              {recentActivity.slice(0, 4).map(item => (
-                <div key={item.id} className="rounded border border-[#1E1E1E] bg-[#111] px-3 py-2 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-white truncate">{item.action}</p>
-                    <span className="text-[10px] font-mono text-neutral-500 tabular-nums shrink-0">
-                      {new Date(item.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-neutral-400 line-clamp-2">{item.details}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-    </div>
+    <WorkspaceHome
+      workspace={activeWorkspace}
+      clientProfile={clientProfile}
+      accountName={accountName}
+      experience={experience}
+      projects={workspaceProjects}
+      deliverables={workspaceDeliverables}
+      revisions={workspaceRevisions}
+      activities={workspaceActivity}
+      releases={studioReleases}
+      contentItems={studioContentItems}
+      assets={studioAssets}
+      documents={studioDocuments}
+      invoices={invoices}
+      proposals={proposals}
+      recommendedProducts={publishedProducts}
+      activeDrops={activeDrops}
+      resourceHistory={resourceHistory}
+      activeServicePackageIds={activeServicePackageIds}
+      loading={loading}
+      onSelectTab={selectTab}
+      onOpenRequestModal={openRequestModal}
+      onSelectProject={project => setSelectedProject(project)}
+      onOpenInStudio={launchStudioWithStarter}
+    />
   );
 
   const renderRequests = () => (
@@ -1792,15 +1800,39 @@ export const ClientWorkspace: React.FC = () => {
                     {project.category} · Target delivery: {project.expectedDeliveryDate || 'TBC'} · Current stage: {project.stage || project.status}
                   </p>
                 </div>
-                {project.requestStatus === 'Accepted' && (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={() => selectTab('projects')}
-                    className="rounded border border-[#333] bg-[#141414] px-3 py-1.5 text-xs text-white hover:border-[#FF1E1E] whitespace-nowrap shrink-0"
+                    onClick={() =>
+                      launchStudioWithStarter({
+                        source: 'request',
+                        toolId: experience.isArtist ? 'release-artwork-studio' : 'product-ad-designer',
+                        title: `${project.title} — Brief Execution`,
+                        linkedRequestId: project.id,
+                        linkedProjectId: project.id,
+                        linkedProjectTitle: project.title,
+                        prefillDesign: {
+                          headline: project.title.toUpperCase(),
+                          subtitle: project.description,
+                          genreOrCategory: project.category,
+                        },
+                      })
+                    }
+                    className="inline-flex items-center gap-1 rounded border border-[#FF1E1E]/50 bg-[#1B0C0C] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#FF1E1E] whitespace-nowrap transition-colors"
                   >
-                    View Active Project
+                    <Wand2 size={12} />
+                    <span>Open in Studio</span>
                   </button>
-                )}
+                  {project.requestStatus === 'Accepted' && (
+                    <button
+                      type="button"
+                      onClick={() => selectTab('projects')}
+                      className="rounded border border-[#333] bg-[#141414] px-3 py-1.5 text-xs text-white hover:border-[#FF1E1E] whitespace-nowrap shrink-0"
+                    >
+                      View Active Project
+                    </button>
+                  )}
+                </div>
               </div>
 
               <p className="text-sm text-neutral-300 whitespace-pre-wrap">{project.description}</p>
@@ -1984,9 +2016,47 @@ export const ClientWorkspace: React.FC = () => {
               <dt className="text-neutral-500">Account Type</dt>
               <dd className="font-mono text-white">{normalizeAccountType(clientProfile?.accountType || activeWorkspace.type)}</dd>
             </div>
-            <div className="flex justify-between gap-2 border-b border-[#1A1A1A] pb-2">
-              <dt className="text-neutral-500">OS Mode</dt>
-              <dd className="font-mono text-white">{experience.osTitle}</dd>
+            <div className="flex flex-col gap-2 border-b border-[#1A1A1A] pb-2.5">
+              <div className="flex justify-between items-center gap-2">
+                <dt className="text-neutral-500">Operating System</dt>
+                <dd className="font-mono text-white font-semibold">
+                  {experience.osTitle} {experienceOverride ? '(Custom Selection)' : '(Default)'}
+                </dd>
+              </div>
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => handleSetExperienceOverride('artist')}
+                  className={`flex-1 px-2.5 py-1.5 text-xs font-mono rounded border transition-colors ${
+                    experience.isArtist
+                      ? 'bg-[#1C1C1C] border-[#FF1E1E] text-white font-bold'
+                      : 'bg-transparent border-[#222222] text-neutral-400 hover:text-white hover:border-[#333333]'
+                  }`}
+                >
+                  Artist OS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetExperienceOverride('brand')}
+                  className={`flex-1 px-2.5 py-1.5 text-xs font-mono rounded border transition-colors ${
+                    !experience.isArtist
+                      ? 'bg-[#1C1C1C] border-[#FF1E1E] text-white font-bold'
+                      : 'bg-transparent border-[#222222] text-neutral-400 hover:text-white hover:border-[#333333]'
+                  }`}
+                >
+                  Brand OS
+                </button>
+                {experienceOverride && (
+                  <button
+                    type="button"
+                    onClick={() => handleSetExperienceOverride(null)}
+                    className="px-2 py-1.5 text-[10px] font-mono text-neutral-400 hover:text-white rounded border border-[#222222] hover:border-neutral-500"
+                    title="Reset to default account type"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex justify-between gap-2 border-b border-[#1A1A1A] pb-2">
               <dt className="text-neutral-500">Account Status</dt>
@@ -1997,6 +2067,59 @@ export const ClientWorkspace: React.FC = () => {
               <dd className="font-mono text-neutral-300 truncate max-w-[180px]">{activeWorkspace.id}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-white">Studio Packages &amp; Entitlements</h3>
+            <button
+              type="button"
+              onClick={() => selectTab('creative-hub')}
+              className="text-[11px] font-mono text-red-300 hover:text-white"
+            >
+              Creative Hub
+            </button>
+          </div>
+          {validPackageIds.length === 0 ? (
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              No active contracted studio package is currently linked to this workspace. You retain full access to free Creative Hub resources and on-demand production requests.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {validPackageIds.map(pkgId => {
+                const svc = activeServices.find(s => s.id === pkgId);
+                const entitlement = activeWorkspace.packageEntitlements?.find(e => e.packageId === pkgId);
+                return (
+                  <div key={pkgId} className="rounded border border-[#202020] bg-[#121212] p-3 text-xs space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-white">{svc?.name || pkgId}</span>
+                      <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-400">
+                        {entitlement?.status || 'Active'}
+                      </span>
+                    </div>
+                    {svc && (
+                      <p className="font-mono text-[11px] text-neutral-500 tabular-nums">
+                        {svc.tier} · {svc.billingType} · {svc.turnaroundDays}d turnaround ·{' '}
+                        {svc.revisionLimit < 0 ? 'Unlimited revisions' : `${svc.revisionLimit} revisions`}
+                      </p>
+                    )}
+                    {entitlement?.expiresAt && (
+                      <p className="font-mono text-[10px] text-neutral-500 tabular-nums">
+                        Renews / expires: {new Date(entitlement.expiresAt).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => selectTab(experience.isArtist ? 'artist-profile' : 'brand')}
+            className="w-full rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-neutral-200 hover:border-neutral-500 hover:text-white"
+          >
+            Open {experience.isArtist ? 'Artist Profile' : 'Brand Identity'} Settings
+          </button>
         </section>
 
         <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-5 space-y-3">
@@ -2074,6 +2197,18 @@ export const ClientWorkspace: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="inline-flex items-center gap-2 rounded border border-[#242424] bg-[#101010] px-2.5 py-1.5 text-xs text-neutral-300 hover:border-[#3A3A3A] hover:text-white whitespace-nowrap shrink-0"
+              aria-label="Open workspace search"
+            >
+              <Search size={13} className="text-neutral-400" />
+              <span className="hidden sm:inline">Search</span>
+              <kbd className="hidden md:inline rounded border border-[#2A2A2A] bg-[#161616] px-1.5 py-0.5 text-[10px] font-mono text-neutral-500">
+                ⌘K
+              </kbd>
+            </button>
             {firebaseUser && (
               <ProductionNotificationCenter uid={firebaseUser.uid} onSelectNotification={handleSelectNotification} />
             )}
@@ -2144,6 +2279,28 @@ export const ClientWorkspace: React.FC = () => {
               experience={experience}
               onRequestProduction={prefill => openRequestModal(prefill)}
               onNavigateSection={target => selectTab(target)}
+              onOpenInStudio={launchStudioWithStarter}
+            />
+          ) : activeTab === 'studio' ? (
+            <WorkspaceStudioHub
+              workspace={activeWorkspace}
+              clientProfile={clientProfile}
+              experience={experience}
+              products={publishedProducts}
+              activeServicePackageIds={activeServicePackageIds}
+              projects={workspaceProjects}
+              deliverables={workspaceDeliverables}
+              releases={studioReleases}
+              contentItems={studioContentItems}
+              assets={studioAssets}
+              documents={studioDocuments}
+              initialStarter={pendingStudioStarter}
+              onConsumeInitialStarter={() => setPendingStudioStarter(null)}
+              onNavigateSection={target => selectTab(target)}
+              onRequestProduction={prefill => openRequestModal(prefill)}
+              onSaveToAssetLibrary={handleStudioSaveToAssetLibrary}
+              onAttachToRelease={handleStudioAttachToRelease}
+              onAttachToProject={handleStudioAttachToProject}
             />
           ) : isStudioSection ? (
             <ClientStudio
@@ -2156,6 +2313,7 @@ export const ClientWorkspace: React.FC = () => {
               deliverables={workspaceDeliverables}
               invoices={invoices}
               proposals={proposals}
+              resourceHistory={resourceHistory}
               primaryWorkspaceId={clientProfile?.workspaceId}
               externalData={{
                 releases: studioReleases,
@@ -2165,8 +2323,10 @@ export const ClientWorkspace: React.FC = () => {
                 loading: studioLoading,
                 error: studioError,
               }}
+              isArtistOverride={experience.isArtist}
               onNavigateSection={target => selectTab(target)}
               onRequestProduction={prefill => openRequestModal(prefill)}
+              onOpenInStudio={launchStudioWithStarter}
             />
           ) : activeTab === 'overview' ? (
             renderOverview()
@@ -2180,48 +2340,72 @@ export const ClientWorkspace: React.FC = () => {
             <>
               {activeTab === 'projects' && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-2 border-b border-[#1A1A1A] pb-3">
-                    <span className="text-xs text-neutral-500">Filter:</span>
-                    {[
-                      { id: 'all' as const, label: 'All projects', count: workspaceProjects.length },
-                      {
-                        id: 'production' as const,
-                        label: 'In production',
-                        count: workspaceProjects.filter(p =>
-                          ['Brief Approved', 'In Production', 'Internal QA', 'Revision Required', 'Ready for Delivery'].includes(
-                            p.stage || '',
-                          ),
-                        ).length,
-                      },
-                      {
-                        id: 'review' as const,
-                        label: 'Briefs in review',
-                        count: workspaceProjects.filter(
-                          p =>
-                            p.requestStatus === 'Pending' ||
-                            p.requestStatus === 'Clarification Requested' ||
-                            p.stage === 'New Request',
-                        ).length,
-                      },
-                      {
-                        id: 'delivered' as const,
-                        label: 'Delivered',
-                        count: workspaceProjects.filter(p => p.stage === 'Delivered').length,
-                      },
-                    ].map(f => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => setProjectStageFilter(f.id)}
-                        className={`rounded px-2.5 py-1 text-xs font-mono tabular-nums transition-colors ${
-                          projectStageFilter === f.id
-                            ? 'border border-red-500/50 bg-red-950/40 text-white font-medium'
-                            : 'border border-[#262626] bg-[#121212] text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        {f.label} ({f.count})
-                      </button>
-                    ))}
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1A1A1A] pb-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-neutral-500">Filter:</span>
+                      {[
+                        {
+                          id: 'all' as const,
+                          label: 'All projects',
+                          count: workspaceProjects.filter(p => !archivedProjectIds.includes(p.id)).length,
+                        },
+                        {
+                          id: 'production' as const,
+                          label: 'In production',
+                          count: workspaceProjects.filter(
+                            p =>
+                              !archivedProjectIds.includes(p.id) &&
+                              ['Brief Approved', 'In Production', 'Internal QA', 'Revision Required', 'Ready for Delivery'].includes(
+                                p.stage || '',
+                              ),
+                          ).length,
+                        },
+                        {
+                          id: 'review' as const,
+                          label: 'Briefs in review',
+                          count: workspaceProjects.filter(
+                            p =>
+                              !archivedProjectIds.includes(p.id) &&
+                              (p.requestStatus === 'Pending' ||
+                                p.requestStatus === 'Clarification Requested' ||
+                                p.stage === 'New Request'),
+                          ).length,
+                        },
+                        {
+                          id: 'delivered' as const,
+                          label: 'Delivered',
+                          count: workspaceProjects.filter(
+                            p => !archivedProjectIds.includes(p.id) && p.stage === 'Delivered',
+                          ).length,
+                        },
+                        {
+                          id: 'archived' as const,
+                          label: 'Archived',
+                          count: workspaceProjects.filter(p => archivedProjectIds.includes(p.id)).length,
+                        },
+                      ].map(f => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setProjectStageFilter(f.id)}
+                          className={`rounded px-2.5 py-1 text-xs font-mono tabular-nums transition-colors ${
+                            projectStageFilter === f.id
+                              ? 'border border-red-500/50 bg-red-950/40 text-white font-medium'
+                              : 'border border-[#262626] bg-[#121212] text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          {f.label} ({f.count})
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openRequestModal()}
+                      className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 whitespace-nowrap shrink-0"
+                    >
+                      <Plus size={13} />
+                      <span>Start New Project</span>
+                    </button>
                   </div>
 
                   {workspaceProjects.length === 0 && (
@@ -2232,6 +2416,9 @@ export const ClientWorkspace: React.FC = () => {
 
                   {workspaceProjects
                     .filter(project => {
+                      const isArchived = archivedProjectIds.includes(project.id);
+                      if (projectStageFilter === 'archived') return isArchived;
+                      if (isArchived) return false;
                       if (projectStageFilter === 'production') {
                         return [
                           'Brief Approved',
@@ -2263,16 +2450,36 @@ export const ClientWorkspace: React.FC = () => {
                       const approvedProjectDeliverables = projectDeliverables.filter(
                         d => d.reviewStatus === 'Approved',
                       ).length;
+                      const isArchivedLocally = archivedProjectIds.includes(project.id);
                       return (
                         <article key={project.id} className="rounded border border-[#1A1A1A] bg-[#0C0C0C] p-5">
                           <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
+                            <div className="min-w-0 flex-1">
                               <h3 className="text-lg font-bold text-white">{project.title}</h3>
                               <p className="mt-1 text-sm text-neutral-400">{project.description}</p>
                             </div>
-                            <span className="rounded border border-[#333] px-2.5 py-1 text-xs font-mono text-neutral-200 shrink-0">
-                              {project.stage || project.status}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              <span className="rounded border border-[#333] px-2.5 py-1 text-xs font-mono text-neutral-200">
+                                {project.stage || project.status}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedProject(project)}
+                                className="inline-flex items-center gap-1 rounded border border-[#333] bg-[#141414] px-2.5 py-1 text-xs text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
+                              >
+                                <ExternalLink size={12} />
+                                <span>Inspect</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleArchiveProject(project.id)}
+                                className="inline-flex items-center gap-1 rounded border border-[#262626] bg-[#101010] px-2.5 py-1 text-xs text-neutral-400 hover:border-[#444] hover:text-white"
+                                title={isArchivedLocally ? 'Restore from archived view' : 'Archive from main projects view'}
+                              >
+                                <Archive size={12} />
+                                <span>{isArchivedLocally ? 'Restore' : 'Archive'}</span>
+                              </button>
+                            </div>
                           </div>
 
                           {project.requestStatus === 'Rejected' && (
@@ -3021,6 +3228,266 @@ export const ClientWorkspace: React.FC = () => {
           )}
         </div>
       )}
+      {/* Global Workspace Search Modal (⌘K / Ctrl+K) */}
+      <WorkspaceSearchModal
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        isArtist={experience.isArtist}
+        projects={workspaceProjects}
+        releases={studioReleases}
+        contentItems={studioContentItems}
+        assets={studioAssets}
+        documents={studioDocuments}
+        invoices={invoices}
+        proposals={proposals}
+        products={publishedProducts}
+        onSelectResult={targetTab => {
+          selectTab(targetTab);
+          setSearchOpen(false);
+        }}
+      />
+
+      {/* Project Detail Inspector Modal */}
+      {selectedProject && (() => {
+        const pDeliverables = workspaceDeliverables.filter(d => d.projectId === selectedProject.id);
+        const pTasks = tasks.filter(t => t.projectId === selectedProject.id);
+        const pRevisions = requestsByProject.get(selectedProject.id) || [];
+        const pReleases = experience.isArtist ? studioReleases.filter(r => r.projectId === selectedProject.id) : [];
+        const pContent = studioContentItems.filter(c => c.projectId === selectedProject.id);
+        const pAssets = studioAssets.filter(a => a.projectId === selectedProject.id);
+        const pDocs = studioDocuments.filter(d => d.projectId === selectedProject.id);
+        const pInvoices = invoices.filter(i => i.projectId === selectedProject.id);
+        const pProposals = proposals.filter(p => p.projectId === selectedProject.id);
+        const currentStageIdx = STAGE_ORDER.indexOf(selectedProject.stage || 'New Request');
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Inspect project ${selectedProject.title}`}
+          >
+            <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-[#292929] bg-[#0C0C0C] p-6 space-y-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-4 border-b border-[#1E1E1E] pb-4">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#FF1E1E]">
+                    {selectedProject.category} · {selectedProject.stage || selectedProject.status}
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-white">{selectedProject.title}</h2>
+                  <p className="mt-1 text-xs font-mono text-neutral-500 tabular-nums">
+                    Target delivery: {selectedProject.expectedDeliveryDate || 'To be confirmed'} · Progress:{' '}
+                    {selectedProject.progress || 0}%
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      launchStudioWithStarter({
+                        source: 'project',
+                        toolId: experience.isArtist ? 'release-artwork-studio' : 'product-ad-designer',
+                        title: `${selectedProject.title} — Studio Master`,
+                        linkedProjectId: selectedProject.id,
+                        linkedProjectTitle: selectedProject.title,
+                        prefillDesign: {
+                          headline: selectedProject.title.toUpperCase(),
+                          subtitle: selectedProject.description,
+                          genreOrCategory: selectedProject.category,
+                        },
+                      })
+                    }
+                    className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600"
+                  >
+                    <Wand2 size={12} />
+                    <span>Open in Studio</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProject(null)}
+                    className="rounded border border-[#2C2C2C] px-3 py-1.5 text-xs text-neutral-300 hover:text-white"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              {/* 8-Stage Pipeline Tracker */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
+                  <span>8-Stage Production Pipeline</span>
+                  <span className="tabular-nums">{selectedProject.progress || 0}%</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {STAGE_ORDER.map((stage, idx) => (
+                    <span
+                      key={stage}
+                      className={`rounded px-2 py-1 text-[10px] font-mono ${
+                        idx <= currentStageIdx ? 'bg-red-950/50 text-red-200 border border-red-900/40' : 'bg-[#151515] text-neutral-600'
+                      }`}
+                    >
+                      {stage}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Brief */}
+              <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 space-y-2">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Project Brief</p>
+                <p className="text-sm text-neutral-200 whitespace-pre-wrap leading-relaxed">{selectedProject.description}</p>
+              </div>
+
+              {/* Deliverables & Shared Tasks */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                      Deliverables ({pDeliverables.length})
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedProject(null);
+                        selectTab('deliverables');
+                      }}
+                      className="text-[11px] text-red-300 hover:text-white"
+                    >
+                      Open Deliverables
+                    </button>
+                  </div>
+                  {pDeliverables.length === 0 ? (
+                    <p className="text-xs text-neutral-500">No published deliverables linked yet.</p>
+                  ) : (
+                    <ul className="space-y-1.5 text-xs">
+                      {pDeliverables.map(d => (
+                        <li key={d.id} className="flex items-center justify-between gap-2 text-neutral-300">
+                          <span className="truncate">{d.title}</span>
+                          <span className="font-mono text-[10px] text-neutral-400 shrink-0">{d.reviewStatus}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 space-y-2.5">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                    Shared Tasks ({pTasks.length})
+                  </h3>
+                  {pTasks.length === 0 ? (
+                    <p className="text-xs text-neutral-500">No client-visible tasks assigned yet.</p>
+                  ) : (
+                    <ul className="space-y-1.5 text-xs">
+                      {pTasks.map(t => (
+                        <li key={t.id} className="flex items-center justify-between gap-2 text-neutral-300">
+                          <span className="truncate">{t.title}</span>
+                          <span className="font-mono text-[10px] text-neutral-400 shrink-0">{t.status}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              {/* Linked Studio Ecosystem Entities */}
+              <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                  Connected OS Entities
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-xs">
+                  {experience.isArtist && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedProject(null);
+                        selectTab('releases');
+                      }}
+                      className="rounded border border-[#242424] bg-[#161616] p-3 text-left hover:border-[#FF1E1E]"
+                    >
+                      <p className="text-[10px] font-mono uppercase text-neutral-500">Linked Releases</p>
+                      <p className="mt-1 font-bold text-white tabular-nums">{pReleases.length}</p>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedProject(null);
+                      selectTab('content');
+                    }}
+                    className="rounded border border-[#242424] bg-[#161616] p-3 text-left hover:border-[#FF1E1E]"
+                  >
+                    <p className="text-[10px] font-mono uppercase text-neutral-500">Linked Content Items</p>
+                    <p className="mt-1 font-bold text-white tabular-nums">{pContent.length}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedProject(null);
+                      selectTab('assets');
+                    }}
+                    className="rounded border border-[#242424] bg-[#161616] p-3 text-left hover:border-[#FF1E1E]"
+                  >
+                    <p className="text-[10px] font-mono uppercase text-neutral-500">Linked Studio Assets</p>
+                    <p className="mt-1 font-bold text-white tabular-nums">{pAssets.length}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedProject(null);
+                      selectTab('documents');
+                    }}
+                    className="rounded border border-[#242424] bg-[#161616] p-3 text-left hover:border-[#FF1E1E]"
+                  >
+                    <p className="text-[10px] font-mono uppercase text-neutral-500">Linked Vault Docs</p>
+                    <p className="mt-1 font-bold text-white tabular-nums">{pDocs.length}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedProject(null);
+                      selectTab('invoices');
+                    }}
+                    className="rounded border border-[#242424] bg-[#161616] p-3 text-left hover:border-[#FF1E1E]"
+                  >
+                    <p className="text-[10px] font-mono uppercase text-neutral-500">Linked Invoices</p>
+                    <p className="mt-1 font-bold text-white tabular-nums">
+                      {pInvoices.length}
+                      {pInvoices[0] ? ` · ${formatMoney(pInvoices[0].totalAmount, pInvoices[0].currency)}` : ''}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedProject(null);
+                      selectTab('proposals');
+                    }}
+                    className="rounded border border-[#242424] bg-[#161616] p-3 text-left hover:border-[#FF1E1E]"
+                  >
+                    <p className="text-[10px] font-mono uppercase text-neutral-500">Linked Proposals</p>
+                    <p className="mt-1 font-bold text-white tabular-nums">{pProposals.length}</p>
+                  </button>
+                </div>
+              </div>
+
+              {pRevisions.length > 0 && (
+                <div className="rounded border border-[#1E1E1E] bg-[#111] p-4 space-y-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                    Revision History ({pRevisions.length})
+                  </h3>
+                  <div className="space-y-2 text-xs">
+                    {pRevisions.map(rev => (
+                      <div key={rev.id} className="rounded border border-[#242424] bg-[#151515] p-2.5">
+                        <p className="font-mono text-[10px] text-neutral-500">
+                          {rev.status} · {new Date(rev.submittedAt).toLocaleDateString()}
+                        </p>
+                        <p className="mt-1 text-neutral-300">{rev.feedback}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -49,7 +49,7 @@ function run() {
 
   const artistIds = artistExp.navGroups.flatMap(g => g.items.map(i => i.id));
   assert.equal(new Set(artistIds).size, artistIds.length, 'Artist nav tab IDs must be strictly unique');
-  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'artist-profile', 'releases', 'content', 'documents', 'assets', 'invoices', 'proposals', 'account']) {
+  for (const requiredId of ['overview', 'creative-hub', 'studio', 'projects', 'requests', 'deliverables', 'updates', 'artist-profile', 'releases', 'content', 'documents', 'assets', 'invoices', 'proposals', 'account']) {
     assert.ok(artistIds.includes(requiredId as typeof artistIds[number]), `Artist OS missing tab ${requiredId}`);
   }
   assert.ok(!artistIds.includes('brand'), 'Artist OS must not expose Brand Identity tab');
@@ -63,7 +63,7 @@ function run() {
 
   const brandIds = brandExp.navGroups.flatMap(g => g.items.map(i => i.id));
   assert.equal(new Set(brandIds).size, brandIds.length, 'Brand nav tab IDs must be strictly unique');
-  for (const requiredId of ['overview', 'creative-hub', 'projects', 'requests', 'deliverables', 'updates', 'brand', 'content', 'documents', 'assets', 'invoices', 'proposals', 'account']) {
+  for (const requiredId of ['overview', 'creative-hub', 'studio', 'projects', 'requests', 'deliverables', 'updates', 'brand', 'content', 'documents', 'assets', 'invoices', 'proposals', 'account']) {
     assert.ok(brandIds.includes(requiredId as typeof brandIds[number]), `Brand OS missing tab ${requiredId}`);
   }
   assert.ok(!brandIds.includes('releases'), 'Brand OS must not expose Artist Music & Releases tab');

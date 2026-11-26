@@ -1,11 +1,21 @@
-import type { BrandWorkspaceProfile, ClientProfile, Workspace } from '../types';
+import type {
+  ArtistWorkspaceProfile,
+  BrandWorkspaceProfile,
+  ClientProfile,
+  ClientProject,
+  CreativeProduct,
+  InvoiceRecord,
+  ProductionActivity,
+  ProductionRevisionRequest,
+  ProposalRecord,
+  Workspace,
+} from '../types';
 import {
   defaultCategoryForAudience,
   isValidCalendarDate,
   UNIFIED_PRODUCTION_CATEGORIES,
 } from './productionCategories';
 import { inspectAccountType } from './accountNormalization';
-
 
 export type ClientStudioSection =
   | 'artist-profile'
@@ -21,6 +31,7 @@ export type ClientStudioSection =
 export type ClientTab =
   | 'overview'
   | 'creative-hub'
+  | 'studio'
   | 'projects'
   | 'requests'
   | 'deliverables'
@@ -29,6 +40,53 @@ export type ClientTab =
   | ClientStudioSection;
 
 export type ClientOSMode = 'artist' | 'brand';
+
+export const ARTIST_ASSET_CATEGORIES = [
+  'Cover Art',
+  'Alt Artwork',
+  'Release Graphics',
+  'Promotional',
+  'Lyrics',
+  'Visualizer',
+  'Video',
+  'EPK',
+  'Branding',
+  'Social',
+  'Documents',
+  'Uploaded Files',
+  'Artwork',
+  'Photography',
+  'Other',
+] as const;
+
+export const BRAND_ASSET_CATEGORIES = [
+  'Logo',
+  'Brand Identity',
+  'Social Content',
+  'Marketing Graphics',
+  'Product Images',
+  'Packaging',
+  'Photography',
+  'Video',
+  'Documents',
+  'Stationery',
+  'Guideline',
+  'Promotional',
+  'Other',
+] as const;
+
+export const BRAND_BUSINESS_CATEGORIES = [
+  'Restaurant / Food & Hospitality',
+  'Fashion / Apparel',
+  'Beauty / Skincare',
+  'Real Estate & Architecture',
+  'Retail / E-Commerce',
+  'Corporate / Professional Services',
+  'Technology / SaaS',
+  'Media & Entertainment',
+  'Health & Wellness',
+  'Other',
+] as const;
 
 export interface ClientNavItem {
   id: ClientTab;
@@ -49,6 +107,7 @@ export interface ClientExperienceConfig {
   isBrandOrCompany: boolean;
   accountTypeWarning?: string;
   navGroups: ClientNavGroup[];
+  isOverride?: boolean;
 }
 
 export interface ProductionRequestPrefill {
@@ -205,9 +264,10 @@ export function getRequestCategoriesForExperience(isArtist: boolean): string[] {
 export function resolveClientExperience(
   accountType?: ClientProfile['accountType'] | string | null,
   workspaceType?: Workspace['type'] | string | null,
+  overrideMode?: ClientOSMode | null,
 ): ClientExperienceConfig {
   const inspection = inspectAccountType(accountType, workspaceType);
-  const isArtist = inspection.canonicalType === 'Artist';
+  const isArtist = overrideMode ? overrideMode === 'artist' : inspection.canonicalType === 'Artist';
   const osMode: ClientOSMode = isArtist ? 'artist' : 'brand';
 
   const sharedGroup: ClientNavGroup = {
@@ -232,20 +292,22 @@ export function resolveClientExperience(
     ? {
         group: 'Artist OS',
         items: [
-          { id: 'artist-profile', title: 'Artist Profile', description: 'Public artist biography, genre, and streaming links.' },
-          { id: 'releases', title: 'Music & Releases', description: 'Singles, EPs, albums, release metadata, and artwork.' },
-          { id: 'content', title: 'Content Engine', description: 'Release copy, lyrics, social posts, and rollout messaging.' },
+          { id: 'artist-profile', title: 'Artist Profile', description: 'Artist identity, biography, genre, booking contact, and channels.' },
+          { id: 'releases', title: 'Music & Releases', description: 'Singles, EPs, albums, release metadata, readiness checklist, and artwork.' },
+          { id: 'content', title: 'Content Engine', description: 'Release copy, lyrics, scheduled posts, and rollout messaging.' },
+          { id: 'studio', title: 'Artist Studio', description: 'Instant creative pack studio, EPK & split sheet tools, and studio briefs.' },
           { id: 'documents', title: 'Artist Documents', description: 'Split sheets, EPKs, tracklist credits, release checklists & templates.' },
-          { id: 'assets', title: 'Asset Library', description: 'Approved cover art, photography, visualizers, and downloads.' },
+          { id: 'assets', title: 'Asset Library', description: 'Cover art, visualizers, photography, EPK files, and approved finals.' },
         ],
       }
     : {
         group: 'Brand OS',
         items: [
-          { id: 'brand', title: 'Brand Identity', description: 'Logo lockups, color palette, typography, and brand rules.' },
-          { id: 'content', title: 'Creative System', description: 'Marketing messaging, campaign copy, and brand visuals.' },
+          { id: 'brand', title: 'Brand Identity', description: 'Logo lockups, color tokens, typography, and creative guidelines.' },
+          { id: 'content', title: 'Content Studio', description: 'Brand copy, social visuals, product content, and launch scheduling.' },
+          { id: 'studio', title: 'Brand Studio', description: 'Brand kit studio, print collateral builders, and custom studio briefs.' },
           { id: 'documents', title: 'Brand & Business Docs', description: 'Brand dossiers, letters, business cards, IDs & email signatures.' },
-          { id: 'assets', title: 'Asset Library', description: 'Approved logos, brand graphics, photography, and downloads.' },
+          { id: 'assets', title: 'Asset Library', description: 'Logos, brand graphics, product shots, packaging, and approved finals.' },
         ],
       };
 
@@ -273,6 +335,7 @@ export function resolveClientExperience(
         : 'Your brand creative hub, identity packs, campaign deliverables, and production briefs in one workspace.',
     isArtist,
     isBrandOrCompany: !isArtist,
+    isOverride: Boolean(overrideMode && overrideMode !== inspection.canonicalType.toLowerCase()),
     ...(inspection.warning ? { accountTypeWarning: inspection.warning } : {}),
     navGroups: [sharedGroup, osGroup, billingGroup, accountGroup],
   };
@@ -456,4 +519,343 @@ export function validatePersonalAccountUpdate(displayName: string, photoURL?: st
     throw new Error('Avatar URL must be 2048 characters or fewer.');
   }
   return { displayName: cleanName, photoURL: cleanPhoto };
+}
+
+export interface ProfileCompletenessResult {
+  score: number;
+  completedCount: number;
+  totalCount: number;
+  missingFields: string[];
+}
+
+export function computeArtistProfileCompleteness(
+  workspace: Pick<Workspace, 'name' | 'contactEmail'> & { artistProfile?: Partial<ArtistWorkspaceProfile> },
+): ProfileCompletenessResult {
+  const ap = workspace.artistProfile;
+  const checks: Array<{ label: string; ok: boolean }> = [
+    { label: 'Artist / stage name', ok: Boolean(workspace.name?.trim()) },
+    { label: 'Primary genre', ok: Boolean(ap?.genre?.trim()) },
+    { label: 'Artist biography', ok: Boolean(ap?.biography?.trim() && ap.biography.trim().length >= 20) },
+    { label: 'Artist profile image', ok: Boolean(ap?.profileImageUrl?.trim() || ap?.profileImagePath?.trim()) },
+    {
+      label: 'Streaming or social link',
+      ok: Boolean(ap?.spotify?.trim() || ap?.appleMusic?.trim() || ap?.youtube?.trim() || ap?.instagram?.trim() || ap?.website?.trim()),
+    },
+    { label: 'Location or booking contact', ok: Boolean(ap?.location?.trim() || ap?.bookingContact?.trim() || ap?.contactEmail?.trim() || workspace.contactEmail?.trim()) },
+  ];
+  const completedCount = checks.filter(c => c.ok).length;
+  const totalCount = checks.length;
+  return {
+    score: Math.round((completedCount / totalCount) * 100),
+    completedCount,
+    totalCount,
+    missingFields: checks.filter(c => !c.ok).map(c => c.label),
+  };
+}
+
+export function computeBrandProfileCompleteness(
+  workspace: Pick<Workspace, 'name' | 'description' | 'contactEmail' | 'brand'> & {
+    brandProfile?: Partial<BrandWorkspaceProfile>;
+  },
+): ProfileCompletenessResult {
+  const bp = workspace.brandProfile;
+  const checks: Array<{ label: string; ok: boolean }> = [
+    { label: 'Brand name', ok: Boolean(workspace.name?.trim()) },
+    { label: 'Business category / industry', ok: Boolean(bp?.businessCategory?.trim() || bp?.industry?.trim()) },
+    { label: 'Brand overview description', ok: Boolean(bp?.description?.trim() || workspace.description?.trim()) },
+    { label: 'Brand logo', ok: Boolean(bp?.logoUrl?.trim() || bp?.logoPath?.trim() || workspace.brand?.logoUrl?.trim()) },
+    {
+      label: 'Color palette tokens',
+      ok: Boolean(workspace.brand?.primaryColor && /^#[0-9a-fA-F]{6}$/.test(workspace.brand.primaryColor)),
+    },
+    {
+      label: 'Typography pairing',
+      ok: Boolean(workspace.brand?.typography?.displayFont?.trim() || workspace.brand?.typography?.bodyFont?.trim()),
+    },
+    {
+      label: 'Brand voice & usage guidelines',
+      ok: Boolean(bp?.brandVoice?.trim() || bp?.usageGuidelines?.trim()),
+    },
+    {
+      label: 'Website or contact details',
+      ok: Boolean(bp?.website?.trim() || bp?.contactEmail?.trim() || workspace.contactEmail?.trim()),
+    },
+  ];
+  const completedCount = checks.filter(c => c.ok).length;
+  const totalCount = checks.length;
+  return {
+    score: Math.round((completedCount / totalCount) * 100),
+    completedCount,
+    totalCount,
+    missingFields: checks.filter(c => !c.ok).map(c => c.label),
+  };
+}
+
+export interface ReleaseReadinessSummary {
+  completed: number;
+  total: number;
+  percent: number;
+  warnings: string[];
+}
+
+export function evaluateReleaseReadiness(release: {
+  releaseDate?: string;
+  artworkUrl?: string;
+  artworkPath?: string;
+  trackList?: string;
+  isrc?: string;
+  upc?: string;
+  checklist?: Partial<Record<'audioMastered' | 'artworkApproved' | 'splitSheetSigned' | 'metadataVerified' | 'distributionSubmitted' | 'pressKitReady' | 'marketingAssetsReady', boolean>>;
+}): ReleaseReadinessSummary {
+  const keys: Array<'audioMastered' | 'artworkApproved' | 'splitSheetSigned' | 'metadataVerified' | 'distributionSubmitted' | 'pressKitReady' | 'marketingAssetsReady'> = [
+    'audioMastered',
+    'artworkApproved',
+    'splitSheetSigned',
+    'metadataVerified',
+    'distributionSubmitted',
+    'pressKitReady',
+    'marketingAssetsReady',
+  ];
+  const completed = keys.filter(k => Boolean(release.checklist?.[k])).length;
+  const warnings: string[] = [];
+  if (!release.artworkUrl && !release.artworkPath) warnings.push('Cover artwork missing (3000×3000 recommended)');
+  if (!release.releaseDate) warnings.push('Target release date not set');
+  if (!release.isrc && !release.upc) warnings.push('ISRC / UPC codes not recorded');
+  if (!release.trackList?.trim()) warnings.push('Tracklist or credits missing');
+  return {
+    completed,
+    total: keys.length,
+    percent: Math.round((completed / keys.length) * 100),
+    warnings,
+  };
+}
+
+export interface WorkspaceSearchResult {
+  id: string;
+  kind: 'Project' | 'Release' | 'Content' | 'Asset' | 'Document' | 'Invoice' | 'Proposal' | 'Creative Hub';
+  title: string;
+  subtitle: string;
+  targetTab: ClientTab;
+}
+
+export function buildWorkspaceSearchResults(params: {
+  queryText: string;
+  isArtist: boolean;
+  projects?: Array<Pick<ClientProject, 'id' | 'title' | 'category' | 'stage' | 'status'>>;
+  releases?: Array<{ id: string; title: string; type: string; status: string; releaseDate?: string }>;
+  contentItems?: Array<{ id: string; title: string; kind: string; status: string; phase: string }>;
+  assets?: Array<{ id: string; name: string; category: string; fileType?: string }>;
+  documents?: Array<{ id: string; title: string; type: string; referenceNo?: string }>;
+  invoices?: Array<Pick<InvoiceRecord, 'id' | 'title' | 'referenceNo' | 'status'>>;
+  proposals?: Array<Pick<ProposalRecord, 'id' | 'title' | 'referenceNo' | 'status'>>;
+  products?: Array<Pick<CreativeProduct, 'id' | 'title' | 'category' | 'resourceType'>>;
+  limit?: number;
+}): WorkspaceSearchResult[] {
+  const q = params.queryText.trim().toLowerCase();
+  if (!q) return [];
+  const results: WorkspaceSearchResult[] = [];
+  const limit = params.limit ?? 24;
+
+  for (const p of params.projects || []) {
+    if (`${p.title} ${p.category} ${p.stage || p.status}`.toLowerCase().includes(q)) {
+      results.push({
+        id: `proj:${p.id}`,
+        kind: 'Project',
+        title: p.title,
+        subtitle: `${p.category} · ${p.stage || p.status}`,
+        targetTab: 'projects',
+      });
+    }
+  }
+  if (params.isArtist) {
+    for (const r of params.releases || []) {
+      if (`${r.title} ${r.type} ${r.status}`.toLowerCase().includes(q)) {
+        results.push({
+          id: `rel:${r.id}`,
+          kind: 'Release',
+          title: r.title,
+          subtitle: `${r.type} · ${r.status}${r.releaseDate ? ` · ${r.releaseDate}` : ''}`,
+          targetTab: 'releases',
+        });
+      }
+    }
+  }
+  for (const c of params.contentItems || []) {
+    if (`${c.title} ${c.kind} ${c.phase}`.toLowerCase().includes(q)) {
+      results.push({
+        id: `cnt:${c.id}`,
+        kind: 'Content',
+        title: c.title,
+        subtitle: `${c.kind} · ${c.status}`,
+        targetTab: 'content',
+      });
+    }
+  }
+  for (const a of params.assets || []) {
+    if (`${a.name} ${a.category} ${a.fileType || ''}`.toLowerCase().includes(q)) {
+      results.push({
+        id: `ast:${a.id}`,
+        kind: 'Asset',
+        title: a.name,
+        subtitle: `${a.category}${a.fileType ? ` · ${a.fileType}` : ''}`,
+        targetTab: 'assets',
+      });
+    }
+  }
+  for (const d of params.documents || []) {
+    if (`${d.title} ${d.type} ${d.referenceNo || ''}`.toLowerCase().includes(q)) {
+      results.push({
+        id: `doc:${d.id}`,
+        kind: 'Document',
+        title: d.title,
+        subtitle: `${d.referenceNo || d.type}`,
+        targetTab: 'documents',
+      });
+    }
+  }
+  for (const inv of params.invoices || []) {
+    if (`${inv.title} ${inv.referenceNo} ${inv.status}`.toLowerCase().includes(q)) {
+      results.push({
+        id: `inv:${inv.id}`,
+        kind: 'Invoice',
+        title: inv.title,
+        subtitle: `${inv.referenceNo} · ${inv.status}`,
+        targetTab: 'invoices',
+      });
+    }
+  }
+  for (const prop of params.proposals || []) {
+    if (`${prop.title} ${prop.referenceNo} ${prop.status}`.toLowerCase().includes(q)) {
+      results.push({
+        id: `prop:${prop.id}`,
+        kind: 'Proposal',
+        title: prop.title,
+        subtitle: `${prop.referenceNo} · ${prop.status}`,
+        targetTab: 'proposals',
+      });
+    }
+  }
+  for (const prod of params.products || []) {
+    if (`${prod.title} ${prod.category} ${prod.resourceType || ''}`.toLowerCase().includes(q)) {
+      results.push({
+        id: `hub:${prod.id}`,
+        kind: 'Creative Hub',
+        title: prod.title,
+        subtitle: `${prod.category}${prod.resourceType ? ` · ${prod.resourceType}` : ''}`,
+        targetTab: 'creative-hub',
+      });
+    }
+  }
+
+  return results.slice(0, limit);
+}
+
+export interface UnifiedActivityEntry {
+  id: string;
+  source: 'Production' | 'Revision' | 'Release' | 'Content' | 'Asset' | 'Invoice' | 'Proposal';
+  title: string;
+  detail: string;
+  timestamp: string;
+  targetTab: ClientTab;
+}
+
+export function buildUnifiedWorkspaceActivity(params: {
+  isArtist: boolean;
+  activities?: ProductionActivity[];
+  revisions?: ProductionRevisionRequest[];
+  releases?: Array<{ id: string; title: string; status: string; createdAt?: string }>;
+  contentItems?: Array<{ id: string; title: string; kind: string; status: string; updatedAt?: string }>;
+  assets?: Array<{ id: string; name: string; category: string; uploadedAt?: string }>;
+  invoices?: Array<Pick<InvoiceRecord, 'id' | 'title' | 'referenceNo' | 'status' | 'updatedAt' | 'createdAt'>>;
+  proposals?: Array<Pick<ProposalRecord, 'id' | 'title' | 'referenceNo' | 'status' | 'updatedAt' | 'createdAt'>>;
+  limit?: number;
+}): UnifiedActivityEntry[] {
+  const entries: UnifiedActivityEntry[] = [];
+
+  for (const act of params.activities || []) {
+    if (!act.createdAt) continue;
+    entries.push({
+      id: `act:${act.id}`,
+      source: 'Production',
+      title: act.action,
+      detail: act.details,
+      timestamp: act.createdAt,
+      targetTab: 'updates',
+    });
+  }
+  for (const rev of params.revisions || []) {
+    const ts = rev.updatedAt || rev.submittedAt;
+    if (!ts) continue;
+    entries.push({
+      id: `rev:${rev.id}`,
+      source: 'Revision',
+      title: `Revision · ${rev.status}`,
+      detail: rev.adminResponse || rev.feedback,
+      timestamp: ts,
+      targetTab: 'deliverables',
+    });
+  }
+  if (params.isArtist) {
+    for (const rel of params.releases || []) {
+      if (!rel.createdAt) continue;
+      entries.push({
+        id: `rel:${rel.id}`,
+        source: 'Release',
+        title: `Release · ${rel.title}`,
+        detail: `Status: ${rel.status}`,
+        timestamp: rel.createdAt,
+        targetTab: 'releases',
+      });
+    }
+  }
+  for (const cnt of params.contentItems || []) {
+    if (!cnt.updatedAt) continue;
+    entries.push({
+      id: `cnt:${cnt.id}`,
+      source: 'Content',
+      title: cnt.title,
+      detail: `${cnt.kind} · ${cnt.status}`,
+      timestamp: cnt.updatedAt,
+      targetTab: 'content',
+    });
+  }
+  for (const ast of params.assets || []) {
+    if (!ast.uploadedAt) continue;
+    entries.push({
+      id: `ast:${ast.id}`,
+      source: 'Asset',
+      title: ast.name,
+      detail: `Added to Asset Library · ${ast.category}`,
+      timestamp: ast.uploadedAt,
+      targetTab: 'assets',
+    });
+  }
+  for (const inv of params.invoices || []) {
+    const ts = inv.updatedAt || inv.createdAt;
+    if (!ts) continue;
+    entries.push({
+      id: `inv:${inv.id}`,
+      source: 'Invoice',
+      title: `Invoice ${inv.referenceNo} · ${inv.status}`,
+      detail: inv.title,
+      timestamp: ts,
+      targetTab: 'invoices',
+    });
+  }
+  for (const prop of params.proposals || []) {
+    const ts = prop.updatedAt || prop.createdAt;
+    if (!ts) continue;
+    entries.push({
+      id: `prop:${prop.id}`,
+      source: 'Proposal',
+      title: `Proposal ${prop.referenceNo} · ${prop.status}`,
+      detail: prop.title,
+      timestamp: ts,
+      targetTab: 'proposals',
+    });
+  }
+
+  return entries
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+    .slice(0, params.limit ?? 16);
 }

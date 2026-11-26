@@ -24,9 +24,11 @@ import {
   Send,
   Sparkles,
   Trash2,
+  Wand2,
 } from 'lucide-react';
 import { auth, db, storage } from '../../lib/firebase';
 import type { ClientProfile, Workspace } from '../../types';
+import type { CreativeStarterParams } from '../../types/creativeProduction';
 import type {
   CreativeProduct,
   CreativeProductAudience,
@@ -102,6 +104,7 @@ export interface ClientCreativeHubProps {
   experience: ClientExperienceConfig;
   onRequestProduction: (prefill?: Partial<ProductionRequestPrefill>) => void;
   onNavigateSection: (tab: ClientTab) => void;
+  onOpenInStudio?: (starter: CreativeStarterParams) => void;
 }
 
 type HubSectionTab = 'explore' | 'drops' | 'saved' | 'history';
@@ -173,7 +176,25 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
   experience,
   onRequestProduction,
   onNavigateSection,
+  onOpenInStudio,
 }) => {
+  const launchProductInStudio = (product: CreativeProduct) => {
+    if (!onOpenInStudio) return;
+    onOpenInStudio({
+      source: 'resource',
+      toolId: 'pack-template-customizer',
+      title: `${product.title} (Studio Custom)`,
+      linkedProductId: product.id,
+      linkedProductTitle: product.title,
+      prefillDesign: {
+        headline: product.title.toUpperCase(),
+        subtitle: product.summary || product.description,
+        tagline: `${product.category} · ${product.resourceType || 'CREATIVE PACK'}`.toUpperCase(),
+        genreOrCategory: product.category,
+        imageUrl: product.previewImageUrl || '',
+      },
+    });
+  };
   const activeUid = clientProfile?.uid || auth.currentUser?.uid || '';
 
   const clientBucket = useMemo(
@@ -1619,7 +1640,17 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
                       >
                         Preview &amp; Specs
                       </button>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {exportReady && onOpenInStudio && (
+                          <button
+                            type="button"
+                            onClick={() => launchProductInStudio(product)}
+                            className="inline-flex items-center gap-1 border border-[#FF1E1E]/60 bg-[#1B0C0C] hover:bg-[#FF1E1E] px-2.5 py-1.5 text-xs font-semibold text-white transition-colors"
+                          >
+                            <Wand2 size={12} />
+                            <span>Customize in Studio</span>
+                          </button>
+                        )}
                         {approvedFiles.length === 1 && (
                           <button
                             type="button"
@@ -2567,21 +2598,37 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
                 >
                   Close
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const prefill = buildProductRequestPrefill({
-                      product: selectedProduct,
-                      workspaceName: workspace.name,
-                    });
-                    setSelectedProduct(null);
-                    onRequestProduction(prefill);
-                  }}
-                  className="inline-flex items-center gap-1.5 bg-[#FF1E1E] hover:bg-red-600 px-4 py-2 text-xs font-semibold text-white"
-                >
-                  <Send size={13} />
-                  <span>Request Custom Version for {workspace.name}</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {exportReady && onOpenInStudio && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = selectedProduct;
+                        setSelectedProduct(null);
+                        launchProductInStudio(target);
+                      }}
+                      className="inline-flex items-center gap-1.5 border border-[#FF1E1E]/60 bg-[#1B0C0C] hover:bg-[#FF1E1E] px-4 py-2 text-xs font-semibold text-white transition-colors"
+                    >
+                      <Wand2 size={13} />
+                      <span>Customize in Studio</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prefill = buildProductRequestPrefill({
+                        product: selectedProduct,
+                        workspaceName: workspace.name,
+                      });
+                      setSelectedProduct(null);
+                      onRequestProduction(prefill);
+                    }}
+                    className="inline-flex items-center gap-1.5 bg-[#FF1E1E] hover:bg-red-600 px-4 py-2 text-xs font-semibold text-white"
+                  >
+                    <Send size={13} />
+                    <span>Request Custom Version for {workspace.name}</span>
+                  </button>
+                </div>
               </div>
             </div>
           );

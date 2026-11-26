@@ -4078,6 +4078,16 @@ export const AdminProduction: React.FC<AdminProductionProps> = ({
                           >
                             Reject request
                           </button>
+                          {selectedProject.workspaceId && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => openProjectCanvas()}
+                              className="rounded border border-purple-500/40 bg-purple-950/20 px-3 py-2 text-xs font-medium text-purple-200 hover:border-purple-400 hover:text-white disabled:opacity-50"
+                            >
+                              Launch Studio Canvas for Brief
+                            </button>
+                          )}
                         </div>
                       </section>
                     )}

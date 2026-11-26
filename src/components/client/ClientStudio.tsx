@@ -15,14 +15,19 @@ import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import {
   ArrowDownToLine,
+  Calendar,
   Check,
   CheckSquare,
   Copy,
   ExternalLink,
+  Eye,
   FilePlus2,
   ImagePlus,
   Layers,
+  LayoutGrid,
+  List,
   Music2,
+  Package,
   Palette,
   Pencil,
   Plus,
@@ -31,8 +36,10 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Wand2,
   X,
 } from 'lucide-react';
+import type { CreativeStarterParams } from '../../types/creativeProduction';
 import {
   BrandAsset,
   BrandGuidelinesData,
@@ -44,6 +51,7 @@ import {
   InvoiceRecord,
   ProductionDeliverable,
   ProposalRecord,
+  ResourceAccessHistoryItem,
   Workspace,
 } from '../../types';
 import { normalizeAccountType } from '../../lib/accountNormalization';
@@ -51,8 +59,14 @@ import { db, functions, storage } from '../../lib/firebase';
 import { deriveClientInvoiceStatus, formatMoney } from '../../lib/financeDocuments';
 import { isInternalStoragePath } from '../../lib/productionPromotion';
 import {
+  ARTIST_ASSET_CATEGORIES,
+  BRAND_ASSET_CATEGORIES,
+  BRAND_BUSINESS_CATEGORIES,
   buildBrandProductionPrefill,
   buildReleaseProductionPrefill,
+  computeArtistProfileCompleteness,
+  computeBrandProfileCompleteness,
+  evaluateReleaseReadiness,
   ProductionRequestPrefill,
 } from '../../lib/clientOS';
 import {
@@ -75,7 +89,16 @@ export type ClientStudioSection =
   | 'proposals';
 
 export type ReleaseStatus = 'Draft' | 'Scheduled' | 'Live' | 'Archived';
-export type ContentKind = 'Caption' | 'Lyrics' | 'Promotional copy' | 'Creative idea' | 'Social post' | 'Guideline';
+export type ContentKind =
+  | 'Caption'
+  | 'Lyrics'
+  | 'Promotional copy'
+  | 'Creative idea'
+  | 'Social post'
+  | 'Marketing material'
+  | 'Product content'
+  | 'Business announcement'
+  | 'Guideline';
 export type ContentPhase = 'Pre-release' | 'Release day' | 'Post-release' | 'Ongoing';
 export type ContentStatus = 'Draft' | 'In progress' | 'Ready' | 'Published';
 export type StudioDocumentStatus =
@@ -100,6 +123,8 @@ export interface StudioRelease {
   producer?: string;
   songwriters?: string;
   rightsInfo?: string;
+  audioSpecs?: string;
+  artworkSpecs?: string;
   artworkUrl: string;
   artworkPath?: string;
   streamingUrl: string;
@@ -130,6 +155,8 @@ export interface StudioContentItem {
   releaseId: string;
   projectId?: string;
   deliverableId?: string;
+  scheduledDate?: string;
+  assetIds?: string[];
   body: string;
   createdAt: string;
   updatedAt: string;
@@ -165,6 +192,7 @@ export interface StudioDocument {
   recipientOrg?: string;
   recipientEmail?: string;
   projectId?: string;
+  releaseId?: string;
   authorName?: string;
   authorRole?: string;
   subject?: string;
@@ -181,6 +209,12 @@ interface ArtistProfileForm {
   genre: string;
   profileImageUrl: string;
   profileImagePath?: string;
+  coverImageUrl?: string;
+  coverImagePath?: string;
+  location?: string;
+  contactEmail?: string;
+  bookingContact?: string;
+  tagline?: string;
   instagram: string;
   spotify: string;
   appleMusic: string;
@@ -207,10 +241,13 @@ interface ClientStudioProps {
   deliverables?: ProductionDeliverable[];
   invoices?: InvoiceRecord[];
   proposals?: ProposalRecord[];
+  resourceHistory?: ResourceAccessHistoryItem[];
   primaryWorkspaceId?: string;
   externalData?: ClientStudioExternalData;
-  onNavigateSection?: (section: ClientStudioSection | 'creative-hub' | 'projects' | 'deliverables' | 'requests') => void;
+  isArtistOverride?: boolean;
+  onNavigateSection?: (section: ClientStudioSection | 'creative-hub' | 'studio' | 'projects' | 'deliverables' | 'requests') => void;
   onRequestProduction?: (prefill: ProductionRequestPrefill) => void;
+  onOpenInStudio?: (starter: CreativeStarterParams) => void;
 }
 
 const EMPTY_ARTIST_PROFILE: ArtistProfileForm = {
@@ -218,6 +255,12 @@ const EMPTY_ARTIST_PROFILE: ArtistProfileForm = {
   genre: '',
   profileImageUrl: '',
   profileImagePath: '',
+  coverImageUrl: '',
+  coverImagePath: '',
+  location: '',
+  contactEmail: '',
+  bookingContact: '',
+  tagline: '',
   instagram: '',
   spotify: '',
   appleMusic: '',
@@ -228,9 +271,20 @@ const EMPTY_ARTIST_PROFILE: ArtistProfileForm = {
 const EMPTY_BRAND_PROFILE: BrandWorkspaceProfile = {
   description: '',
   industry: '',
+  businessCategory: '',
   website: '',
+  contactEmail: '',
+  contactPhone: '',
   logoUrl: '',
   logoPath: '',
+  coverImageUrl: '',
+  coverImagePath: '',
+  socialLinks: {
+    instagram: '',
+    linkedin: '',
+    x: '',
+    tiktok: '',
+  },
   brandVoice: '',
   photographyDirection: '',
   graphicDesignPrinciples: '',
@@ -303,10 +357,13 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   deliverables = [],
   invoices = [],
   proposals = [],
+  resourceHistory = [],
   primaryWorkspaceId,
   externalData,
+  isArtistOverride,
   onNavigateSection,
   onRequestProduction,
+  onOpenInStudio,
 }) => {
   const [artistProfile, setArtistProfile] = useState<ArtistProfileForm>(EMPTY_ARTIST_PROFILE);
   const [brandProfile, setBrandProfile] = useState<BrandWorkspaceProfile>(EMPTY_BRAND_PROFILE);
@@ -335,6 +392,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
 
   // Release catalog state
   const [releaseEditingId, setReleaseEditingId] = useState('');
+  const [releaseViewMode, setReleaseViewMode] = useState<'grid' | 'schedule'>('grid');
+  const [inspectedRelease, setInspectedRelease] = useState<StudioRelease | null>(null);
   const [releaseForm, setReleaseForm] = useState({
     title: '',
     type: 'Single' as StudioRelease['type'],
@@ -344,6 +403,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     producer: '',
     songwriters: '',
     rightsInfo: '',
+    audioSpecs: '',
+    artworkSpecs: '',
     artworkUrl: '',
     artworkPath: '',
     streamingUrl: '',
@@ -355,9 +416,12 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   });
   const [releaseFilter, setReleaseFilter] = useState<'All' | ReleaseStatus>('All');
 
-  // Content engine / creative system state
+  // Content engine / content studio state
   const [contentEditingId, setContentEditingId] = useState('');
+  const [contentViewMode, setContentViewMode] = useState<'list' | 'schedule'>('list');
   const [contentPhaseFilter, setContentPhaseFilter] = useState<'All' | ContentPhase>('All');
+  const [contentReleaseFilter, setContentReleaseFilter] = useState('All');
+  const [contentProjectFilter, setContentProjectFilter] = useState('All');
   const [contentSearch, setContentSearch] = useState('');
   const [contentForm, setContentForm] = useState({
     title: '',
@@ -367,6 +431,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     releaseId: '',
     projectId: '',
     deliverableId: '',
+    scheduledDate: '',
+    assetIds: [] as string[],
     body: '',
   });
 
@@ -376,13 +442,15 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   const [proposalReplyById, setProposalReplyById] = useState<Record<string, string>>({});
   const [respondingProposalId, setRespondingProposalId] = useState('');
 
-  // Asset Library filters & upload form
-  const [assetCategory, setAssetCategory] = useState(isArtistWorkspace(workspace) ? 'Artwork' : 'Logo');
+  // Asset Library filters, inspector & upload form
+  const [assetCategory, setAssetCategory] = useState(isArtistWorkspace(workspace) ? 'Cover Art' : 'Logo');
   const [assetReleaseId, setAssetReleaseId] = useState('');
   const [assetProjectId, setAssetProjectId] = useState('');
   const [assetDescription, setAssetDescription] = useState('');
   const [assetFilterCategory, setAssetFilterCategory] = useState('All');
   const [assetFilterStatus, setAssetFilterStatus] = useState<'All' | 'Approved' | 'Review' | 'Draft'>('All');
+  const [assetViewMode, setAssetViewMode] = useState<'grid' | 'list'>('grid');
+  const [inspectedAsset, setInspectedAsset] = useState<StudioAsset | null>(null);
   const [assetSearch, setAssetSearch] = useState('');
   const [uploading, setUploading] = useState(false);
 
@@ -398,13 +466,17 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
       ...EMPTY_BRAND_PROFILE,
       ...workspace.brandProfile,
       description: workspace.brandProfile?.description ?? workspace.description ?? '',
+      socialLinks: {
+        ...EMPTY_BRAND_PROFILE.socialLinks,
+        ...workspace.brandProfile?.socialLinks,
+      },
     });
     setBrandForm(workspace.brand);
     setWorkspaceName(workspace.name);
   }, [workspace]);
 
   useEffect(() => {
-    setAssetCategory(isArtistWorkspace(workspace) ? 'Artwork' : 'Logo');
+    setAssetCategory(isArtistWorkspace(workspace) ? 'Cover Art' : 'Logo');
     setContentForm(prev =>
       contentEditingId || prev.title || prev.body
         ? prev
@@ -622,6 +694,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
       producer: '',
       songwriters: '',
       rightsInfo: '',
+      audioSpecs: '',
+      artworkSpecs: '',
       artworkUrl: '',
       artworkPath: '',
       streamingUrl: '',
@@ -644,6 +718,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
       producer: release.producer || '',
       songwriters: release.songwriters || '',
       rightsInfo: release.rightsInfo || '',
+      audioSpecs: release.audioSpecs || '',
+      artworkSpecs: release.artworkSpecs || '',
       artworkUrl: release.artworkUrl || '',
       artworkPath: release.artworkPath || '',
       streamingUrl: release.streamingUrl || '',
@@ -770,6 +846,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
       releaseId: item.releaseId || '',
       projectId: item.projectId || '',
       deliverableId: item.deliverableId || '',
+      scheduledDate: item.scheduledDate || '',
+      assetIds: item.assetIds || [],
       body: item.body,
     });
   };
@@ -778,12 +856,14 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     setContentEditingId('');
     setContentForm({
       title: '',
-      kind: 'Caption',
+      kind: isArtist ? 'Caption' : 'Social post',
       phase: isArtist ? 'Pre-release' : 'Ongoing',
       status: 'Draft',
       releaseId: '',
       projectId: '',
       deliverableId: '',
+      scheduledDate: '',
+      assetIds: [],
       body: '',
     });
   };
@@ -922,6 +1002,23 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     }
   };
 
+  const setAssetAsCover = async (asset: StudioAsset) => {
+    setError('');
+    setNotice('');
+    try {
+      const url = await loadAssetUrl(asset);
+      const isArt = isArtist;
+      await updateDoc(doc(db, 'workspaces', workspace.id), {
+        [isArt ? 'artistProfile.coverImagePath' : 'brandProfile.coverImagePath']: asset.storagePath || '',
+        [isArt ? 'artistProfile.coverImageUrl' : 'brandProfile.coverImageUrl']: url,
+        updatedAt: new Date().toISOString(),
+      });
+      showNotice(isArt ? 'Updated Artist OS cover banner.' : 'Updated Brand OS cover banner.');
+    } catch (updateError) {
+      setError(messageFromError(updateError));
+    }
+  };
+
   const removeRecord = async (collectionName: string, id: string) => {
     setError('');
     setNotice('');
@@ -937,7 +1034,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   const deliverableById = useMemo(() => new Map(deliverables.map(item => [item.id, item])), [deliverables]);
   const imageAssets = useMemo(() => assets.filter(asset => asset.mimeType?.startsWith('image/')), [assets]);
 
-  const isArtist = isArtistWorkspace(workspace);
+  const isArtist = typeof isArtistOverride === 'boolean' ? isArtistOverride : isArtistWorkspace(workspace);
   const isBrand = !isArtist;
 
   const copyTextValue = async (text: string, marker: string, kind: 'token' | 'content') => {
@@ -1041,584 +1138,896 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     }
   };
 
-  const renderProfile = () => (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Catalog Releases</p>
-          <p className="mt-1.5 text-2xl font-black text-white tabular-nums">{releases.length}</p>
-        </div>
-        <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Live Releases</p>
-          <p className="mt-1.5 text-2xl font-black text-emerald-400 tabular-nums">
-            {releases.filter(r => r.status === 'Live').length}
-          </p>
-        </div>
-        <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Content Pieces</p>
-          <p className="mt-1.5 text-2xl font-black text-white tabular-nums">{contentItems.length}</p>
-        </div>
-        <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Artist Assets</p>
-          <p className="mt-1.5 text-2xl font-black text-white tabular-nums">{assets.length}</p>
-        </div>
-      </div>
+  const renderProfile = () => {
+    const completeness = computeArtistProfileCompleteness({
+      name: workspaceName || workspace.name,
+      contactEmail: artistProfile.contactEmail || workspace.contactEmail,
+      artistProfile,
+    });
 
-      <form onSubmit={saveArtistProfile} className={`${panelClass} space-y-5`}>
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1E1E1E] pb-4">
-          <div>
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-400">Artist OS · Identity</p>
-            <h2 className="mt-1 text-xl font-bold text-white">Artist Profile &amp; Sound Identity</h2>
-            <p className="mt-1 text-sm text-neutral-400">
-              Represents your recording artist persona for releases and production briefs. Personal login details live separately under Account Profile &amp; Settings.
+    return (
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Catalog Releases</p>
+            <p className="mt-1.5 text-2xl font-black text-white tabular-nums">{releases.length}</p>
+          </div>
+          <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Live Releases</p>
+            <p className="mt-1.5 text-2xl font-black text-emerald-400 tabular-nums">
+              {releases.filter(r => r.status === 'Live').length}
             </p>
           </div>
-          {profileImagePreview && !profileImageFailed && (
-            <img
-              src={profileImagePreview}
-              alt={`${workspace.name} profile`}
-              referrerPolicy="no-referrer"
-              onError={() => setProfileImageFailed(true)}
-              className="h-16 w-16 rounded-full border border-[#333] object-cover shrink-0"
-            />
-          )}
-        </div>
-
-        {(artistProfile.spotify || artistProfile.appleMusic || artistProfile.youtube || artistProfile.instagram || artistProfile.website) && (
-          <div className="flex flex-wrap items-center gap-2 rounded border border-[#1E1E1E] bg-[#101010] px-3.5 py-2.5 text-xs">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-500 mr-1">Verified Channels:</span>
-            {[
-              { label: 'Spotify', url: artistProfile.spotify },
-              { label: 'Apple Music', url: artistProfile.appleMusic },
-              { label: 'YouTube', url: artistProfile.youtube },
-              { label: 'Instagram', url: artistProfile.instagram },
-              { label: 'Website', url: artistProfile.website },
-            ]
-              .filter(ch => Boolean(ch.url))
-              .map(ch => (
-                <a
-                  key={ch.label}
-                  href={ch.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded border border-[#2C2C2C] bg-[#151515] px-2.5 py-1 text-neutral-200 hover:border-[#FF1E1E] hover:text-white transition-colors"
-                >
-                  <span>{ch.label}</span>
-                  <ExternalLink size={11} />
-                </a>
-              ))}
+          <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Content Pieces</p>
+            <p className="mt-1.5 text-2xl font-black text-white tabular-nums">{contentItems.length}</p>
           </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-2">
-          {onNavigateSection && (
-            <button
-              type="button"
-              onClick={() => onNavigateSection('creative-hub')}
-              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
-            >
-              <Sparkles size={13} />
-              <span>Browse Artist Creative Hub</span>
-            </button>
-          )}
-          {onRequestProduction && (
-            <button
-              type="button"
-              onClick={() =>
-                onRequestProduction({
-                  title: `${workspaceName || workspace.name} — Artist Press Kit & Promo Graphics`,
-                  category: 'Artist Promotional Graphics',
-                  description: [
-                    `Promotional graphics & EPK brief for ${workspaceName || workspace.name}.`,
-                    artistProfile.genre ? `Genre: ${artistProfile.genre}` : '',
-                    artistProfile.biography ? `Artist bio:\n${artistProfile.biography.slice(0, 800)}` : '',
-                  ]
-                    .filter(Boolean)
-                    .join('\n\n'),
-                  references: [artistProfile.spotify, artistProfile.instagram, artistProfile.website].filter(Boolean).join('\n'),
-                })
-              }
-              className="inline-flex items-center gap-1.5 rounded border border-red-500/40 bg-red-950/20 px-3 py-2 text-xs font-medium text-red-200 hover:text-white transition-colors"
-            >
-              <Plus size={13} />
-              <span>Request Promo / Press Kit</span>
-            </button>
-          )}
+          <div className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Profile Health</p>
+            <p className="mt-1.5 text-2xl font-black text-white tabular-nums">{completeness.score}%</p>
+          </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label>
-            <span className={labelClass}>Artist / Stage Name</span>
-            <input required value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} className={fieldClass} />
-          </label>
-          <label>
-            <span className={labelClass}>Primary Genre</span>
-            <input
-              value={artistProfile.genre}
-              onChange={event => setArtistProfile(value => ({ ...value, genre: event.target.value }))}
-              className={fieldClass}
-              placeholder="Alternative R&B, Afrobeats…"
+        {/* Profile Completeness Indicator */}
+        <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-white">
+              Artist Profile Readiness ({completeness.completedCount}/{completeness.totalCount})
+            </span>
+            <span className="text-xs font-mono text-neutral-400 tabular-nums">{completeness.score}% complete</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded bg-[#1E1E1E]">
+            <div
+              className={`h-full ${completeness.score === 100 ? 'bg-emerald-500' : 'bg-[#FF1E1E]'}`}
+              style={{ width: `${completeness.score}%` }}
             />
-          </label>
-          <label className="sm:col-span-2">
-            <span className={labelClass}>Artist Biography</span>
-            <textarea
-              rows={5}
-              maxLength={4000}
-              value={artistProfile.biography}
-              onChange={event => setArtistProfile(value => ({ ...value, biography: event.target.value }))}
-              className={fieldClass}
-              placeholder="Share your sound, story and point of view."
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Instagram URL</span>
-            <input
-              type="url"
-              value={artistProfile.instagram}
-              onChange={event => setArtistProfile(value => ({ ...value, instagram: event.target.value }))}
-              className={fieldClass}
-              placeholder="https://"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Spotify URL</span>
-            <input
-              type="url"
-              value={artistProfile.spotify}
-              onChange={event => setArtistProfile(value => ({ ...value, spotify: event.target.value }))}
-              className={fieldClass}
-              placeholder="https://"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Apple Music URL</span>
-            <input
-              type="url"
-              value={artistProfile.appleMusic}
-              onChange={event => setArtistProfile(value => ({ ...value, appleMusic: event.target.value }))}
-              className={fieldClass}
-              placeholder="https://"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>YouTube URL</span>
-            <input
-              type="url"
-              value={artistProfile.youtube}
-              onChange={event => setArtistProfile(value => ({ ...value, youtube: event.target.value }))}
-              className={fieldClass}
-              placeholder="https://"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Official Website</span>
-            <input
-              type="url"
-              value={artistProfile.website}
-              onChange={event => setArtistProfile(value => ({ ...value, website: event.target.value }))}
-              className={fieldClass}
-              placeholder="https://"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Profile Image URL</span>
-            <input
-              type="url"
-              value={artistProfile.profileImageUrl}
-              onChange={event =>
-                setArtistProfile(value => ({ ...value, profileImageUrl: event.target.value, profileImagePath: '' }))
-              }
-              className={fieldClass}
-              placeholder="Select from Asset Library or paste URL"
-            />
-          </label>
-          {imageAssets.length > 0 && (
-            <label className="sm:col-span-2">
-              <span className={labelClass}>Or Choose From Workspace Asset Library</span>
-              <select
-                value={artistProfile.profileImagePath || ''}
-                onChange={event =>
-                  setArtistProfile(value => ({
-                    ...value,
-                    profileImagePath: event.target.value,
-                    profileImageUrl: event.target.value ? '' : value.profileImageUrl,
-                  }))
-                }
-                className={fieldClass}
-              >
-                <option value="">Custom URL / Keep current</option>
-                {imageAssets.map(asset => (
-                  <option key={asset.id} value={asset.storagePath || ''}>
-                    {asset.name} ({asset.category})
-                  </option>
-                ))}
-              </select>
-            </label>
+          </div>
+          {completeness.missingFields.length > 0 && (
+            <p className="text-xs text-neutral-400">
+              Recommended next: {completeness.missingFields.join(' · ')}
+            </p>
           )}
-        </div>
+        </section>
 
-        <button
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded bg-[#FF1E1E] px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition-colors disabled:opacity-50"
-        >
-          <Save size={15} />
-          {saving ? 'Saving…' : 'Save artist profile'}
-        </button>
-      </form>
-    </div>
-  );
-
-  const renderBrandIdentity = () => (
-    <div className="space-y-5">
-      {/* Live Brand Token Preview */}
-      <section className={panelClass}>
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#1E1E1E] pb-4">
-          <div className="flex items-center gap-4 min-w-0">
-            {profileImagePreview && !profileImageFailed ? (
+        <form onSubmit={saveArtistProfile} className={`${panelClass} space-y-5`}>
+          {artistProfile.coverImageUrl && (
+            <div className="-mx-4 -mt-4 sm:-mx-6 sm:-mt-6 mb-4 h-28 overflow-hidden rounded-t-lg border-b border-[#1E1E1E] bg-[#090909]">
               <img
-                src={profileImagePreview}
-                alt={`${workspace.name} logo`}
+                src={artistProfile.coverImageUrl}
+                alt={`${workspaceName || workspace.name} cover`}
                 referrerPolicy="no-referrer"
-                onError={() => setProfileImageFailed(true)}
-                className="h-14 w-14 rounded border border-[#2A2A2A] bg-white p-1.5 object-contain shrink-0"
+                className="h-full w-full object-cover opacity-65"
               />
-            ) : (
-              <div className="h-14 w-14 rounded border border-[#2A2A2A] bg-[#141414] flex items-center justify-center text-neutral-500 shrink-0">
-                <Palette size={20} />
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">
-                Brand OS · Tokens
-              </p>
-              <h2 className="text-lg font-bold text-white truncate">{workspaceName || workspace.name}</h2>
-              <p className="text-xs text-neutral-400 truncate">
-                {brandProfile.industry || 'Brand & Visual System'}
-                {brandProfile.website ? ` · ${brandProfile.website}` : ''}
+            </div>
+          )}
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#1E1E1E] pb-4">
+            <div>
+              <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-400">Artist OS · Identity</p>
+              <h2 className="mt-1 text-xl font-bold text-white">Artist Profile &amp; Sound Identity</h2>
+              <p className="mt-1 text-sm text-neutral-400">
+                Represents your recording artist persona, press bio, and booking channels across EPKs and release briefs.
               </p>
             </div>
+            {profileImagePreview && !profileImageFailed && (
+              <img
+                src={profileImagePreview}
+                alt={`${workspace.name} profile`}
+                referrerPolicy="no-referrer"
+                onError={() => setProfileImageFailed(true)}
+                className="h-16 w-16 rounded-full border border-[#333] object-cover shrink-0"
+              />
+            )}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {[
-              { label: 'Primary', hex: brandForm.primaryColor },
-              { label: 'Accent', hex: brandForm.accentColor || '#FF1E1E' },
-              { label: 'Secondary', hex: brandForm.secondaryColor || '#0A0A0A' },
-            ].map(swatch => (
-              <button
-                key={swatch.label}
-                type="button"
-                onClick={() => void copyTextValue(swatch.hex.toUpperCase(), swatch.label, 'token')}
-                title={`Copy ${swatch.label} hex (${swatch.hex.toUpperCase()})`}
-                className="flex items-center gap-2 rounded border border-[#242424] bg-[#111] px-2.5 py-1.5 text-left hover:border-[#FF1E1E] transition-colors"
-              >
-                <span
-                  className="h-4 w-4 rounded border border-white/20 shrink-0"
-                  style={{ backgroundColor: swatch.hex }}
-                />
-                <div>
-                  <p className="text-[9px] font-mono uppercase text-neutral-500">
-                    {copiedTokenKey === swatch.label ? 'Copied' : swatch.label}
-                  </p>
-                  <p className="text-[11px] font-mono text-white tabular-nums">{swatch.hex.toUpperCase()}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 text-xs">
-          <div className="rounded border border-[#1E1E1E] bg-[#101010] p-3">
-            <p className="text-[10px] font-mono uppercase text-neutral-500">Display Typography</p>
-            <p className="mt-1 text-base font-bold text-white">{brandForm.typography?.displayFont || 'Plus Jakarta Sans'}</p>
-          </div>
-          <div className="rounded border border-[#1E1E1E] bg-[#101010] p-3">
-            <p className="text-[10px] font-mono uppercase text-neutral-500">Body Typography</p>
-            <p className="mt-1 text-base font-medium text-neutral-200">{brandForm.typography?.bodyFont || 'Plus Jakarta Sans'}</p>
-          </div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#1E1E1E] pt-4">
-          {onNavigateSection && (
-            <button
-              type="button"
-              onClick={() => onNavigateSection('creative-hub')}
-              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
-            >
-              <Sparkles size={13} />
-              <span>Browse Brand Creative Hub</span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              const guidelinesPayload: BrandGuidelinesData = {
-                brandVoice:
-                  brandProfile.brandVoice || `${workspaceName || workspace.name} maintains clear, authoritative communication.`,
-                photographyDirection:
-                  brandProfile.photographyDirection ||
-                  'Clean lighting, purposeful composition, and consistent color grading aligned with workspace tokens.',
-                graphicDesignPrinciples:
-                  brandProfile.graphicDesignPrinciples ||
-                  'Use balanced editorial hierarchy, grid alignment, and restrained color contrast.',
-                clearSpaceRules:
-                  brandProfile.usageGuidelines ||
-                  'Maintain clear space equal to the height of the brand mark on all sides.',
-                minLogoSizePrint: '18 mm minimum width',
-                minLogoSizeDigital: '96 px minimum width',
-                backgroundRules:
-                  brandProfile.graphicDesignPrinciples ||
-                  'Use high-contrast light or deep charcoal backgrounds paired with official palette tokens.',
-                incorrectUsageRules: [
-                  'Do not stretch, skew, or alter logo lockup proportions.',
-                  'Do not apply unapproved color gradients over primary marks.',
-                  'Do not place marks over cluttered photography without contrast scrims.',
-                  'Do not substitute unapproved display fonts in official templates.',
-                ],
-              };
-              generateBrandGuidelinesPdf(guidelinesPayload, {
-                ...workspace,
-                name: workspaceName || workspace.name,
-                brand: { ...brandForm, name: workspaceName || workspace.name, logoUrl: brandProfile.logoUrl },
-              });
-            }}
-            className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-neutral-200 hover:text-white transition-colors"
-          >
-            <ArrowDownToLine size={13} />
-            <span>Download Brand Guide PDF</span>
-          </button>
-          {onRequestProduction && (
-            <button
-              type="button"
-              onClick={() => onRequestProduction(buildBrandProductionPrefill(workspace, brandProfile))}
-              className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
-            >
-              <Plus size={13} />
-              <span>Request Brand Production</span>
-            </button>
-          )}
-        </div>
-      </section>
 
-      <form onSubmit={saveBrandProfile} className={`${panelClass} space-y-5`}>
-        <div>
-          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">
-            Brand OS · Identity
-          </p>
-          <h3 className="mt-1 text-xl font-bold text-white">Brand Guidelines &amp; Identity</h3>
-          <p className="mt-1 text-sm text-neutral-400">
-            Keep brand colors, voice, photography direction and usage rules aligned across projects. Personal sign-in credentials are edited in Account Profile &amp; Settings.
-          </p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label>
-            <span className={labelClass}>Brand / Company Name</span>
-            <input required value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} className={fieldClass} />
-          </label>
-          <label>
-            <span className={labelClass}>Industry / Category</span>
-            <input
-              value={brandProfile.industry}
-              onChange={event => setBrandProfile(value => ({ ...value, industry: event.target.value }))}
-              className={fieldClass}
-              placeholder="Fashion, Media, Technology…"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Website</span>
-            <input
-              type="url"
-              value={brandProfile.website}
-              onChange={event => setBrandProfile(value => ({ ...value, website: event.target.value }))}
-              className={fieldClass}
-              placeholder="https://"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Logo URL</span>
-            <input
-              type="url"
-              value={brandProfile.logoUrl}
-              onChange={event => setBrandProfile(value => ({ ...value, logoUrl: event.target.value, logoPath: '' }))}
-              className={fieldClass}
-              placeholder="Upload in Asset Library or paste URL"
-            />
-          </label>
-          {imageAssets.length > 0 && (
+          {(artistProfile.spotify || artistProfile.appleMusic || artistProfile.youtube || artistProfile.instagram || artistProfile.website) && (
+            <div className="flex flex-wrap items-center gap-2 rounded border border-[#1E1E1E] bg-[#101010] px-3.5 py-2.5 text-xs">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-500 mr-1">Verified Channels:</span>
+              {[
+                { label: 'Spotify', url: artistProfile.spotify },
+                { label: 'Apple Music', url: artistProfile.appleMusic },
+                { label: 'YouTube', url: artistProfile.youtube },
+                { label: 'Instagram', url: artistProfile.instagram },
+                { label: 'Website', url: artistProfile.website },
+              ]
+                .filter(ch => Boolean(ch.url))
+                .map(ch => (
+                  <a
+                    key={ch.label}
+                    href={ch.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded border border-[#2C2C2C] bg-[#151515] px-2.5 py-1 text-neutral-200 hover:border-[#FF1E1E] hover:text-white transition-colors"
+                  >
+                    <span>{ch.label}</span>
+                    <ExternalLink size={11} />
+                  </a>
+                ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenInStudio && (
+              <button
+                type="button"
+                onClick={() =>
+                  onOpenInStudio({
+                    source: 'profile',
+                    toolId: 'launch-social-studio',
+                    title: `${workspaceName || workspace.name} — Artist Promo Visual`,
+                    prefillDesign: {
+                      headline: (workspaceName || workspace.name).toUpperCase(),
+                      subtitle: artistProfile.tagline || artistProfile.biography?.slice(0, 140) || 'Official Artist Visual System',
+                      artistOrBrandName: (workspaceName || workspace.name).toUpperCase(),
+                      genreOrCategory: artistProfile.genre || 'RECORDING ARTIST',
+                      imageUrl: artistProfile.profileImageUrl || '',
+                    },
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
+              >
+                <Wand2 size={13} />
+                <span>Open Artist Studio</span>
+              </button>
+            )}
+            {onNavigateSection && (
+              <button
+                type="button"
+                onClick={() => onNavigateSection('creative-hub')}
+                className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
+              >
+                <Sparkles size={13} />
+                <span>Browse Artist Creative Hub</span>
+              </button>
+            )}
+            {onNavigateSection && (
+              <button
+                type="button"
+                onClick={() => onNavigateSection('documents')}
+                className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-neutral-200 hover:text-white transition-colors"
+              >
+                <span>Open EPK &amp; Split Sheets</span>
+              </button>
+            )}
+            {onRequestProduction && (
+              <button
+                type="button"
+                onClick={() =>
+                  onRequestProduction({
+                    title: `${workspaceName || workspace.name} — Artist Press Kit & Promo Graphics`,
+                    category: 'Artist Promotional Graphics',
+                    description: [
+                      `Promotional graphics & EPK brief for ${workspaceName || workspace.name}.`,
+                      artistProfile.genre ? `Genre: ${artistProfile.genre}` : '',
+                      artistProfile.location ? `Location: ${artistProfile.location}` : '',
+                      artistProfile.biography ? `Artist bio:\n${artistProfile.biography.slice(0, 800)}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join('\n\n'),
+                    references: [artistProfile.spotify, artistProfile.instagram, artistProfile.website].filter(Boolean).join('\n'),
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded border border-red-500/40 bg-red-950/20 px-3 py-2 text-xs font-medium text-red-200 hover:text-white transition-colors"
+              >
+                <Plus size={13} />
+                <span>Request Promo / Press Kit</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label>
+              <span className={labelClass}>Artist / Stage Name</span>
+              <input required value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} className={fieldClass} />
+            </label>
+            <label>
+              <span className={labelClass}>Primary Genre</span>
+              <input
+                value={artistProfile.genre}
+                onChange={event => setArtistProfile(value => ({ ...value, genre: event.target.value }))}
+                className={fieldClass}
+                placeholder="Alternative R&B, Afrobeats…"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Artist Tagline (optional)</span>
+              <input
+                value={artistProfile.tagline || ''}
+                onChange={event => setArtistProfile(value => ({ ...value, tagline: event.target.value }))}
+                className={fieldClass}
+                placeholder="One-line sound & visual positioning"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Base City / Location</span>
+              <input
+                value={artistProfile.location || ''}
+                onChange={event => setArtistProfile(value => ({ ...value, location: event.target.value }))}
+                className={fieldClass}
+                placeholder="Lagos, London, Los Angeles…"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Press / Contact Email</span>
+              <input
+                type="email"
+                value={artistProfile.contactEmail || ''}
+                onChange={event => setArtistProfile(value => ({ ...value, contactEmail: event.target.value }))}
+                className={fieldClass}
+                placeholder="press@artist.com"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Booking / Management Contact</span>
+              <input
+                value={artistProfile.bookingContact || ''}
+                onChange={event => setArtistProfile(value => ({ ...value, bookingContact: event.target.value }))}
+                className={fieldClass}
+                placeholder="Management name, email or handle"
+              />
+            </label>
             <label className="sm:col-span-2">
-              <span className={labelClass}>Or Select Logo From Asset Library</span>
+              <span className={labelClass}>Artist Biography</span>
+              <textarea
+                rows={5}
+                maxLength={4000}
+                value={artistProfile.biography}
+                onChange={event => setArtistProfile(value => ({ ...value, biography: event.target.value }))}
+                className={fieldClass}
+                placeholder="Share your sound, story and point of view."
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Instagram URL</span>
+              <input
+                type="url"
+                value={artistProfile.instagram}
+                onChange={event => setArtistProfile(value => ({ ...value, instagram: event.target.value }))}
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Spotify URL</span>
+              <input
+                type="url"
+                value={artistProfile.spotify}
+                onChange={event => setArtistProfile(value => ({ ...value, spotify: event.target.value }))}
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Apple Music URL</span>
+              <input
+                type="url"
+                value={artistProfile.appleMusic}
+                onChange={event => setArtistProfile(value => ({ ...value, appleMusic: event.target.value }))}
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>YouTube URL</span>
+              <input
+                type="url"
+                value={artistProfile.youtube}
+                onChange={event => setArtistProfile(value => ({ ...value, youtube: event.target.value }))}
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Official Website</span>
+              <input
+                type="url"
+                value={artistProfile.website}
+                onChange={event => setArtistProfile(value => ({ ...value, website: event.target.value }))}
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Profile Image URL</span>
+              <input
+                type="url"
+                value={artistProfile.profileImageUrl}
+                onChange={event =>
+                  setArtistProfile(value => ({ ...value, profileImageUrl: event.target.value, profileImagePath: '' }))
+                }
+                className={fieldClass}
+                placeholder="Select from Asset Library or paste URL"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Cover Banner URL (optional)</span>
+              <input
+                type="url"
+                value={artistProfile.coverImageUrl || ''}
+                onChange={event =>
+                  setArtistProfile(value => ({ ...value, coverImageUrl: event.target.value, coverImagePath: '' }))
+                }
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            {imageAssets.length > 0 && (
+              <label>
+                <span className={labelClass}>Or Choose Profile Image From Library</span>
+                <select
+                  value={artistProfile.profileImagePath || ''}
+                  onChange={event =>
+                    setArtistProfile(value => ({
+                      ...value,
+                      profileImagePath: event.target.value,
+                      profileImageUrl: event.target.value ? '' : value.profileImageUrl,
+                    }))
+                  }
+                  className={fieldClass}
+                >
+                  <option value="">Custom URL / Keep current</option>
+                  {imageAssets.map(asset => (
+                    <option key={asset.id} value={asset.storagePath || ''}>
+                      {asset.name} ({asset.category})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+
+          <button
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded bg-[#FF1E1E] px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+          >
+            <Save size={15} />
+            {saving ? 'Saving…' : 'Save artist profile'}
+          </button>
+        </form>
+      </div>
+    );
+  };
+
+  const renderBrandIdentity = () => {
+    const completeness = computeBrandProfileCompleteness({
+      name: workspaceName || workspace.name,
+      description: brandProfile.description,
+      contactEmail: brandProfile.contactEmail || workspace.contactEmail,
+      brand: brandForm,
+      brandProfile,
+    });
+
+    return (
+      <div className="space-y-5">
+        {/* Brand Readiness Meter */}
+        <section className="rounded-lg border border-[#222222] bg-[#0C0C0C] p-4 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-white">
+              Brand System Completeness ({completeness.completedCount}/{completeness.totalCount})
+            </span>
+            <span className="text-xs font-mono text-neutral-400 tabular-nums">{completeness.score}% complete</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded bg-[#1E1E1E]">
+            <div
+              className={`h-full ${completeness.score === 100 ? 'bg-emerald-500' : 'bg-[#FF1E1E]'}`}
+              style={{ width: `${completeness.score}%` }}
+            />
+          </div>
+          {completeness.missingFields.length > 0 && (
+            <p className="text-xs text-neutral-400">
+              Recommended next: {completeness.missingFields.join(' · ')}
+            </p>
+          )}
+        </section>
+
+        {/* Live Brand Token Preview */}
+        <section className={panelClass}>
+          {brandProfile.coverImageUrl && (
+            <div className="-mx-4 -mt-4 sm:-mx-6 sm:-mt-6 mb-4 h-24 overflow-hidden rounded-t-lg border-b border-[#1E1E1E] bg-[#090909]">
+              <img
+                src={brandProfile.coverImageUrl}
+                alt={`${workspaceName || workspace.name} cover`}
+                referrerPolicy="no-referrer"
+                className="h-full w-full object-cover opacity-60"
+              />
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#1E1E1E] pb-4">
+            <div className="flex items-center gap-4 min-w-0">
+              {profileImagePreview && !profileImageFailed ? (
+                <img
+                  src={profileImagePreview}
+                  alt={`${workspace.name} logo`}
+                  referrerPolicy="no-referrer"
+                  onError={() => setProfileImageFailed(true)}
+                  className="h-14 w-14 rounded border border-[#2A2A2A] bg-white p-1.5 object-contain shrink-0"
+                />
+              ) : (
+                <div className="h-14 w-14 rounded border border-[#2A2A2A] bg-[#141414] flex items-center justify-center text-neutral-500 shrink-0">
+                  <Palette size={20} />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">
+                  Brand OS · Tokens
+                </p>
+                <h2 className="text-lg font-bold text-white truncate">{workspaceName || workspace.name}</h2>
+                <p className="text-xs text-neutral-400 truncate">
+                  {brandProfile.businessCategory || brandProfile.industry || 'Brand & Visual System'}
+                  {brandProfile.website ? ` · ${brandProfile.website}` : ''}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {[
+                { label: 'Primary', hex: brandForm.primaryColor },
+                { label: 'Accent', hex: brandForm.accentColor || '#FF1E1E' },
+                { label: 'Secondary', hex: brandForm.secondaryColor || '#0A0A0A' },
+              ].map(swatch => (
+                <button
+                  key={swatch.label}
+                  type="button"
+                  onClick={() => void copyTextValue(swatch.hex.toUpperCase(), swatch.label, 'token')}
+                  title={`Copy ${swatch.label} hex (${swatch.hex.toUpperCase()})`}
+                  className="flex items-center gap-2 rounded border border-[#242424] bg-[#111] px-2.5 py-1.5 text-left hover:border-[#FF1E1E] transition-colors"
+                >
+                  <span
+                    className="h-4 w-4 rounded border border-white/20 shrink-0"
+                    style={{ backgroundColor: swatch.hex }}
+                  />
+                  <div>
+                    <p className="text-[9px] font-mono uppercase text-neutral-500">
+                      {copiedTokenKey === swatch.label ? 'Copied' : swatch.label}
+                    </p>
+                    <p className="text-[11px] font-mono text-white tabular-nums">{swatch.hex.toUpperCase()}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 text-xs">
+            <div className="rounded border border-[#1E1E1E] bg-[#101010] p-3">
+              <p className="text-[10px] font-mono uppercase text-neutral-500">Display Typography</p>
+              <p className="mt-1 text-base font-bold text-white">{brandForm.typography?.displayFont || 'Plus Jakarta Sans'}</p>
+            </div>
+            <div className="rounded border border-[#1E1E1E] bg-[#101010] p-3">
+              <p className="text-[10px] font-mono uppercase text-neutral-500">Body Typography</p>
+              <p className="mt-1 text-base font-medium text-neutral-200">{brandForm.typography?.bodyFont || 'Plus Jakarta Sans'}</p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#1E1E1E] pt-4">
+            {onOpenInStudio && (
+              <button
+                type="button"
+                onClick={() =>
+                  onOpenInStudio({
+                    source: 'profile',
+                    toolId: 'product-ad-designer',
+                    title: `${workspaceName || workspace.name} — Brand Campaign`,
+                    prefillDesign: {
+                      headline: (workspaceName || workspace.name).toUpperCase(),
+                      subtitle: brandProfile.brandVoice || brandProfile.description || 'Brand Identity Visual System',
+                      artistOrBrandName: (workspaceName || workspace.name).toUpperCase(),
+                      primaryColor: brandForm.primaryColor,
+                      secondaryColor: brandForm.secondaryColor,
+                      accentColor: brandForm.accentColor,
+                      genreOrCategory: brandProfile.businessCategory || brandProfile.industry || 'BRAND IDENTITY',
+                    },
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3 py-2 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
+              >
+                <Wand2 size={13} />
+                <span>Open Brand Studio</span>
+              </button>
+            )}
+            {onNavigateSection && (
+              <button
+                type="button"
+                onClick={() => onNavigateSection('creative-hub')}
+                className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-white hover:border-[#FF1E1E] transition-colors"
+              >
+                <Sparkles size={13} />
+                <span>Browse Brand Creative Hub</span>
+              </button>
+            )}
+            {onNavigateSection && (
+              <button
+                type="button"
+                onClick={() => onNavigateSection('documents')}
+                className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-neutral-200 hover:text-white transition-colors"
+              >
+                <span>Collateral Designers (Cards / IDs)</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const guidelinesPayload: BrandGuidelinesData = {
+                  brandVoice:
+                    brandProfile.brandVoice || `${workspaceName || workspace.name} maintains clear, authoritative communication.`,
+                  photographyDirection:
+                    brandProfile.photographyDirection ||
+                    'Clean lighting, purposeful composition, and consistent color grading aligned with workspace tokens.',
+                  graphicDesignPrinciples:
+                    brandProfile.graphicDesignPrinciples ||
+                    'Use balanced editorial hierarchy, grid alignment, and restrained color contrast.',
+                  clearSpaceRules:
+                    brandProfile.usageGuidelines ||
+                    'Maintain clear space equal to the height of the brand mark on all sides.',
+                  minLogoSizePrint: '18 mm minimum width',
+                  minLogoSizeDigital: '96 px minimum width',
+                  backgroundRules:
+                    brandProfile.graphicDesignPrinciples ||
+                    'Use high-contrast light or deep charcoal backgrounds paired with official palette tokens.',
+                  incorrectUsageRules: [
+                    'Do not stretch, skew, or alter logo lockup proportions.',
+                    'Do not apply unapproved color gradients over primary marks.',
+                    'Do not place marks over cluttered photography without contrast scrims.',
+                    'Do not substitute unapproved display fonts in official templates.',
+                  ],
+                };
+                generateBrandGuidelinesPdf(guidelinesPayload, {
+                  ...workspace,
+                  name: workspaceName || workspace.name,
+                  brand: { ...brandForm, name: workspaceName || workspace.name, logoUrl: brandProfile.logoUrl },
+                });
+              }}
+              className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs font-medium text-neutral-200 hover:text-white transition-colors"
+            >
+              <ArrowDownToLine size={13} />
+              <span>Download Brand Guide PDF</span>
+            </button>
+            {onRequestProduction && (
+              <button
+                type="button"
+                onClick={() => onRequestProduction(buildBrandProductionPrefill(workspace, brandProfile))}
+                className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
+              >
+                <Plus size={13} />
+                <span>Request Brand Production</span>
+              </button>
+            )}
+          </div>
+        </section>
+
+        <form onSubmit={saveBrandProfile} className={`${panelClass} space-y-5`}>
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-blue-400">
+              Brand OS · Identity
+            </p>
+            <h3 className="mt-1 text-xl font-bold text-white">Brand Guidelines &amp; Identity</h3>
+            <p className="mt-1 text-sm text-neutral-400">
+              Keep brand colors, voice, photography direction, contact channels, and usage rules synchronized across Brand Studio &amp; documents.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label>
+              <span className={labelClass}>Brand / Company Name</span>
+              <input required value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} className={fieldClass} />
+            </label>
+            <label>
+              <span className={labelClass}>Business Sector / Category</span>
               <select
-                value={brandProfile.logoPath || ''}
+                value={brandProfile.businessCategory || ''}
                 onChange={event =>
                   setBrandProfile(value => ({
                     ...value,
-                    logoPath: event.target.value,
-                    logoUrl: event.target.value ? '' : value.logoUrl,
+                    businessCategory: event.target.value,
+                    industry: value.industry || event.target.value,
                   }))
                 }
                 className={fieldClass}
               >
-                <option value="">Custom URL / Keep current</option>
-                {imageAssets.map(asset => (
-                  <option key={asset.id} value={asset.storagePath || ''}>
-                    {asset.name} ({asset.category})
+                <option value="">Select business category…</option>
+                {BRAND_BUSINESS_CATEGORIES.map(cat => (
+                  <option key={cat} value={cat}>
+                    {cat}
                   </option>
                 ))}
               </select>
             </label>
-          )}
-          <label className="sm:col-span-2">
-            <span className={labelClass}>Brand Description</span>
-            <textarea
-              rows={3}
-              value={brandProfile.description}
-              onChange={event => setBrandProfile(value => ({ ...value, description: event.target.value }))}
-              className={fieldClass}
-              placeholder="What the brand does and who it serves."
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Primary Color</span>
-            <div className="flex gap-2">
+            <label>
+              <span className={labelClass}>Industry Sub-Focus</span>
               <input
-                type="color"
-                value={brandForm.primaryColor}
-                onChange={event => setBrandForm(value => ({ ...value, primaryColor: event.target.value }))}
-                className="h-10 w-12 rounded border border-[#303030] bg-[#141414] p-1"
+                value={brandProfile.industry}
+                onChange={event => setBrandProfile(value => ({ ...value, industry: event.target.value }))}
+                className={fieldClass}
+                placeholder="Streetwear, Specialty Coffee, FinTech…"
               />
+            </label>
+            <label>
+              <span className={labelClass}>Website</span>
               <input
-                value={brandForm.primaryColor}
-                onChange={event => setBrandForm(value => ({ ...value, primaryColor: event.target.value }))}
+                type="url"
+                value={brandProfile.website}
+                onChange={event => setBrandProfile(value => ({ ...value, website: event.target.value }))}
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Official Contact Email</span>
+              <input
+                type="email"
+                value={brandProfile.contactEmail || ''}
+                onChange={event => setBrandProfile(value => ({ ...value, contactEmail: event.target.value }))}
+                className={fieldClass}
+                placeholder="hello@company.com"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Business Contact Phone</span>
+              <input
+                value={brandProfile.contactPhone || ''}
+                onChange={event => setBrandProfile(value => ({ ...value, contactPhone: event.target.value }))}
+                className={fieldClass}
+                placeholder="+1 (555) 000-0000"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Logo URL</span>
+              <input
+                type="url"
+                value={brandProfile.logoUrl}
+                onChange={event => setBrandProfile(value => ({ ...value, logoUrl: event.target.value, logoPath: '' }))}
+                className={fieldClass}
+                placeholder="Upload in Asset Library or paste URL"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Brand Cover Banner URL (optional)</span>
+              <input
+                type="url"
+                value={brandProfile.coverImageUrl || ''}
+                onChange={event =>
+                  setBrandProfile(value => ({ ...value, coverImageUrl: event.target.value, coverImagePath: '' }))
+                }
+                className={fieldClass}
+                placeholder="https://"
+              />
+            </label>
+            {imageAssets.length > 0 && (
+              <label className="sm:col-span-2">
+                <span className={labelClass}>Or Select Logo From Asset Library</span>
+                <select
+                  value={brandProfile.logoPath || ''}
+                  onChange={event =>
+                    setBrandProfile(value => ({
+                      ...value,
+                      logoPath: event.target.value,
+                      logoUrl: event.target.value ? '' : value.logoUrl,
+                    }))
+                  }
+                  className={fieldClass}
+                >
+                  <option value="">Custom URL / Keep current</option>
+                  {imageAssets.map(asset => (
+                    <option key={asset.id} value={asset.storagePath || ''}>
+                      {asset.name} ({asset.category})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="sm:col-span-2">
+              <span className={labelClass}>Brand Description</span>
+              <textarea
+                rows={3}
+                value={brandProfile.description}
+                onChange={event => setBrandProfile(value => ({ ...value, description: event.target.value }))}
+                className={fieldClass}
+                placeholder="What the brand does and who it serves."
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Primary Color</span>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={brandForm.primaryColor}
+                  onChange={event => setBrandForm(value => ({ ...value, primaryColor: event.target.value }))}
+                  className="h-10 w-12 rounded border border-[#303030] bg-[#141414] p-1"
+                />
+                <input
+                  value={brandForm.primaryColor}
+                  onChange={event => setBrandForm(value => ({ ...value, primaryColor: event.target.value }))}
+                  className={fieldClass}
+                />
+              </div>
+            </label>
+            <label>
+              <span className={labelClass}>Accent Color</span>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={brandForm.accentColor || '#FF1E1E'}
+                  onChange={event => setBrandForm(value => ({ ...value, accentColor: event.target.value }))}
+                  className="h-10 w-12 rounded border border-[#303030] bg-[#141414] p-1"
+                />
+                <input
+                  value={brandForm.accentColor || ''}
+                  onChange={event => setBrandForm(value => ({ ...value, accentColor: event.target.value }))}
+                  className={fieldClass}
+                />
+              </div>
+            </label>
+            <label>
+              <span className={labelClass}>Secondary Color</span>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={brandForm.secondaryColor || '#0A0A0A'}
+                  onChange={event => setBrandForm(value => ({ ...value, secondaryColor: event.target.value }))}
+                  className="h-10 w-12 rounded border border-[#303030] bg-[#141414] p-1"
+                />
+                <input
+                  value={brandForm.secondaryColor || ''}
+                  onChange={event => setBrandForm(value => ({ ...value, secondaryColor: event.target.value }))}
+                  className={fieldClass}
+                />
+              </div>
+            </label>
+            <datalist id="keedohub-brand-fonts">
+              <option value="Plus Jakarta Sans" />
+              <option value="Inter" />
+              <option value="Syne" />
+              <option value="Space Grotesk" />
+              <option value="DM Sans" />
+              <option value="Montserrat" />
+              <option value="Playfair Display" />
+              <option value="JetBrains Mono" />
+            </datalist>
+            <label>
+              <span className={labelClass}>Display Typography</span>
+              <input
+                list="keedohub-brand-fonts"
+                value={brandForm.typography?.displayFont || ''}
+                onChange={event =>
+                  setBrandForm(value => ({ ...value, typography: { ...value.typography, displayFont: event.target.value } }))
+                }
+                className={fieldClass}
+                placeholder="Plus Jakarta Sans"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Body Typography</span>
+              <input
+                list="keedohub-brand-fonts"
+                value={brandForm.typography?.bodyFont || ''}
+                onChange={event =>
+                  setBrandForm(value => ({ ...value, typography: { ...value.typography, bodyFont: event.target.value } }))
+                }
+                className={fieldClass}
+                placeholder="Plus Jakarta Sans"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Instagram URL</span>
+              <input
+                type="url"
+                value={brandProfile.socialLinks?.instagram || ''}
+                onChange={event =>
+                  setBrandProfile(value => ({
+                    ...value,
+                    socialLinks: { ...value.socialLinks, instagram: event.target.value },
+                  }))
+                }
+                className={fieldClass}
+                placeholder="https://instagram.com/..."
+              />
+            </label>
+            <label>
+              <span className={labelClass}>LinkedIn URL</span>
+              <input
+                type="url"
+                value={brandProfile.socialLinks?.linkedin || ''}
+                onChange={event =>
+                  setBrandProfile(value => ({
+                    ...value,
+                    socialLinks: { ...value.socialLinks, linkedin: event.target.value },
+                  }))
+                }
+                className={fieldClass}
+                placeholder="https://linkedin.com/company/..."
+              />
+            </label>
+            <label>
+              <span className={labelClass}>X / Twitter URL</span>
+              <input
+                type="url"
+                value={brandProfile.socialLinks?.x || ''}
+                onChange={event =>
+                  setBrandProfile(value => ({
+                    ...value,
+                    socialLinks: { ...value.socialLinks, x: event.target.value },
+                  }))
+                }
+                className={fieldClass}
+                placeholder="https://x.com/..."
+              />
+            </label>
+            <label>
+              <span className={labelClass}>TikTok URL</span>
+              <input
+                type="url"
+                value={brandProfile.socialLinks?.tiktok || ''}
+                onChange={event =>
+                  setBrandProfile(value => ({
+                    ...value,
+                    socialLinks: { ...value.socialLinks, tiktok: event.target.value },
+                  }))
+                }
+                className={fieldClass}
+                placeholder="https://tiktok.com/@..."
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Brand Voice</span>
+              <textarea
+                rows={3}
+                value={brandProfile.brandVoice}
+                onChange={event => setBrandProfile(value => ({ ...value, brandVoice: event.target.value }))}
                 className={fieldClass}
               />
-            </div>
-          </label>
-          <label>
-            <span className={labelClass}>Accent Color</span>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={brandForm.accentColor || '#FF1E1E'}
-                onChange={event => setBrandForm(value => ({ ...value, accentColor: event.target.value }))}
-                className="h-10 w-12 rounded border border-[#303030] bg-[#141414] p-1"
-              />
-              <input
-                value={brandForm.accentColor || ''}
-                onChange={event => setBrandForm(value => ({ ...value, accentColor: event.target.value }))}
+            </label>
+            <label>
+              <span className={labelClass}>Photography Direction</span>
+              <textarea
+                rows={3}
+                value={brandProfile.photographyDirection}
+                onChange={event => setBrandProfile(value => ({ ...value, photographyDirection: event.target.value }))}
                 className={fieldClass}
               />
-            </div>
-          </label>
-          <label>
-            <span className={labelClass}>Secondary Color</span>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={brandForm.secondaryColor || '#0A0A0A'}
-                onChange={event => setBrandForm(value => ({ ...value, secondaryColor: event.target.value }))}
-                className="h-10 w-12 rounded border border-[#303030] bg-[#141414] p-1"
-              />
-              <input
-                value={brandForm.secondaryColor || ''}
-                onChange={event => setBrandForm(value => ({ ...value, secondaryColor: event.target.value }))}
+            </label>
+            <label>
+              <span className={labelClass}>Graphic Design Principles</span>
+              <textarea
+                rows={3}
+                value={brandProfile.graphicDesignPrinciples}
+                onChange={event => setBrandProfile(value => ({ ...value, graphicDesignPrinciples: event.target.value }))}
                 className={fieldClass}
               />
-            </div>
-          </label>
-          <datalist id="keedohub-brand-fonts">
-            <option value="Plus Jakarta Sans" />
-            <option value="Inter" />
-            <option value="Syne" />
-            <option value="Space Grotesk" />
-            <option value="DM Sans" />
-            <option value="Montserrat" />
-            <option value="Playfair Display" />
-            <option value="JetBrains Mono" />
-          </datalist>
-          <label>
-            <span className={labelClass}>Display Typography</span>
-            <input
-              list="keedohub-brand-fonts"
-              value={brandForm.typography?.displayFont || ''}
-              onChange={event =>
-                setBrandForm(value => ({ ...value, typography: { ...value.typography, displayFont: event.target.value } }))
-              }
-              className={fieldClass}
-              placeholder="Plus Jakarta Sans"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Body Typography</span>
-            <input
-              list="keedohub-brand-fonts"
-              value={brandForm.typography?.bodyFont || ''}
-              onChange={event =>
-                setBrandForm(value => ({ ...value, typography: { ...value.typography, bodyFont: event.target.value } }))
-              }
-              className={fieldClass}
-              placeholder="Plus Jakarta Sans"
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Brand Voice</span>
-            <textarea
-              rows={3}
-              value={brandProfile.brandVoice}
-              onChange={event => setBrandProfile(value => ({ ...value, brandVoice: event.target.value }))}
-              className={fieldClass}
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Photography Direction</span>
-            <textarea
-              rows={3}
-              value={brandProfile.photographyDirection}
-              onChange={event => setBrandProfile(value => ({ ...value, photographyDirection: event.target.value }))}
-              className={fieldClass}
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Graphic Design Principles</span>
-            <textarea
-              rows={3}
-              value={brandProfile.graphicDesignPrinciples}
-              onChange={event => setBrandProfile(value => ({ ...value, graphicDesignPrinciples: event.target.value }))}
-              className={fieldClass}
-            />
-          </label>
-          <label>
-            <span className={labelClass}>Logo &amp; Usage Rules</span>
-            <textarea
-              rows={3}
-              value={brandProfile.usageGuidelines}
-              onChange={event => setBrandProfile(value => ({ ...value, usageGuidelines: event.target.value }))}
-              className={fieldClass}
-            />
-          </label>
-          <label className="sm:col-span-2">
-            <span className={labelClass}>Creative References</span>
-            <textarea
-              rows={3}
-              value={brandProfile.creativeReferences}
-              onChange={event => setBrandProfile(value => ({ ...value, creativeReferences: event.target.value }))}
-              className={fieldClass}
-              placeholder="Links and references for the creative team."
-            />
-          </label>
-        </div>
-        <button
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded bg-[#FF1E1E] px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition-colors disabled:opacity-50"
-        >
-          <Save size={15} />
-          {saving ? 'Saving…' : 'Save brand identity'}
-        </button>
-      </form>
-    </div>
-  );
+            </label>
+            <label>
+              <span className={labelClass}>Logo &amp; Usage Rules</span>
+              <textarea
+                rows={3}
+                value={brandProfile.usageGuidelines}
+                onChange={event => setBrandProfile(value => ({ ...value, usageGuidelines: event.target.value }))}
+                className={fieldClass}
+              />
+            </label>
+            <label className="sm:col-span-2">
+              <span className={labelClass}>Creative References</span>
+              <textarea
+                rows={3}
+                value={brandProfile.creativeReferences}
+                onChange={event => setBrandProfile(value => ({ ...value, creativeReferences: event.target.value }))}
+                className={fieldClass}
+                placeholder="Links and references for the creative team."
+              />
+            </label>
+          </div>
+          <button
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded bg-[#FF1E1E] px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+          >
+            <Save size={15} />
+            {saving ? 'Saving…' : 'Save brand identity'}
+          </button>
+        </form>
+      </div>
+    );
+  };
 
   const renderReleases = () => {
     const filteredReleases = [...releases]
       .filter(release => releaseFilter === 'All' || release.status === releaseFilter)
-      .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''));
+      .sort((a, b) =>
+        releaseViewMode === 'schedule'
+          ? (a.releaseDate || '9999-99-99').localeCompare(b.releaseDate || '9999-99-99')
+          : (b.releaseDate || '').localeCompare(a.releaseDate || ''),
+      );
 
     return (
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(310px,.7fr)]">
@@ -1628,10 +2037,32 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
               <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-400">Artist OS · Catalog</p>
               <h2 className="mt-1 text-xl font-bold text-white">Music &amp; Releases</h2>
               <p className="mt-0.5 text-xs text-neutral-400">
-                Manage singles, EPs and albums, release metadata, readiness checklist and promotional artwork.
+                Manage singles, EPs and albums, audio/artwork specs, readiness checklist and promotional artwork.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
+              <div className="inline-flex rounded border border-[#2A2A2A] bg-[#101010] p-0.5 mr-1">
+                <button
+                  type="button"
+                  onClick={() => setReleaseViewMode('grid')}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-mono ${
+                    releaseViewMode === 'grid' ? 'bg-white text-black font-semibold' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <LayoutGrid size={11} />
+                  <span>Catalog</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReleaseViewMode('schedule')}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-mono ${
+                    releaseViewMode === 'schedule' ? 'bg-white text-black font-semibold' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Calendar size={11} />
+                  <span>Schedule</span>
+                </button>
+              </div>
               {onNavigateSection && (
                 <button
                   type="button"
@@ -1639,7 +2070,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                   className="inline-flex items-center gap-1.5 rounded border border-[#FF1E1E]/50 bg-[#1A0909] px-2.5 py-1 text-xs font-mono text-white hover:bg-[#FF1E1E]/20 whitespace-nowrap shrink-0 mr-1"
                 >
                   <Sparkles size={12} className="text-[#FF1E1E]" />
-                  <span>Explore Streaming &amp; Release Packs</span>
+                  <span>Explore Release Packs</span>
                 </button>
               )}
               {(['All', 'Draft', 'Scheduled', 'Live', 'Archived'] as const).map(status => {
@@ -1672,6 +2103,59 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                   : 'No releases match this status filter.'}
               </p>
             </div>
+          ) : releaseViewMode === 'schedule' ? (
+            <div className="space-y-3">
+              {filteredReleases.map(release => {
+                const readiness = evaluateReleaseReadiness(release);
+                const linkedContentCount = contentItems.filter(item => item.releaseId === release.id).length;
+                const linkedAssetsCount = assets.filter(asset => asset.releaseId === release.id).length;
+                return (
+                  <article
+                    key={release.id}
+                    className="rounded-lg border border-[#242424] bg-[#111] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-mono text-amber-300 tabular-nums">
+                          {release.releaseDate || 'Date TBC'}
+                        </span>
+                        <span className="text-neutral-600">·</span>
+                        <h3 className="text-sm font-bold text-white truncate">{release.title}</h3>
+                        <span className="text-[11px] font-mono text-neutral-400">
+                          {release.type} · {release.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-400 tabular-nums">
+                        Readiness: {readiness.completed}/{readiness.total} ({readiness.percent}%) · {linkedContentCount} copy item(s) · {linkedAssetsCount} asset(s)
+                      </p>
+                      {readiness.warnings.length > 0 && (
+                        <p className="text-[11px] text-amber-300/90 truncate">
+                          Attention: {readiness.warnings.join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setInspectedRelease(release)}
+                        className="inline-flex items-center gap-1 rounded border border-[#333] bg-[#161616] px-2.5 py-1.5 text-xs text-white hover:border-[#FF1E1E]"
+                      >
+                        <Eye size={12} />
+                        <span>Inspect</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => editRelease(release)}
+                        className="inline-flex items-center gap-1 rounded border border-[#333] px-2.5 py-1.5 text-xs text-neutral-200 hover:text-white"
+                      >
+                        <Pencil size={12} />
+                        <span>Edit</span>
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {filteredReleases.map(release => {
@@ -1684,7 +2168,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                 const linkedDeliverablesCount = linkedProject
                   ? deliverables.filter(d => d.projectId === linkedProject.id).length
                   : 0;
-                const checklistCompleted = RELEASE_CHECKLIST_ITEMS.filter(item => Boolean(release.checklist?.[item.key])).length;
+                const readiness = evaluateReleaseReadiness(release);
 
                 return (
                   <article key={release.id} className="overflow-hidden rounded-lg border border-[#252525] bg-[#111] flex flex-col">
@@ -1722,6 +2206,19 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                         </select>
                       </div>
 
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-neutral-400 tabular-nums">
+                          <span>Release readiness</span>
+                          <span>{readiness.completed}/{readiness.total} ({readiness.percent}%)</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded bg-[#222]">
+                          <div
+                            className={`h-full ${readiness.percent === 100 ? 'bg-emerald-500' : 'bg-[#FF1E1E]'}`}
+                            style={{ width: `${readiness.percent}%` }}
+                          />
+                        </div>
+                      </div>
+
                       {(release.featuredArtists || release.producer || release.songwriters || release.rightsInfo) && (
                         <div className="space-y-0.5 text-[11px] text-neutral-400">
                           {release.featuredArtists && (
@@ -1745,10 +2242,12 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                         </div>
                       )}
 
-                      {(release.isrc || release.upc) && (
-                        <div className="flex flex-wrap gap-3 text-[11px] font-mono text-neutral-400 tabular-nums">
+                      {(release.isrc || release.upc || release.audioSpecs || release.artworkSpecs) && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono text-neutral-400 tabular-nums">
                           {release.isrc && <span>ISRC: {release.isrc}</span>}
                           {release.upc && <span>UPC: {release.upc}</span>}
+                          {release.audioSpecs && <span>Audio: {release.audioSpecs}</span>}
+                          {release.artworkSpecs && <span>Artwork: {release.artworkSpecs}</span>}
                         </div>
                       )}
 
@@ -1760,7 +2259,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                         <span>{linkedContentCount} copy items</span>
                         <span>{linkedAssetsCount} assets</span>
                         <span>
-                          {checklistCompleted}/{RELEASE_CHECKLIST_ITEMS.length} ready
+                          {readiness.completed}/{RELEASE_CHECKLIST_ITEMS.length} ready
                         </span>
                       </div>
 
@@ -1809,7 +2308,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                         <summary className="cursor-pointer font-medium text-neutral-300 flex items-center gap-1.5">
                           <CheckSquare size={12} className="text-amber-400" />
                           <span>
-                            Release checklist ({checklistCompleted}/{RELEASE_CHECKLIST_ITEMS.length})
+                            Release checklist ({readiness.completed}/{RELEASE_CHECKLIST_ITEMS.length})
                           </span>
                         </summary>
                         <div className="mt-2 space-y-1.5">
@@ -1875,12 +2374,51 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                       <div className="mt-auto flex flex-wrap gap-2 pt-2 border-t border-[#1E1E1E]">
                         <button
                           type="button"
+                          onClick={() => setInspectedRelease(release)}
+                          className="inline-flex items-center gap-1 rounded border border-[#333] bg-[#161616] px-2.5 py-1.5 text-xs text-white hover:border-[#FF1E1E]"
+                        >
+                          <Eye size={12} />
+                          Inspect
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => editRelease(release)}
                           className="inline-flex items-center gap-1 rounded border border-[#333] px-2.5 py-1.5 text-xs text-white hover:border-neutral-500"
                         >
                           <Pencil size={12} />
                           Edit
                         </button>
+                        {onOpenInStudio && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenInStudio({
+                                source: 'release',
+                                toolId: 'release-artwork-studio',
+                                formatId: '1:1-master-cover',
+                                title: `${release.title} — Master Cover`,
+                                linkedReleaseId: release.id,
+                                linkedReleaseTitle: release.title,
+                                linkedProjectId: release.projectId,
+                                prefillDesign: {
+                                  headline: release.title.toUpperCase(),
+                                  subtitle: `OFFICIAL ${release.type.toUpperCase()} RELEASE`,
+                                  artistOrBrandName: (workspaceName || workspace.name).toUpperCase(),
+                                  tagline: release.featuredArtists ? `FEAT. ${release.featuredArtists.toUpperCase()}` : `${release.type.toUpperCase()} RELEASE`,
+                                  dateText: release.releaseDate || `EST. ${new Date().getFullYear()}`,
+                                  isrcSnippet: release.isrc || '',
+                                  barcodeOrUpc: release.upc || '',
+                                  trackListSnippet: release.trackList || '',
+                                  imageUrl: coverPreview || release.artworkUrl || '',
+                                },
+                              })
+                            }
+                            className="inline-flex items-center gap-1 rounded border border-[#FF1E1E]/50 bg-[#1B0C0C] px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-[#FF1E1E] transition-colors"
+                          >
+                            <Wand2 size={12} />
+                            Create in Studio
+                          </button>
+                        )}
                         {onNavigateSection && (
                           <button
                             type="button"
@@ -1904,6 +2442,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                                 releaseId: release.id,
                                 projectId: release.projectId || '',
                                 deliverableId: '',
+                                scheduledDate: release.releaseDate || '',
+                                assetIds: [],
                                 body: '',
                               });
                               onNavigateSection('content');
@@ -2035,6 +2575,26 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
               />
             </label>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label>
+              <span className={labelClass}>Master Audio Specs</span>
+              <input
+                value={releaseForm.audioSpecs}
+                onChange={event => setReleaseField('audioSpecs', event.target.value)}
+                className={fieldClass}
+                placeholder="24-bit / 48kHz WAV"
+              />
+            </label>
+            <label>
+              <span className={labelClass}>Artwork Format Specs</span>
+              <input
+                value={releaseForm.artworkSpecs}
+                onChange={event => setReleaseField('artworkSpecs', event.target.value)}
+                className={fieldClass}
+                placeholder="3000×3000 sRGB PNG"
+              />
+            </label>
+          </div>
           {imageAssets.length > 0 && (
             <label>
               <span className={labelClass}>Cover art from Asset Library</span>
@@ -2125,6 +2685,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
     const queryLower = contentSearch.trim().toLowerCase();
     const filteredContent = [...contentItems]
       .filter(item => contentPhaseFilter === 'All' || item.phase === contentPhaseFilter)
+      .filter(item => !isArtist || contentReleaseFilter === 'All' || item.releaseId === contentReleaseFilter)
+      .filter(item => contentProjectFilter === 'All' || item.projectId === contentProjectFilter)
       .filter(item => {
         if (!queryLower) return true;
         return (
@@ -2133,7 +2695,11 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
           item.kind.toLowerCase().includes(queryLower)
         );
       })
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+      .sort((a, b) =>
+        contentViewMode === 'schedule'
+          ? (a.scheduledDate || '9999-99-99').localeCompare(b.scheduledDate || '9999-99-99')
+          : (b.updatedAt || '').localeCompare(a.updatedAt || ''),
+      );
 
     return (
       <div className="space-y-5">
@@ -2141,18 +2707,27 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
         <section className={`${panelClass} flex flex-col lg:flex-row lg:items-center justify-between gap-4`}>
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-red-400">
-              {isArtist ? 'Artist OS · Content Engine' : 'Brand OS · Creative System'}
+              {isArtist ? 'Artist OS · Content Engine' : 'Brand OS · Content Studio'}
             </p>
             <h2 className="mt-1 text-xl font-bold text-white">
-              {isArtist ? 'Content Engine & Release Messaging' : 'Creative System & Messaging'}
+              {isArtist ? 'Content Engine & Release Messaging' : 'Brand Content Studio & Visual Messaging'}
             </h2>
             <p className="mt-1 text-sm text-neutral-400">
               {isArtist
-                ? 'Organize release captions, lyrics and promo copy alongside deliverables, or browse Artist Creative Hub packs produced by KeedoHub.'
-                : 'Coordinate brand messaging, campaign copy and visual specifications tied to your Creative Hub packs and deliverables.'}
+                ? 'Organize release captions, lyrics, scheduled rollout copy, and linked assets alongside Artist Creative Hub packs.'
+                : 'Coordinate brand messaging, product content, marketing copy, scheduled drops, and visual specifications tied to Creative Hub packs.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {onNavigateSection && (
+              <button
+                type="button"
+                onClick={() => onNavigateSection('studio')}
+                className="inline-flex items-center gap-1.5 rounded border border-[#2E2E2E] bg-[#141414] px-3.5 py-2.5 text-xs font-medium text-white hover:border-[#FF1E1E] whitespace-nowrap shrink-0"
+              >
+                <span>Open {isArtist ? 'Artist Studio' : 'Brand Studio'}</span>
+              </button>
+            )}
             {onNavigateSection && (
               <button
                 type="button"
@@ -2191,38 +2766,94 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
           <section className={panelClass}>
-            <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1E1E1E] pb-4">
-              <div className="flex flex-wrap gap-1.5">
-                {(['All', 'Pre-release', 'Release day', 'Post-release', 'Ongoing'] as const).map(phase => {
-                  const count =
-                    phase === 'All' ? contentItems.length : contentItems.filter(item => item.phase === phase).length;
-                  const phaseLabel =
-                    phase === 'Release day' && !isArtist ? 'Launch day' : phase;
-                  return (
-                    <button
-                      key={phase}
-                      type="button"
-                      onClick={() => setContentPhaseFilter(phase)}
-                      className={`rounded px-2.5 py-1 text-xs font-mono tabular-nums whitespace-nowrap shrink-0 transition-colors ${
-                        contentPhaseFilter === phase
-                          ? 'bg-white text-black font-semibold'
-                          : 'border border-[#2A2A2A] bg-[#121212] text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      {phaseLabel} ({count})
-                    </button>
-                  );
-                })}
+            <div className="mb-4 space-y-3 border-b border-[#1E1E1E] pb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {(['All', 'Pre-release', 'Release day', 'Post-release', 'Ongoing'] as const).map(phase => {
+                    const count =
+                      phase === 'All' ? contentItems.length : contentItems.filter(item => item.phase === phase).length;
+                    const phaseLabel = phase === 'Release day' && !isArtist ? 'Launch day' : phase;
+                    return (
+                      <button
+                        key={phase}
+                        type="button"
+                        onClick={() => setContentPhaseFilter(phase)}
+                        className={`rounded px-2.5 py-1 text-xs font-mono tabular-nums whitespace-nowrap shrink-0 transition-colors ${
+                          contentPhaseFilter === phase
+                            ? 'bg-white text-black font-semibold'
+                            : 'border border-[#2A2A2A] bg-[#121212] text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        {phaseLabel} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="inline-flex rounded border border-[#2A2A2A] bg-[#101010] p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setContentViewMode('list')}
+                    className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-mono ${
+                      contentViewMode === 'list' ? 'bg-white text-black font-semibold' : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    <List size={11} />
+                    <span>Library</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setContentViewMode('schedule')}
+                    className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-mono ${
+                      contentViewMode === 'schedule' ? 'bg-white text-black font-semibold' : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    <Calendar size={11} />
+                    <span>Schedule</span>
+                  </button>
+                </div>
               </div>
-              <label className="relative w-full sm:w-56">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
-                <input
-                  value={contentSearch}
-                  onChange={event => setContentSearch(event.target.value)}
-                  placeholder="Search copy & captions…"
-                  className="w-full rounded border border-[#2C2C2C] bg-[#141414] pl-8 pr-3 py-1.5 text-xs text-white outline-none focus:border-[#FF1E1E]"
-                />
-              </label>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {isArtist && releases.length > 0 && (
+                  <select
+                    aria-label="Filter content by release"
+                    value={contentReleaseFilter}
+                    onChange={event => setContentReleaseFilter(event.target.value)}
+                    className="rounded border border-[#2C2C2C] bg-[#141414] px-2.5 py-1.5 text-xs text-neutral-200"
+                  >
+                    <option value="All">All releases</option>
+                    {releases.map(rel => (
+                      <option key={rel.id} value={rel.id}>
+                        Release: {rel.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {projects.length > 0 && (
+                  <select
+                    aria-label="Filter content by project"
+                    value={contentProjectFilter}
+                    onChange={event => setContentProjectFilter(event.target.value)}
+                    className="rounded border border-[#2C2C2C] bg-[#141414] px-2.5 py-1.5 text-xs text-neutral-200"
+                  >
+                    <option value="All">All projects</option>
+                    {projects.map(proj => (
+                      <option key={proj.id} value={proj.id}>
+                        Project: {proj.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <label className="relative flex-1 min-w-[180px]">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+                  <input
+                    value={contentSearch}
+                    onChange={event => setContentSearch(event.target.value)}
+                    placeholder="Search copy, captions & notes…"
+                    className="w-full rounded border border-[#2C2C2C] bg-[#141414] pl-8 pr-3 py-1.5 text-xs text-white outline-none focus:border-[#FF1E1E]"
+                  />
+                </label>
+              </div>
             </div>
 
             {filteredContent.length === 0 ? (
@@ -2237,11 +2868,21 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                   const linkedRelease = item.releaseId ? releaseById.get(item.releaseId) : undefined;
                   const linkedProject = item.projectId ? projectById.get(item.projectId) : undefined;
                   const linkedDeliverable = item.deliverableId ? deliverableById.get(item.deliverableId) : undefined;
+                  const linkedAssets = (item.assetIds || [])
+                    .map(id => assets.find(a => a.id === id))
+                    .filter((a): a is StudioAsset => Boolean(a));
                   return (
                     <article key={item.id} className="rounded-lg border border-[#252525] bg-[#111] p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <h3 className="font-semibold text-white">{item.title}</h3>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {item.scheduledDate && (
+                              <span className="rounded border border-amber-500/30 bg-amber-950/20 px-2 py-0.5 text-[10px] font-mono text-amber-300 tabular-nums">
+                                {item.scheduledDate}
+                              </span>
+                            )}
+                            <h3 className="font-semibold text-white">{item.title}</h3>
+                          </div>
                           <p className="mt-1 text-[11px] font-mono uppercase tracking-wider text-neutral-500">
                             {item.kind} · {item.phase === 'Release day' && !isArtist ? 'Launch day' : item.phase}
                             {linkedRelease ? ` · Release: ${linkedRelease.title}` : ''}
@@ -2262,7 +2903,39 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                         </select>
                       </div>
                       <p className="mt-3 whitespace-pre-wrap text-sm text-neutral-300">{item.body}</p>
+                      {linkedAssets.length > 0 && (
+                        <p className="mt-2 text-[11px] font-mono text-neutral-400">
+                          Linked assets: {linkedAssets.map(a => a.name).join(', ')}
+                        </p>
+                      )}
                       <div className="mt-3 flex flex-wrap gap-2">
+                        {onOpenInStudio && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenInStudio({
+                                source: 'scratch',
+                                toolId: item.kind === 'Lyrics' ? 'lyric-card-studio' : 'launch-social-studio',
+                                formatId: item.kind === 'Lyrics' ? '4:5-portrait' : '1:1-square',
+                                title: `${item.title} — Visual Card`,
+                                linkedReleaseId: item.releaseId,
+                                linkedReleaseTitle: linkedRelease?.title,
+                                linkedProjectId: item.projectId,
+                                linkedProjectTitle: linkedProject?.title,
+                                prefillDesign: {
+                                  headline: item.title.toUpperCase(),
+                                  subtitle: item.kind === 'Lyrics' ? `${item.phase} Lyric Spotlight` : item.body.slice(0, 140),
+                                  quoteOrLyricsText: item.kind === 'Lyrics' ? item.body.slice(0, 260) : '',
+                                  tagline: `${item.kind} · ${item.phase}`.toUpperCase(),
+                                },
+                              })
+                            }
+                            className="inline-flex items-center gap-1 rounded border border-[#FF1E1E]/40 bg-[#1B0C0C] px-2.5 py-1.5 text-xs text-white hover:bg-[#FF1E1E] transition-colors"
+                          >
+                            <Wand2 size={12} />
+                            Design in Studio
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void copyTextValue(item.body, item.id, 'content')}
@@ -2322,11 +2995,23 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                   onChange={event => setContentField('kind', event.target.value as ContentKind)}
                   className={fieldClass}
                 >
-                  <option>Caption</option>
-                  {isArtist && <option>Lyrics</option>}
-                  <option>Promotional copy</option>
-                  <option>Creative idea</option>
                   <option>Social post</option>
+                  {isArtist ? (
+                    <>
+                      <option>Caption</option>
+                      <option>Lyrics</option>
+                      <option>Promotional copy</option>
+                    </>
+                  ) : (
+                    <>
+                      <option>Marketing material</option>
+                      <option>Product content</option>
+                      <option>Business announcement</option>
+                      <option>Promotional copy</option>
+                      <option>Caption</option>
+                    </>
+                  )}
+                  <option>Creative idea</option>
                   <option>Guideline</option>
                 </select>
               </label>
@@ -2344,6 +3029,15 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                 </select>
               </label>
             </div>
+            <label>
+              <span className={labelClass}>Target Publish / Schedule Date (optional)</span>
+              <input
+                type="date"
+                value={contentForm.scheduledDate}
+                onChange={event => setContentField('scheduledDate', event.target.value)}
+                className={fieldClass}
+              />
+            </label>
             {isArtist && (
               <label>
                 <span className={labelClass}>Related release</span>
@@ -2393,6 +3087,34 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                 </select>
               </label>
             )}
+            {assets.length > 0 && (
+              <div className="space-y-1.5">
+                <span className={labelClass}>Link Workspace Assets (optional)</span>
+                <div className="max-h-28 overflow-y-auto rounded border border-[#2A2A2A] bg-[#121212] p-2 space-y-1">
+                  {assets.slice(0, 20).map(asset => {
+                    const checked = contentForm.assetIds.includes(asset.id);
+                    return (
+                      <label key={asset.id} className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setContentField(
+                              'assetIds',
+                              checked
+                                ? contentForm.assetIds.filter(id => id !== asset.id)
+                                : [...contentForm.assetIds, asset.id],
+                            )
+                          }
+                          className="accent-[#FF1E1E]"
+                        />
+                        <span className="truncate">{asset.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <label>
               <span className={labelClass}>Status</span>
               <select
@@ -2432,7 +3154,11 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   };
 
   const renderAssets = () => {
-    const categories = ['All', ...Array.from(new Set(assets.map(a => a.category).filter(Boolean)))];
+    const osCategoryOptions = isArtist ? ARTIST_ASSET_CATEGORIES : BRAND_ASSET_CATEGORIES;
+    const categories = [
+      'All',
+      ...Array.from(new Set([...osCategoryOptions, ...assets.map(a => a.category).filter(Boolean)])),
+    ];
     const queryLower = assetSearch.trim().toLowerCase();
     const filteredAssets = assets.filter(asset => {
       if (assetFilterCategory !== 'All' && asset.category !== assetFilterCategory) return false;
@@ -2454,34 +3180,18 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-red-400">Shared workspace library</p>
             <h2 className="mt-1 text-xl font-bold text-white">{isArtist ? 'Artist Asset Library' : 'Brand Asset Library'}</h2>
             <p className="mt-1 text-sm text-neutral-400">
-              Private to {workspace.name}. Files stay in this workspace and can be organized, previewed and downloaded.
+              Private to {workspace.name}. Files stay in this workspace and can be organized, inspected, linked, and downloaded.
             </p>
           </div>
           <div className={`grid gap-3 ${isArtist ? 'grid-cols-2' : 'grid-cols-1'}`}>
             <label>
               <span className={labelClass}>Category</span>
               <select value={assetCategory} onChange={event => setAssetCategory(event.target.value)} className={fieldClass}>
-                {isArtist ? (
-                  <>
-                    <option>Artwork</option>
-                    <option>Visualizer</option>
-                    <option>Photography</option>
-                    <option>Video</option>
-                    <option>Promotional</option>
-                    <option>Document</option>
-                    <option>Other</option>
-                  </>
-                ) : (
-                  <>
-                    <option>Logo</option>
-                    <option>Guideline</option>
-                    <option>Photography</option>
-                    <option>Video</option>
-                    <option>Promotional</option>
-                    <option>Document</option>
-                    <option>Other</option>
-                  </>
-                )}
+                {osCategoryOptions.map(categoryName => (
+                  <option key={categoryName} value={categoryName}>
+                    {categoryName}
+                  </option>
+                ))}
               </select>
             </label>
             {isArtist && (
@@ -2532,7 +3242,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
           </label>
         </div>
 
-        {/* Filter & Search Bar */}
+        {/* Filter, View Switch & Search Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-lg border border-[#1E1E1E] bg-[#0B0B0B] px-4 py-3">
           <div className="flex flex-wrap items-center gap-1.5">
             {categories.map(category => (
@@ -2551,6 +3261,28 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded border border-[#2A2A2A] bg-[#101010] p-0.5">
+              <button
+                type="button"
+                onClick={() => setAssetViewMode('grid')}
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-mono ${
+                  assetViewMode === 'grid' ? 'bg-white text-black font-semibold' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <LayoutGrid size={11} />
+                <span>Grid</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssetViewMode('list')}
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-mono ${
+                  assetViewMode === 'list' ? 'bg-white text-black font-semibold' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <List size={11} />
+                <span>List</span>
+              </button>
+            </div>
             <select
               aria-label="Filter assets by status"
               value={assetFilterStatus}
@@ -2582,6 +3314,65 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
           <div className={`${panelClass} text-center text-sm text-neutral-500`}>
             No assets match this category or search query.
           </div>
+        ) : assetViewMode === 'list' ? (
+          <div className="overflow-x-auto rounded-lg border border-[#222] bg-[#0C0C0C]">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-[#1E1E1E] bg-[#111] text-[10px] font-mono uppercase tracking-wider text-neutral-500">
+                <tr>
+                  <th className="px-4 py-3">Asset</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Format / Size</th>
+                  <th className="px-4 py-3">Linked To</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1A1A1A]">
+                {filteredAssets.map(asset => (
+                  <tr key={asset.id} className="hover:bg-[#111]">
+                    <td className="px-4 py-3 font-medium text-white max-w-[240px] truncate">{asset.name}</td>
+                    <td className="px-4 py-3 text-neutral-300">{asset.category}</td>
+                    <td className="px-4 py-3 font-mono text-neutral-400 tabular-nums">
+                      {asset.fileType} · {fileSizeLabel(asset.fileSizeBytes || 0)}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-400 truncate max-w-[200px]">
+                      {asset.releaseId
+                        ? releaseById.get(asset.releaseId)?.title || asset.releaseId
+                        : asset.projectId
+                          ? projectById.get(asset.projectId)?.title || asset.projectId
+                          : 'Workspace'}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-neutral-300">{asset.status || 'Draft'}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setInspectedAsset(asset)}
+                          className="rounded border border-[#333] px-2 py-1 text-[11px] text-white hover:border-[#FF1E1E]"
+                        >
+                          Preview
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void downloadAsset(asset)}
+                          className="rounded border border-[#333] px-2 py-1 text-[11px] text-neutral-200 hover:text-white"
+                        >
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void removeAsset(asset)}
+                          className="text-[11px] text-neutral-500 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filteredAssets.map(asset => {
@@ -2595,7 +3386,8 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                       alt={asset.name}
                       referrerPolicy="no-referrer"
                       onError={() => setFailedAssetIds(prev => ({ ...prev, [asset.id]: true }))}
-                      className="aspect-[4/3] w-full object-cover"
+                      className="aspect-[4/3] w-full object-cover cursor-pointer"
+                      onClick={() => setInspectedAsset(asset)}
                     />
                   ) : previewUrl && asset.mimeType?.startsWith('video/') ? (
                     <video controls preload="metadata" src={previewUrl} className="aspect-[4/3] w-full bg-black object-contain" />
@@ -2606,7 +3398,10 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                   ) : previewUrl && asset.mimeType === 'application/pdf' ? (
                     <iframe title={`${asset.name} preview`} src={previewUrl} className="aspect-[4/3] w-full bg-white" />
                   ) : (
-                    <div className="flex aspect-[4/3] items-center justify-center bg-[#121212] text-neutral-500">
+                    <div
+                      className="flex aspect-[4/3] items-center justify-center bg-[#121212] text-neutral-500 cursor-pointer hover:text-white"
+                      onClick={() => setInspectedAsset(asset)}
+                    >
                       <ImagePlus size={32} />
                     </div>
                   )}
@@ -2640,6 +3435,14 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                     <div className="mt-auto flex flex-wrap items-center gap-2 pt-2 border-t border-[#1C1C1C]">
                       <button
                         type="button"
+                        onClick={() => setInspectedAsset(asset)}
+                        className="inline-flex items-center gap-1 rounded border border-[#333] bg-[#161616] px-2.5 py-1 text-[11px] text-white hover:border-[#FF1E1E]"
+                      >
+                        <Eye size={11} />
+                        Inspect
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void loadAssetUrl(asset).catch(loadError => setError(messageFromError(loadError)))}
                         disabled={loadingAssetId === asset.id}
                         className="rounded border border-[#333] px-2.5 py-1 text-[11px] text-neutral-300 hover:text-white disabled:opacity-50"
@@ -2664,6 +3467,38 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                           Use as logo
                         </button>
                       )}
+                      {asset.mimeType?.startsWith('image/') && onOpenInStudio && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenInStudio({
+                              source: 'asset',
+                              toolId: isArtist ? 'release-artwork-studio' : 'launch-social-studio',
+                              title: `${asset.name} — Studio Adaptation`,
+                              linkedAssetId: asset.id,
+                              linkedReleaseId: asset.releaseId,
+                              linkedProjectId: asset.projectId,
+                              prefillDesign: {
+                                tagline: asset.category.toUpperCase(),
+                                imageUrl: previewUrl || '',
+                              },
+                            })
+                          }
+                          className="inline-flex items-center gap-1 rounded border border-[#FF1E1E]/40 bg-[#1B0C0C] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#FF1E1E] transition-colors"
+                        >
+                          <Wand2 size={11} />
+                          Use in Studio
+                        </button>
+                      )}
+                      {asset.mimeType?.startsWith('image/') && (
+                        <button
+                          type="button"
+                          onClick={() => void setAssetAsCover(asset)}
+                          className="rounded border border-[#333] px-2.5 py-1 text-[11px] text-neutral-300 hover:text-white"
+                        >
+                          Use as cover
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => void removeAsset(asset)}
@@ -2678,6 +3513,48 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
               );
             })}
           </div>
+        )}
+
+        {/* Phase 4 Creative Hub Recent Downloads Strip */}
+        {resourceHistory.length > 0 && (
+          <section className={`${panelClass} space-y-3`}>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1E1E1E] pb-3">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-400">
+                  Phase 4 Creative Hub History
+                </p>
+                <h3 className="text-base font-bold text-white">
+                  Recent Creative Hub Pack Downloads ({resourceHistory.length})
+                </h3>
+              </div>
+              {onNavigateSection && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateSection('creative-hub')}
+                  className="text-xs text-red-300 hover:text-white"
+                >
+                  Open Creative Hub
+                </button>
+              )}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {resourceHistory.slice(0, 6).map(entry => (
+                <div
+                  key={`${entry.productId}-${entry.lastAccessedAt}`}
+                  className="rounded border border-[#222] bg-[#111] p-3 flex items-center justify-between gap-3 text-xs"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white truncate">{entry.titleSnapshot || entry.productId}</p>
+                    <p className="text-[10px] font-mono text-neutral-400 truncate">
+                      {entry.categorySnapshot || 'Resource'} · {entry.lastFormat || entry.lastAction} ·{' '}
+                      {new Date(entry.lastAccessedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Package size={14} className="text-neutral-500 shrink-0" />
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Approved Phase 2 Production Deliverables */}
@@ -3180,6 +4057,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
         clientProfile={clientProfile}
         accountName={accountName}
         releases={releases}
+        projects={projects}
         documents={documents as unknown as CorporateDocument[]}
         onOpenReleases={() => onNavigateSection?.('releases')}
         onOpenBilling={() => onNavigateSection?.('invoices')}
@@ -3190,6 +4068,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
         workspace={workspace}
         clientProfile={clientProfile}
         accountName={accountName}
+        projects={projects}
         documents={documents as unknown as CorporateDocument[]}
         onOpenBrandIdentity={() => onNavigateSection?.('brand')}
         onOpenBilling={() => onNavigateSection?.('invoices')}
@@ -3344,6 +4223,314 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
           </div>
         </div>
       )}
+
+      {/* Release Detail Inspector Modal */}
+      {inspectedRelease && (() => {
+        const liveRelease = releases.find(r => r.id === inspectedRelease.id) || inspectedRelease;
+        const readiness = evaluateReleaseReadiness(liveRelease);
+        const relAssets = assets.filter(a => a.releaseId === liveRelease.id);
+        const relContent = contentItems.filter(c => c.releaseId === liveRelease.id);
+        const relProject = liveRelease.projectId ? projectById.get(liveRelease.projectId) : undefined;
+        const relDocs = documents.filter(d => d.releaseId === liveRelease.id);
+        const coverAsset = assets.find(asset => asset.storagePath === liveRelease.artworkPath);
+        const coverPreview = liveRelease.artworkUrl || (coverAsset ? previewUrls[coverAsset.id] : '');
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${liveRelease.title} release details`}
+          >
+            <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-xl border border-[#2E2E2E] bg-[#0C0C0C] p-6 space-y-5">
+              <div className="flex items-start justify-between gap-4 border-b border-[#1E1E1E] pb-4">
+                <div className="flex items-center gap-4 min-w-0">
+                  {coverPreview ? (
+                    <img
+                      src={coverPreview}
+                      alt={liveRelease.title}
+                      referrerPolicy="no-referrer"
+                      className="h-16 w-16 rounded border border-[#2C2C2C] object-cover shrink-0"
+                    />
+                  ) : (
+                    <div className="h-16 w-16 rounded border border-[#2C2C2C] bg-[#161616] flex items-center justify-center text-amber-400 shrink-0">
+                      <Music2 size={24} />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-mono uppercase tracking-widest text-amber-400">
+                      {liveRelease.type} · {liveRelease.status} · {liveRelease.releaseDate || 'Date TBC'}
+                    </p>
+                    <h3 className="mt-1 text-lg font-bold text-white truncate">{liveRelease.title}</h3>
+                    <p className="text-xs text-neutral-400 tabular-nums">
+                      Readiness: {readiness.completed}/{readiness.total} ({readiness.percent}%)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectedRelease(null)}
+                  aria-label="Close release inspector"
+                  className="rounded border border-[#2E2E2E] p-1.5 text-neutral-400 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {readiness.warnings.length > 0 && (
+                <div className="rounded border border-amber-500/35 bg-amber-950/15 p-3 text-xs text-amber-200 space-y-1">
+                  <p className="font-semibold">Distribution Readiness Checks:</p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {readiness.warnings.map(warning => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                <div className="rounded border border-[#1E1E1E] bg-[#111] p-3 space-y-1">
+                  <p className="text-[10px] font-mono uppercase text-neutral-500">Metadata &amp; Rights</p>
+                  <p className="text-neutral-200">ISRC: {liveRelease.isrc || '—'}</p>
+                  <p className="text-neutral-200">UPC: {liveRelease.upc || '—'}</p>
+                  <p className="text-neutral-200">Rights: {liveRelease.rightsInfo || '—'}</p>
+                </div>
+                <div className="rounded border border-[#1E1E1E] bg-[#111] p-3 space-y-1">
+                  <p className="text-[10px] font-mono uppercase text-neutral-500">Specs &amp; Credits</p>
+                  <p className="text-neutral-200">Audio: {liveRelease.audioSpecs || '—'}</p>
+                  <p className="text-neutral-200">Artwork: {liveRelease.artworkSpecs || '—'}</p>
+                  <p className="text-neutral-200 truncate">Producer: {liveRelease.producer || '—'}</p>
+                </div>
+              </div>
+
+              {liveRelease.trackList && (
+                <div className="rounded border border-[#1E1E1E] bg-[#111] p-3.5 text-xs">
+                  <p className="text-[10px] font-mono uppercase text-neutral-500 mb-1.5">Tracklist &amp; Credits</p>
+                  <p className="whitespace-pre-line text-neutral-300">{liveRelease.trackList}</p>
+                </div>
+              )}
+
+              <div className="rounded border border-[#1E1E1E] bg-[#111] p-3.5 space-y-2 text-xs">
+                <p className="text-[10px] font-mono uppercase text-neutral-500">Release Checklist</p>
+                <div className="grid sm:grid-cols-2 gap-1.5">
+                  {RELEASE_CHECKLIST_ITEMS.map(item => {
+                    const checked = Boolean(liveRelease.checklist?.[item.key]);
+                    return (
+                      <label key={item.key} className="flex items-center gap-2 text-neutral-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => void toggleReleaseChecklist(liveRelease, item.key)}
+                          className="accent-[#FF1E1E]"
+                        />
+                        <span className={checked ? 'line-through text-neutral-500' : ''}>{item.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded border border-[#1E1E1E] bg-[#111] p-3.5 text-xs space-y-1.5">
+                <p className="text-[10px] font-mono uppercase text-neutral-500">Linked Workspace Items</p>
+                <p className="text-neutral-300">
+                  {relAssets.length} Asset(s) · {relContent.length} Content item(s) · {relDocs.length} Document(s)
+                  {relProject ? ` · Production project: ${relProject.title} (${relProject.stage || relProject.status})` : ''}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-[#1E1E1E] pt-3">
+                {onOpenInStudio && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInspectedRelease(null);
+                      onOpenInStudio({
+                        source: 'release',
+                        toolId: 'release-artwork-studio',
+                        formatId: '1:1-master-cover',
+                        title: `${liveRelease.title} — Master Cover`,
+                        linkedReleaseId: liveRelease.id,
+                        linkedReleaseTitle: liveRelease.title,
+                        linkedProjectId: liveRelease.projectId,
+                        prefillDesign: {
+                          headline: liveRelease.title.toUpperCase(),
+                          subtitle: `OFFICIAL ${liveRelease.type.toUpperCase()} RELEASE`,
+                          artistOrBrandName: (workspaceName || workspace.name).toUpperCase(),
+                          isrcSnippet: liveRelease.isrc || '',
+                          barcodeOrUpc: liveRelease.upc || '',
+                          trackListSnippet: liveRelease.trackList || '',
+                          imageUrl: coverPreview || liveRelease.artworkUrl || '',
+                        },
+                      });
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded border border-[#FF1E1E]/60 bg-[#1B0C0C] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#FF1E1E] transition-colors"
+                  >
+                    <Wand2 size={13} />
+                    <span>Design Cover in Studio</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    editRelease(liveRelease);
+                    setInspectedRelease(null);
+                  }}
+                  className="rounded border border-[#333] bg-[#141414] px-3.5 py-2 text-xs font-medium text-white hover:border-[#FF1E1E]"
+                >
+                  Edit Release
+                </button>
+                {onRequestProduction && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRequestProduction(buildReleaseProductionPrefill(liveRelease, workspace));
+                      setInspectedRelease(null);
+                    }}
+                    className="rounded bg-[#FF1E1E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-red-600"
+                  >
+                    Request Visual / Release Pack
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Asset Preview & Metadata Lightbox Modal */}
+      {inspectedAsset && (() => {
+        const previewUrl = previewUrls[inspectedAsset.id] || inspectedAsset.downloadUrl;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${inspectedAsset.name} preview`}
+          >
+            <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-xl border border-[#2E2E2E] bg-[#0C0C0C] p-6 space-y-4">
+              <div className="flex items-start justify-between gap-4 border-b border-[#1E1E1E] pb-4">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">
+                    {inspectedAsset.category} · {inspectedAsset.fileType} · {fileSizeLabel(inspectedAsset.fileSizeBytes || 0)}
+                  </p>
+                  <h3 className="mt-1 text-lg font-bold text-white truncate">{inspectedAsset.name}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectedAsset(null)}
+                  aria-label="Close asset preview"
+                  className="rounded border border-[#2E2E2E] p-1.5 text-neutral-400 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-[#222] bg-[#070707]">
+                {previewUrl && inspectedAsset.mimeType?.startsWith('image/') ? (
+                  <img
+                    src={previewUrl}
+                    alt={inspectedAsset.name}
+                    referrerPolicy="no-referrer"
+                    className="max-h-[420px] w-full object-contain mx-auto"
+                  />
+                ) : previewUrl && inspectedAsset.mimeType?.startsWith('video/') ? (
+                  <video controls src={previewUrl} className="max-h-[420px] w-full bg-black" />
+                ) : previewUrl && inspectedAsset.mimeType?.startsWith('audio/') ? (
+                  <div className="p-6">
+                    <audio controls src={previewUrl} className="w-full" />
+                  </div>
+                ) : previewUrl && inspectedAsset.mimeType === 'application/pdf' ? (
+                  <iframe title={inspectedAsset.name} src={previewUrl} className="h-[420px] w-full bg-white" />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+                    <ImagePlus size={36} className="text-neutral-600" />
+                    <button
+                      type="button"
+                      disabled={loadingAssetId === inspectedAsset.id}
+                      onClick={() => void loadAssetUrl(inspectedAsset).catch(err => setError(messageFromError(err)))}
+                      className="rounded border border-[#333] bg-[#161616] px-3.5 py-2 text-xs font-medium text-white hover:border-[#FF1E1E]"
+                    >
+                      {loadingAssetId === inspectedAsset.id ? 'Loading private file…' : 'Load File Preview'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded border border-[#1E1E1E] bg-[#111] p-3.5 text-xs space-y-1.5">
+                <p className="text-neutral-300">
+                  Status: <strong className="text-white">{inspectedAsset.status || 'Draft'}</strong> · Uploaded{' '}
+                  {new Date(inspectedAsset.uploadedAt).toLocaleDateString()}
+                </p>
+                {inspectedAsset.description && <p className="text-neutral-400">{inspectedAsset.description}</p>}
+                {inspectedAsset.releaseId && (
+                  <p className="text-neutral-400">
+                    Release: {releaseById.get(inspectedAsset.releaseId)?.title || inspectedAsset.releaseId}
+                  </p>
+                )}
+                {inspectedAsset.projectId && (
+                  <p className="text-neutral-400">
+                    Project: {projectById.get(inspectedAsset.projectId)?.title || inspectedAsset.projectId}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1E1E1E] pt-3">
+                {inspectedAsset.mimeType?.startsWith('image/') && onOpenInStudio && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = inspectedAsset;
+                      const url = previewUrl || '';
+                      setInspectedAsset(null);
+                      onOpenInStudio({
+                        source: 'asset',
+                        toolId: isArtist ? 'release-artwork-studio' : 'launch-social-studio',
+                        title: `${target.name} — Studio Visual`,
+                        linkedAssetId: target.id,
+                        linkedReleaseId: target.releaseId,
+                        linkedProjectId: target.projectId,
+                        prefillDesign: {
+                          tagline: target.category.toUpperCase(),
+                          imageUrl: url,
+                        },
+                      });
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded border border-[#FF1E1E]/60 bg-[#1B0C0C] px-3 py-2 text-xs font-semibold text-white hover:bg-[#FF1E1E] transition-colors"
+                  >
+                    <Wand2 size={13} />
+                    <span>Open in Studio</span>
+                  </button>
+                )}
+                {inspectedAsset.mimeType?.startsWith('image/') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void setAssetAsImage(inspectedAsset, isArtist ? 'artist' : 'brand')}
+                      className="rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-neutral-200 hover:text-white"
+                    >
+                      {isArtist ? 'Use as Artist Image' : 'Use as Brand Logo'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void setAssetAsCover(inspectedAsset)}
+                      className="rounded border border-[#333] bg-[#141414] px-3 py-2 text-xs text-neutral-200 hover:text-white"
+                    >
+                      Use as Cover Banner
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void downloadAsset(inspectedAsset)}
+                  className="inline-flex items-center gap-1.5 rounded bg-[#FF1E1E] px-4 py-2 text-xs font-semibold text-white hover:bg-red-600"
+                >
+                  <ArrowDownToLine size={13} />
+                  <span>Download</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

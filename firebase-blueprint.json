@@ -248,6 +248,25 @@
       },
       "required": ["id", "workspaceId", "title"]
     },
+    "StudioProduction": {
+      "title": "Workspace Studio Production",
+      "description": "Client OS Creative Production Studio draft, design state, format variations, and export metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "title": { "type": "string" },
+        "toolId": { "type": "string" },
+        "audience": { "type": "string" },
+        "status": { "type": "string" },
+        "currentFormat": { "type": "string" },
+        "projectId": { "type": "string" },
+        "releaseId": { "type": "string" },
+        "requestId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "title", "toolId", "audience", "status"]
+    },
     "ServicePackage": {
       "title": "Service Package",
       "description": "Standardized creative service or delivery package tier",
@@ -533,6 +552,10 @@
     "/workspaces/{workspaceId}/campaignDesigns/{designId}": {
       "schema": { "$ref": "#/entities/CampaignDesign" },
       "description": "Admin-only internal production design specifications belonging to workspace"
+    },
+    "/workspaces/{workspaceId}/studioProductions/{productionId}": {
+      "schema": { "$ref": "#/entities/StudioProduction" },
+      "description": "Client workspace Creative Production Studio drafts and versioned outputs"
     },
     "/invoices/{invoiceId}": {
       "schema": { "$ref": "#/entities/Invoice" },

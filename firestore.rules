@@ -551,6 +551,22 @@ service cloud.firestore {
       match /pressReleases/{pressId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /mediaContacts/{contactId} { allow read, write: if isWorkspaceMember(workspaceId); }
       match /campaignDesigns/{designId} { allow read, write: if isPlatformAdmin(); }
+      match /studioProductions/{productionId} {
+        allow read: if isPlatformAdmin() || isWorkspaceMember(workspaceId);
+        allow create, update: if isPlatformAdmin() ||
+          (isWorkspaceMember(workspaceId) &&
+            isValidId(productionId) &&
+            request.resource.data.workspaceId == workspaceId &&
+            request.resource.data.title is string &&
+            request.resource.data.title.size() > 0 &&
+            request.resource.data.title.size() <= 200 &&
+            request.resource.data.toolId is string &&
+            request.resource.data.toolId.size() > 0 &&
+            request.resource.data.toolId.size() <= 80 &&
+            request.resource.data.audience in ['Artist', 'Brand', 'Shared'] &&
+            request.resource.data.status in ['Draft', 'In Progress', 'Saved', 'Under Review', 'Approved', 'Completed', 'Archived']);
+        allow delete: if isPlatformAdmin() || isWorkspaceMember(workspaceId);
+      }
       match /services/{serviceId} {
         allow read: if isWorkspaceMember(workspaceId);
         allow write: if isWorkspaceOwner(workspaceId);

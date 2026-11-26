@@ -295,6 +295,12 @@ export interface ArtistWorkspaceProfile {
   genre: string;
   profileImageUrl: string;
   profileImagePath?: string;
+  coverImageUrl?: string;
+  coverImagePath?: string;
+  location?: string;
+  contactEmail?: string;
+  bookingContact?: string;
+  tagline?: string;
   instagram: string;
   spotify: string;
   appleMusic: string;
@@ -305,9 +311,20 @@ export interface ArtistWorkspaceProfile {
 export interface BrandWorkspaceProfile {
   description: string;
   industry: string;
+  businessCategory?: string;
   website: string;
+  contactEmail?: string;
+  contactPhone?: string;
   logoUrl: string;
   logoPath?: string;
+  coverImageUrl?: string;
+  coverImagePath?: string;
+  socialLinks?: {
+    instagram?: string;
+    linkedin?: string;
+    x?: string;
+    tiktok?: string;
+  };
   brandVoice: string;
   photographyDirection: string;
   graphicDesignPrinciples: string;
@@ -823,6 +840,7 @@ export interface CorporateDocument {
   workspaceId?: string;
   library?: DocumentLibraryKind;
   projectId?: string;
+  releaseId?: string;
   type: DocumentType;
   title: string;
   referenceNo: string;
@@ -862,7 +880,38 @@ export interface BrandAsset {
   id: string;
   workspaceId?: string;
   name: string;
-  category: 'Primary Logo' | 'Secondary Logo' | 'Monogram' | 'Icon' | 'Favicon' | 'Typography' | 'Palette' | 'Guideline' | 'Artwork' | 'Logo' | 'Photography' | 'Video' | 'Visualizer' | 'Promotional' | 'Document' | 'Other';
+  category:
+    | 'Primary Logo'
+    | 'Secondary Logo'
+    | 'Monogram'
+    | 'Icon'
+    | 'Favicon'
+    | 'Typography'
+    | 'Palette'
+    | 'Guideline'
+    | 'Artwork'
+    | 'Cover Art'
+    | 'Alt Artwork'
+    | 'Release Graphics'
+    | 'Lyrics'
+    | 'EPK'
+    | 'Branding'
+    | 'Social'
+    | 'Uploaded Files'
+    | 'Brand Identity'
+    | 'Social Content'
+    | 'Marketing Graphics'
+    | 'Product Images'
+    | 'Packaging'
+    | 'Stationery'
+    | 'Logo'
+    | 'Photography'
+    | 'Video'
+    | 'Visualizer'
+    | 'Promotional'
+    | 'Document'
+    | 'Documents'
+    | 'Other';
   fileType: 'SVG' | 'PNG' | 'PDF' | 'JSON' | 'JPEG' | 'WEBP' | 'GIF' | 'AVIF' | 'MP4' | 'WEBM' | 'MOV' | 'WAV' | 'MP3' | 'AAC' | 'FLAC' | 'ZIP' | 'FONT' | 'TEXT';
   mimeType?: string;
   storagePath?: string;
@@ -979,3 +1028,5 @@ export interface BrandGuidelinesData {
   backgroundRules: string;
   incorrectUsageRules: string[];
 }
+
+export * from './creativeProduction';

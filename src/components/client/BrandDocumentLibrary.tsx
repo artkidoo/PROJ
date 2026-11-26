@@ -30,6 +30,7 @@ export interface BrandDocumentLibraryProps {
   workspace: Workspace;
   clientProfile: ClientProfile | null;
   accountName: string;
+  projects?: Array<{ id: string; title: string }>;
   documents: CorporateDocument[];
   onOpenBrandIdentity?: () => void;
   onOpenBilling?: () => void;
@@ -90,6 +91,7 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
   workspace,
   clientProfile,
   accountName,
+  projects = [],
   documents,
   onOpenBrandIdentity,
   onOpenBilling,
@@ -114,6 +116,7 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
     recipientName: '',
     recipientOrg: '',
     recipientEmail: '',
+    projectId: '',
     subject: '',
     bodyContent: '',
     notes: '',
@@ -158,6 +161,7 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
       recipientName: '',
       recipientOrg: '',
       recipientEmail: '',
+      projectId: '',
       subject: '',
       bodyContent: '',
       notes: '',
@@ -173,6 +177,7 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
     recipientName: string;
     recipientOrg?: string;
     recipientEmail?: string;
+    projectId?: string;
     subject?: string;
     bodyContent: string;
     notes?: string;
@@ -199,6 +204,7 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
       recipientName: payload.recipientName.trim() || workspace.name,
       recipientOrg: payload.recipientOrg?.trim() || workspace.name,
       recipientEmail: payload.recipientEmail?.trim() || clientProfile?.email || '',
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
       authorName: accountName,
       authorRole: 'Brand Workspace Owner',
       status: payload.status,
@@ -505,6 +511,7 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
                             recipientName: item.recipientName || '',
                             recipientOrg: item.recipientOrg || '',
                             recipientEmail: item.recipientEmail || '',
+                            projectId: item.projectId || '',
                             subject: item.subject || '',
                             bodyContent: item.bodyContent || '',
                             notes: item.notes || '',
@@ -629,6 +636,24 @@ export const BrandDocumentLibrary: React.FC<BrandDocumentLibraryProps> = ({
                 className={fieldClass}
               />
             </label>
+
+            {projects.length > 0 && (
+              <label className="block">
+                <span className={labelClass}>Linked Project</span>
+                <select
+                  value={docForm.projectId}
+                  onChange={e => setDocForm(prev => ({ ...prev, projectId: e.target.value }))}
+                  className={fieldClass}
+                >
+                  <option value="">None</option>
+                  {projects.map(proj => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label className="block">
               <span className={labelClass}>Content</span>

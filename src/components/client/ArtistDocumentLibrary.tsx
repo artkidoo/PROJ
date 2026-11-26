@@ -53,6 +53,7 @@ export interface ArtistDocumentLibraryProps {
   clientProfile: ClientProfile | null;
   accountName: string;
   releases: ArtistReleaseInput[];
+  projects?: Array<{ id: string; title: string }>;
   documents: CorporateDocument[];
   onOpenReleases?: () => void;
   onOpenBilling?: () => void;
@@ -248,6 +249,7 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
   clientProfile,
   accountName,
   releases,
+  projects = [],
   documents,
   onOpenReleases,
   onOpenBilling,
@@ -273,6 +275,8 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
     recipientName: '',
     recipientOrg: '',
     recipientEmail: '',
+    projectId: '',
+    releaseId: '',
     subject: '',
     bodyContent: '',
     notes: '',
@@ -365,6 +369,8 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
       recipientName: '',
       recipientOrg: '',
       recipientEmail: '',
+      projectId: '',
+      releaseId: '',
       subject: '',
       bodyContent: '',
       notes: '',
@@ -380,6 +386,8 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
     recipientName: string;
     recipientOrg?: string;
     recipientEmail?: string;
+    projectId?: string;
+    releaseId?: string;
     subject?: string;
     bodyContent: string;
     notes?: string;
@@ -406,6 +414,8 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
       recipientName: payload.recipientName.trim() || workspace.name,
       recipientOrg: payload.recipientOrg?.trim() || workspace.name,
       recipientEmail: payload.recipientEmail?.trim() || clientProfile?.email || '',
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      ...(payload.releaseId ? { releaseId: payload.releaseId } : {}),
       authorName: accountName,
       authorRole: 'Artist Workspace Owner',
       status: payload.status,
@@ -818,6 +828,8 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
                             recipientName: item.recipientName || '',
                             recipientOrg: item.recipientOrg || '',
                             recipientEmail: item.recipientEmail || '',
+                            projectId: item.projectId || '',
+                            releaseId: item.releaseId || '',
                             subject: item.subject || '',
                             bodyContent: item.bodyContent || '',
                             notes: item.notes || '',
@@ -943,6 +955,45 @@ export const ArtistDocumentLibrary: React.FC<ArtistDocumentLibraryProps> = ({
                 className={fieldClass}
               />
             </label>
+
+            {(releases.length > 0 || projects.length > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {releases.length > 0 && (
+                  <label className="block">
+                    <span className={labelClass}>Linked Release</span>
+                    <select
+                      value={docForm.releaseId}
+                      onChange={e => setDocForm(prev => ({ ...prev, releaseId: e.target.value }))}
+                      className={fieldClass}
+                    >
+                      <option value="">None</option>
+                      {releases.map(rel => (
+                        <option key={rel.id} value={rel.id}>
+                          {rel.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {projects.length > 0 && (
+                  <label className="block">
+                    <span className={labelClass}>Linked Project</span>
+                    <select
+                      value={docForm.projectId}
+                      onChange={e => setDocForm(prev => ({ ...prev, projectId: e.target.value }))}
+                      className={fieldClass}
+                    >
+                      <option value="">None</option>
+                      {projects.map(proj => (
+                        <option key={proj.id} value={proj.id}>
+                          {proj.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            )}
 
             <label className="block">
               <span className={labelClass}>Content</span>
