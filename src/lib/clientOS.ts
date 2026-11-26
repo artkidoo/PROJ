@@ -36,6 +36,7 @@ export type ClientTab =
   | 'requests'
   | 'deliverables'
   | 'updates'
+  | 'billing'
   | 'account'
   | ClientStudioSection;
 
@@ -314,7 +315,8 @@ export function resolveClientExperience(
   const billingGroup: ClientNavGroup = {
     group: 'Billing & Agreements',
     items: [
-      { id: 'invoices', title: 'Invoices & Receipts', description: 'Read-only billing statements, balances, and payment receipts.' },
+      { id: 'billing', title: 'Membership & Billing', description: 'Creative resource subscriptions, one-time purchases, receipts, and online payments.' },
+      { id: 'invoices', title: 'Invoices & Receipts', description: 'Commercial billing statements, balances, online payment, and receipts.' },
       { id: 'proposals', title: 'Proposals & Quotes', description: 'Review commercial scopes, approve pricing, or request revisions.' },
     ],
   };

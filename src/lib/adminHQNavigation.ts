@@ -54,13 +54,20 @@ export type SharedOpsTab =
 
 export type CreativeProductsSegment = 'all' | 'artist' | 'brand' | 'shared';
 
-export type FinanceTab = 'overview' | 'invoices' | 'proposals';
+export type FinanceTab =
+  | 'overview'
+  | 'subscriptions'
+  | 'plans'
+  | 'payments'
+  | 'invoices'
+  | 'proposals';
 
 export type PlatformSettingsTab =
   | 'administrators'
   | 'security-access'
   | 'audit-history'
-  | 'platform-settings';
+  | 'platform-settings'
+  | 'website-cms';
 
 export interface AdminHQSectionConfig {
   id: AdminHQSection;
@@ -136,9 +143,16 @@ export const ADMIN_HQ_SECTIONS: readonly AdminHQSectionConfig[] = [
     label: 'Finance',
     shortLabel: 'Finance',
     subtitle:
-      'Unified Firestore billing, invoices & payment ledgers, commercial proposals & quotations, and departmental receivables reporting.',
+      'Unified Firestore billing, subscriptions & memberships, Paystack/Flutterwave transactions, invoices & payment ledgers, and commercial proposals.',
     defaultSubTab: 'overview',
-    subTabs: ['overview', 'invoices', 'proposals'] satisfies FinanceTab[],
+    subTabs: [
+      'overview',
+      'subscriptions',
+      'plans',
+      'payments',
+      'invoices',
+      'proposals',
+    ] satisfies FinanceTab[],
   },
   {
     id: 'brand-room',
@@ -159,6 +173,7 @@ export const ADMIN_HQ_SECTIONS: readonly AdminHQSectionConfig[] = [
       'security-access',
       'audit-history',
       'platform-settings',
+      'website-cms',
     ] satisfies PlatformSettingsTab[],
   },
 ] as const;
@@ -186,6 +201,9 @@ const LEGACY_SECTION_ALIASES: Record<string, ParsedAdminHQRoute> = {
   'security-access': { section: 'platform-settings', subTab: 'security-access' },
   'audit-history': { section: 'platform-settings', subTab: 'audit-history' },
   'platform-settings-general': { section: 'platform-settings', subTab: 'platform-settings' },
+  'website-cms': { section: 'platform-settings', subTab: 'website-cms' },
+  journal: { section: 'platform-settings', subTab: 'website-cms' },
+  cms: { section: 'platform-settings', subTab: 'website-cms' },
 };
 
 export function getAdminSectionConfig(section: AdminHQSection): AdminHQSectionConfig {

@@ -11,6 +11,11 @@ import motionVisualizerStage from '../assets/images/motion_visualizer_stage_1795
 import brandIdentitySystem from '../assets/images/brand_identity_system_1795183778885.jpg';
 import creativeDirectorStudio from '../assets/images/creative_director_studio_1795183778524.jpg';
 import artistEditorialPortraitTwo from '../assets/images/artist_editorial_portrait_two_1795183778275.jpg';
+import studioWorkstationHero from '../assets/images/studio_workstation_hero_1795688232526.jpg';
+import journalCoverReleaseWorld from '../assets/images/journal_cover_release_world_1795688233070.jpg';
+import journalCoverBrandSystems from '../assets/images/journal_cover_brand_systems_1795688232390.jpg';
+import journalCoverMotionStage from '../assets/images/journal_cover_motion_stage_1795688233627.jpg';
+import journalCoverProductionOs from '../assets/images/journal_cover_production_os_1795688233486.jpg';
 
 export const STUDIO_MEDIA = {
   vinylPressMockup,
@@ -21,6 +26,11 @@ export const STUDIO_MEDIA = {
   brandIdentitySystem,
   creativeDirectorStudio,
   artistEditorialPortraitTwo,
+  studioWorkstationHero,
+  journalCoverReleaseWorld,
+  journalCoverBrandSystems,
+  journalCoverMotionStage,
+  journalCoverProductionOs,
 };
 
 export interface PublicService {
@@ -307,7 +317,7 @@ export const BLOG_POSTS: BlogPost[] = [
     date: '2026-01-10',
     readTime: '4 min read',
     excerpt: 'How a coherent visual grammar carries a musical project from a 3000px square cover to stage screens and print sleeves.',
-    image: vinylPressMockup,
+    image: journalCoverReleaseWorld,
     content: 'A release identity needs to work far beyond the square cover frame. Begin with a clear visual premise rooted in the sound itself, then establish the typographic scale, photographic treatment, and colour restraint that allow that premise to stretch across mediums.\n\nThe goal is never to stamp an identical image onto every surface. Rather, it is to build a recognizable visual world where an announcement poster, a vinyl inner sleeve, a 15-second streaming loop, and a stage lighting cue all unmistakably belong to the same artistic chapter.\n\nWhen artists and creative directors plan these variations before production locks, every deliverable reinforces the work instead of competing for attention.',
   },
   {
@@ -318,7 +328,7 @@ export const BLOG_POSTS: BlogPost[] = [
     date: '2026-01-22',
     readTime: '5 min read',
     excerpt: 'Executive proposals, licensing contracts, and stationery suites are often where serious partners judge your craft first.',
-    image: brandIdentitySystem,
+    image: journalCoverBrandSystems,
     content: 'Corporate and studio collateral lives in high-stakes moments: a partnership pitch deck, a label recording agreement, or an executive summary sitting on a decision-maker’s desk. Yet too many brands stop caring about design once the logo file is exported.\n\nBuilding executive-grade documents starts with information architecture: clear typographic hierarchy, disciplined margins, tactile paper weights for physical suites, and deliberate restraint in colour usage.\n\nWhen operational documents share the exact grid logic and visual poise of your public identity, credibility becomes effortless.',
   },
   {
@@ -329,7 +339,7 @@ export const BLOG_POSTS: BlogPost[] = [
     date: '2026-02-08',
     readTime: '4 min read',
     excerpt: 'Using spatial rhythm, darkness, and calibrated light planes instead of visual noise in performance visuals.',
-    image: motionVisualizerStage,
+    image: journalCoverMotionStage,
     content: 'Motion design is strongest when it leaves room to breathe. Across live stage backdrops and digital canvas loops, relentless animation quickly fatigues the viewer and buries the artist or product beneath visual clutter.\n\nAt KeedoHub, we approach motion like architecture in time: disciplined camera velocity, monochrome shadows punctuated by a single focal accent colour, and typographic pacing calibrated to tempo rather than arbitrary transitions.',
   },
   {
@@ -340,7 +350,7 @@ export const BLOG_POSTS: BlogPost[] = [
     date: '2026-02-19',
     readTime: '4 min read',
     excerpt: 'Why great creative work breaks down in scattered threads—and how a shared production room preserves creative clarity.',
-    image: creativeDirectorStudio,
+    image: journalCoverProductionOs,
     content: 'Creative ambition rarely stalls because of a lack of ideas; it stalls in fragmented feedback, misplaced file versions, and unclear approval states.\n\nPairing our agency practice with the KeedoHub Creative OS keeps briefs, internal studio reviews, client deliverables, revision notes, and final master files anchored in one structured space. Clients spend less time chasing files and more time shaping the work.',
   },
 ];

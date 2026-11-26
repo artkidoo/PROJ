@@ -6,6 +6,7 @@
 
 import React from 'react';
 import {
+  Globe,
   History,
   Lock,
   Settings,
@@ -16,6 +17,7 @@ import { AdminManagement } from './AdminManagement';
 import { SecurityAccessManagement } from './SecurityAccessManagement';
 import { AuditHistoryManagement } from './AuditHistoryManagement';
 import { PlatformSettingsManagement } from './PlatformSettingsManagement';
+import { AdminWebsiteCmsConsole } from './cms/AdminWebsiteCmsConsole';
 
 interface AdminPlatformSettingsConsoleProps {
   subTab: PlatformSettingsTab;
@@ -31,6 +33,7 @@ const SETTINGS_TABS: {
   { id: 'security-access', label: 'Security & Access', icon: Lock },
   { id: 'audit-history', label: 'Audit History', icon: History },
   { id: 'platform-settings', label: 'Platform Settings', icon: Settings },
+  { id: 'website-cms', label: 'Website & Journal CMS', icon: Globe },
 ];
 
 export const AdminPlatformSettingsConsole: React.FC<AdminPlatformSettingsConsoleProps> = ({
@@ -75,8 +78,10 @@ export const AdminPlatformSettingsConsole: React.FC<AdminPlatformSettingsConsole
       {activeTab === 'security-access' && <SecurityAccessManagement />}
       {activeTab === 'audit-history' && <AuditHistoryManagement />}
       {activeTab === 'platform-settings' && <PlatformSettingsManagement />}
+      {activeTab === 'website-cms' && <AdminWebsiteCmsConsole />}
     </div>
   );
 };
 
 export default AdminPlatformSettingsConsole;
+

@@ -18,7 +18,7 @@ import lyricalBrandStationery from '../assets/images/lyrical_ent_brand_stationer
 import lyricalStudioHero from '../assets/images/lyrical_ent_studio_hero_1792791743831.jpg';
 import motionVisualizerStage from '../assets/images/motion_visualizer_stage_1795183779858.jpg';
 import creativeDirectorStudio from '../assets/images/creative_director_studio_1795183778524.jpg';
-import keedohubBrandLogo from '../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubLogoTransparent from '../assets/images/keedohub_logo_transparent.png';
 import {
   buildCollection001MasterTemplates,
   MARKETING_COLLECTION_001_NAME,
@@ -1608,7 +1608,7 @@ function buildKeedoDesign(params: {
     opacity: 0.96,
     zIndex: 8,
     visible: true,
-    src: keedohubBrandLogo,
+    src: keedohubLogoTransparent,
     objectFit: 'contain',
     filter: 'none',
   });

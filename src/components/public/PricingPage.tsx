@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, Check, MoveUpRight } from 'lucide-react';
+import { ArrowRight, Check, MoveUpRight, Sparkles } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { PublicHeader, PublicRoute } from './PublicHeader';
 import { PublicFooter } from './PublicFooter';
 import { PRICING_PACKAGES } from '../../data/publicContent';
 import { db } from '../../lib/firebase';
+import {
+  formatSubscriptionMoney,
+  resolvePlanPriceForFrequency,
+} from '../../lib/subscriptions';
+import type { BillingFrequency, SubscriptionPlan } from '../../types';
 
 interface Props {
   navigate: (r: PublicRoute, p?: string) => void;
@@ -22,10 +27,26 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
     revisions: string;
     turnaround: string;
   }>>([]);
+  const [livePlans, setLivePlans] = useState<SubscriptionPlan[]>([]);
+  const [billingFreq, setBillingFreq] = useState<BillingFrequency>('Monthly');
   const [catalogLoaded, setCatalogLoaded] = useState(false);
   const [audienceFilter, setAudienceFilter] = useState<'All' | 'Artist' | 'Brand'>('All');
 
   useEffect(() => {
+    const unsubPlans = onSnapshot(
+      query(
+        collection(db, 'subscriptionPlans'),
+        where('status', '==', 'Published'),
+        where('visibility', '==', 'Public'),
+      ),
+      snapshot => {
+        setLivePlans(
+          snapshot.docs.map(d => ({ ...(d.data() as SubscriptionPlan), id: d.id })),
+        );
+      },
+      () => {},
+    );
+
     const unsubscribe = onSnapshot(
       query(collection(db, 'services'), where('isActive', '==', true)),
       snapshot => {
@@ -38,7 +59,9 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
               audience: typeof service.targetAudience === 'string' && service.targetAudience.trim() ? service.targetAudience : 'Artist & Brand',
               tier: typeof service.tier === 'string' && service.tier.trim() ? service.tier : 'Custom',
               priceLabel: `${
-                typeof service.priceUsd === 'number' ? `$${service.priceUsd.toLocaleString()}` : 'Custom quote'
+                typeof service.priceUsd === 'number'
+                  ? formatSubscriptionMoney(service.priceUsd, typeof service.currency === 'string' ? service.currency : 'USD')
+                  : 'Custom quote'
               } · ${typeof service.billingType === 'string' ? service.billingType : 'Scoped on brief'}`,
               summary: typeof service.description === 'string' ? service.description : '',
               deliverables: Array.isArray(service.deliverables)
@@ -63,7 +86,10 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
         setCatalogLoaded(true);
       },
     );
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      unsubPlans();
+    };
   }, []);
 
   const usingLivePackages = livePackages.length > 0;
@@ -72,6 +98,10 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
       audienceFilter === 'All' ||
       pkg.audience.toLowerCase().includes(audienceFilter.toLowerCase()),
   );
+  const visiblePlans = livePlans.filter(plan => {
+    if (audienceFilter === 'All') return true;
+    return plan.audience === 'Shared' || plan.audience === 'Both' || plan.audience === audienceFilter;
+  });
 
   return (
     <div className="min-h-screen bg-[#080808] text-[#F3F3F3] flex flex-col antialiased selection:bg-[#FF1E1E] selection:text-white">
@@ -124,7 +154,97 @@ export const PricingPage: React.FC<Props> = ({ navigate }) => {
               </p>
             )}
 
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-7">
+            {/* Creative Resource Membership Plans */}
+            {visiblePlans.length > 0 && (
+              <div className="space-y-6 border-b border-[#1E1E1E] pb-12">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#FF1E1E] flex items-center gap-1.5">
+                      <Sparkles size={12} />
+                      <span>Creative Resource Memberships</span>
+                    </p>
+                    <h2 className="text-2xl font-bold text-white tracking-tight">
+                      Recurring Resource &amp; Studio Access
+                    </h2>
+                  </div>
+                  <div className="inline-flex border border-[#242424] bg-[#101010] p-1">
+                    {(['Monthly', 'Annual'] as const).map(freq => (
+                      <button
+                        key={freq}
+                        type="button"
+                        onClick={() => setBillingFreq(freq)}
+                        className={`px-3.5 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
+                          billingFreq === freq ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        {freq}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-7">
+                  {visiblePlans.map(plan => {
+                    const effectiveFreq = plan.billingFrequencies.includes(billingFreq)
+                      ? billingFreq
+                      : plan.billingFrequencies[0] || 'Monthly';
+                    const termPrice = resolvePlanPriceForFrequency(plan, effectiveFreq);
+                    return (
+                      <article
+                        key={plan.id}
+                        className={`border p-7 sm:p-8 flex flex-col justify-between gap-6 transition-colors ${
+                          plan.featured
+                            ? 'border-[#FF1E1E]/60 bg-[#120D0D]'
+                            : 'border-[#222222] bg-[#0D0D0D] hover:border-[#3A3A3A]'
+                        }`}
+                      >
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#FF1E1E]">
+                              {plan.audience} · {plan.tierName}
+                            </span>
+                            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-400">
+                              {plan.downloadLimitPerPeriod < 0
+                                ? 'Unlimited Downloads'
+                                : `${plan.downloadLimitPerPeriod} Downloads / Cycle`}
+                            </span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-white tracking-tight">{plan.name}</h3>
+                          <p className="font-mono text-2xl font-bold text-white tabular-nums">
+                            {formatSubscriptionMoney(termPrice.amount, termPrice.currency)}
+                            <span className="text-xs font-normal text-neutral-400">
+                              {' '}
+                              / {effectiveFreq === 'Annual' ? 'year' : 'month'}
+                            </span>
+                          </p>
+                          <p className="text-sm text-neutral-400 leading-6">{plan.description}</p>
+                          {plan.serviceBenefits.length > 0 && (
+                            <ul className="space-y-2 border-t border-[#1D1D1D] pt-4">
+                              {plan.serviceBenefits.slice(0, 5).map(item => (
+                                <li key={item} className="flex items-start gap-2.5 text-sm text-neutral-300">
+                                  <Check size={14} className="mt-1 shrink-0 text-[#FF1E1E]" />
+                                  <span>{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigate('register')}
+                          className="w-full inline-flex items-center justify-center gap-2 bg-[#FF1E1E] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-white hover:text-black transition-colors"
+                        >
+                          <span>Subscribe in Workspace</span>
+                          <ArrowRight size={14} />
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-7">
               {visiblePackages.map(pkg => (
                 <article
                   key={pkg.id}

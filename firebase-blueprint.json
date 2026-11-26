@@ -450,6 +450,174 @@
         "lastEventAt": { "type": "string" }
       },
       "required": ["productId"]
+    },
+    "SubscriptionPlan": {
+      "title": "Subscription Plan",
+      "description": "Server-governed subscription membership plan with NGN/multi-currency pricing and resource entitlements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "audience": { "type": "string" },
+        "currency": { "type": "string" },
+        "monthlyPrice": { "type": "number" },
+        "annualPrice": { "type": "number" },
+        "status": { "type": "string" },
+        "visibility": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "audience", "currency", "status"]
+    },
+    "Subscription": {
+      "title": "Workspace Subscription",
+      "description": "Server-governed recurring membership subscription linked to a client workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "clientUid": { "type": "string" },
+        "planId": { "type": "string" },
+        "planName": { "type": "string" },
+        "status": { "type": "string" },
+        "billingFrequency": { "type": "string" },
+        "currency": { "type": "string" },
+        "recurringAmount": { "type": "number" },
+        "currentPeriodEnd": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "clientUid", "planId", "status", "currency"]
+    },
+    "SubscriptionEvent": {
+      "title": "Subscription Event",
+      "description": "Immutable subscription lifecycle event entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "subscriptionId": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "eventType": { "type": "string" },
+        "summary": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "subscriptionId", "workspaceId", "eventType"]
+    },
+    "PaymentTransaction": {
+      "title": "Payment Transaction",
+      "description": "Server-verified Paystack or Flutterwave transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reference": { "type": "string" },
+        "provider": { "type": "string" },
+        "intentType": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "clientUid": { "type": "string" },
+        "currency": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "reference", "provider", "workspaceId", "clientUid", "currency", "amount", "status"]
+    },
+    "OneTimePurchase": {
+      "title": "One-Time Purchase",
+      "description": "Verified non-recurring purchase entitlement for a creative resource or service package",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "clientUid": { "type": "string" },
+        "itemType": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemTitle": { "type": "string" },
+        "status": { "type": "string" },
+        "currency": { "type": "string" },
+        "amount": { "type": "number" },
+        "purchasedAt": { "type": "string" }
+      },
+      "required": ["id", "workspaceId", "clientUid", "itemType", "itemId", "status"]
+    },
+    "PaymentWebhookEvent": {
+      "title": "Payment Webhook Event",
+      "description": "Idempotent server webhook audit record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "provider": { "type": "string" },
+        "event": { "type": "string" },
+        "reference": { "type": "string" },
+        "processed": { "type": "boolean" }
+      },
+      "required": ["id", "provider", "event", "processed"]
+    },
+    "JournalArticle": {
+      "title": "Journal Article",
+      "description": "Public Studio Journal / Blog article authored and managed in Admin HQ Website & Journal CMS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "previousSlugs": { "type": "array" },
+        "excerpt": { "type": "string" },
+        "content": { "type": "string" },
+        "coverImageUrl": { "type": "string" },
+        "authorName": { "type": "string" },
+        "category": { "type": "string" },
+        "tags": { "type": "array" },
+        "readingTimeMinutes": { "type": "number" },
+        "status": { "type": "string" },
+        "featured": { "type": "boolean" },
+        "publishedAt": { "type": "string" },
+        "scheduledFor": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "slug", "status", "category"]
+    },
+    "SiteCmsDocument": {
+      "title": "Website CMS Config",
+      "description": "Public website Homepage, Navigation, and Site Settings configuration document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "updatedAt"]
+    },
+    "SitePageDocument": {
+      "title": "Public Website Page Config",
+      "description": "Public marketing page content, hero media, visibility, and SEO configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "isVisible": { "type": "boolean" },
+        "seoTitle": { "type": "string" },
+        "seoDescription": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "isVisible"]
+    },
+    "CmsMediaAsset": {
+      "title": "Website CMS Media Asset",
+      "description": "Public website and journal visual asset metadata backed by Firebase Storage website-media/",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "fileName": { "type": "string" },
+        "folder": { "type": "string" },
+        "url": { "type": "string" },
+        "storagePath": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "sizeBytes": { "type": "number" },
+        "altText": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "folder", "url", "storagePath"]
     }
   },
   "firestore": {
@@ -564,6 +732,46 @@
     "/proposals/{proposalId}": {
       "schema": { "$ref": "#/entities/Proposal" },
       "description": "Server-governed top-level commercial proposals and quotations"
+    },
+    "/subscriptionPlans/{planId}": {
+      "schema": { "$ref": "#/entities/SubscriptionPlan" },
+      "description": "Subscription plans configured in Admin HQ"
+    },
+    "/subscriptions/{subscriptionId}": {
+      "schema": { "$ref": "#/entities/Subscription" },
+      "description": "Workspace recurring memberships and subscription lifecycles"
+    },
+    "/subscriptionEvents/{eventId}": {
+      "schema": { "$ref": "#/entities/SubscriptionEvent" },
+      "description": "Subscription lifecycle audit events"
+    },
+    "/paymentTransactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/PaymentTransaction" },
+      "description": "Server-verified Paystack and Flutterwave payment transactions"
+    },
+    "/oneTimePurchases/{purchaseId}": {
+      "schema": { "$ref": "#/entities/OneTimePurchase" },
+      "description": "Verified permanent/term one-time creative resource and package purchases"
+    },
+    "/paymentWebhookEvents/{eventId}": {
+      "schema": { "$ref": "#/entities/PaymentWebhookEvent" },
+      "description": "Idempotent webhook processing records (admin-read only)"
+    },
+    "/journalArticles/{articleId}": {
+      "schema": { "$ref": "#/entities/JournalArticle" },
+      "description": "Dynamic Studio Journal articles; Published articles are publicly readable while Draft/Scheduled/Archived remain Admin HQ only"
+    },
+    "/siteCms/{docId}": {
+      "schema": { "$ref": "#/entities/SiteCmsDocument" },
+      "description": "Public website CMS configuration documents (homepage, navigation, settings)"
+    },
+    "/sitePages/{pageId}": {
+      "schema": { "$ref": "#/entities/SitePageDocument" },
+      "description": "Editable public agency page content, visibility, and SEO configuration"
+    },
+    "/cmsMedia/{assetId}": {
+      "schema": { "$ref": "#/entities/CmsMediaAsset" },
+      "description": "Admin-only Website CMS Media Library catalog entries linked to Firebase Storage website-media assets"
     }
   }
 }

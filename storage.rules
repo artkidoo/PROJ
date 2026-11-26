@@ -255,6 +255,31 @@ service firebase.storage {
         firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId in firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.assignedWorkspaceIds;
     }
 
+    function clientHasPurchasedProduct(productId) {
+      return clientHasOpenProductWorkspace() &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['purchasedProductIds']) &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.purchasedProductIds is list &&
+        productId in firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.purchasedProductIds;
+    }
+
+    function clientHasSubscriptionAccessToProduct(productId) {
+      return clientHasOpenProductWorkspace() &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['activeSubscriptionStatus']) &&
+        firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.activeSubscriptionStatus in ['Active', 'Trialing', 'Grace Period'] &&
+        (
+          (
+            firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['subscriptionEntitledProductIds']) &&
+            firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledProductIds is list &&
+            productId in firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledProductIds
+          ) ||
+          (
+            firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['subscriptionEntitledCategories']) &&
+            firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledCategories is list &&
+            firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.category in firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/workspaces/$(firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledCategories
+          )
+        );
+    }
+
     function canClientViewProductPreview(productId) {
       return isWorkspaceAccountActive() &&
         clientHasOpenProductWorkspace() &&
@@ -264,6 +289,9 @@ service firebase.storage {
         (
           firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.accessType in ['Free', 'RequestRequired'] ||
           firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.get('unlockedByDefault', false) == true ||
+          firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.get('isPurchasable', false) == true ||
+          clientHasPurchasedProduct(productId) ||
+          clientHasSubscriptionAccessToProduct(productId) ||
           clientHasWorkspaceAssignmentForProduct(productId) ||
           (
             firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.accessType == 'IncludedInPackage' &&
@@ -276,6 +304,8 @@ service firebase.storage {
       return canClientViewProductPreview(productId) && (
         firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.accessType == 'Free' ||
         firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.get('unlockedByDefault', false) == true ||
+        clientHasPurchasedProduct(productId) ||
+        clientHasSubscriptionAccessToProduct(productId) ||
         clientHasWorkspaceAssignmentForProduct(productId) ||
         (
           firestore.get(/databases/ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38/documents/creativeProducts/$(productId)).data.accessType == 'IncludedInPackage' &&
@@ -348,6 +378,16 @@ service firebase.storage {
         request.resource.size < 50 * 1024 * 1024 &&
         isValidCreativeAsset();
       allow delete: if isPlatformAdmin();
+    }
+
+    // Public Website & Studio Journal Media Library (Public read for published site, Admin HQ write/delete)
+    match /website-media/{assetId}/{allPaths=**} {
+      allow read: if isValidId(assetId);
+      allow create, update: if isPlatformAdmin() &&
+        isValidId(assetId) &&
+        request.resource.size < 15 * 1024 * 1024 &&
+        request.resource.contentType.matches('^image/(jpeg|jpg|png|webp|svg\\+xml|avif|gif)$');
+      allow delete: if isPlatformAdmin() && isValidId(assetId);
     }
 
     // Default Deny Everything Else

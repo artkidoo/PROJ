@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, documentId, onSnapshot, query, where } from 'firebase/firestore';
 import { getBlob, ref } from 'firebase/storage';
 import {
   ArrowUpRight,
@@ -8,6 +8,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  CreditCard,
   Download,
   FileArchive,
   FileText,
@@ -67,6 +68,11 @@ import {
 } from '../../lib/creativeProductAccess';
 import { downloadProductStorageFile } from '../../lib/creativeProducts';
 import {
+  formatSubscriptionMoney,
+  isSubscriptionStatusEntitled,
+  resolveProductPurchaseTerms,
+} from '../../lib/subscriptions';
+import {
   DEFAULT_VARIATION_OPTIONS,
   resolveProductPreviewGallery,
 } from '../../lib/creativeResourcePreviews';
@@ -96,6 +102,7 @@ import {
 import { MASTER_CREATIVE_TEMPLATES } from '../../data/creativeTemplatesData';
 import { TEMPLATE_FAMILIES } from '../../data/templateFamiliesData';
 import { buildHonestDesignForTemplate } from '../../utils/templateDesignBuilder';
+import { CheckoutModal, type CheckoutTarget } from '../billing/CheckoutModal';
 import { Modal } from '../common/Modal';
 
 export interface ClientCreativeHubProps {
@@ -261,6 +268,7 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
   const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null);
   const [editingCollectionName, setEditingCollectionName] = useState('');
   const [collectionZipBusyId, setCollectionZipBusyId] = useState<string | null>(null);
+  const [checkoutTarget, setCheckoutTarget] = useState<CheckoutTarget | null>(null);
 
   useEffect(() => {
     setActiveFamily('All');
@@ -445,6 +453,87 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
         ),
       );
 
+      const purchasableKey = `purchasable:${aud}`;
+      expectedKeys.add(purchasableKey);
+      unsubs.push(
+        onSnapshot(
+          query(
+            collection(db, 'creativeProducts'),
+            where('status', '==', 'Published'),
+            where('audience', '==', aud),
+            where('isPurchasable', '==', true),
+          ),
+          snap => {
+            const rows = snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct));
+            setProductsByQueryKey(prev => ({ ...prev, [purchasableKey]: rows }));
+            markSettled(purchasableKey);
+          },
+          () => {
+            markSettled(purchasableKey);
+          },
+        ),
+      );
+
+      if (
+        isSubscriptionStatusEntitled(workspace.activeSubscriptionStatus) &&
+        Array.isArray(workspace.subscriptionEntitledCategories) &&
+        workspace.subscriptionEntitledCategories.length > 0
+      ) {
+        const subCatKey = `subcat:${aud}`;
+        expectedKeys.add(subCatKey);
+        unsubs.push(
+          onSnapshot(
+            query(
+              collection(db, 'creativeProducts'),
+              where('status', '==', 'Published'),
+              where('audience', '==', aud),
+              where('category', 'in', workspace.subscriptionEntitledCategories.slice(0, 10)),
+            ),
+            snap => {
+              const rows = snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct));
+              setProductsByQueryKey(prev => ({ ...prev, [subCatKey]: rows }));
+              markSettled(subCatKey);
+            },
+            () => {
+              markSettled(subCatKey);
+            },
+          ),
+        );
+      }
+
+      const unlockedProductIds = Array.from(
+        new Set([
+          ...(Array.isArray(workspace.purchasedProductIds) ? workspace.purchasedProductIds : []),
+          ...(isSubscriptionStatusEntitled(workspace.activeSubscriptionStatus) &&
+          Array.isArray(workspace.subscriptionEntitledProductIds)
+            ? workspace.subscriptionEntitledProductIds
+            : []),
+        ]),
+      ).filter(Boolean);
+
+      if (unlockedProductIds.length > 0) {
+        const unlockedIdsKey = `unlockedIds:${aud}`;
+        expectedKeys.add(unlockedIdsKey);
+        unsubs.push(
+          onSnapshot(
+            query(
+              collection(db, 'creativeProducts'),
+              where('status', '==', 'Published'),
+              where('audience', '==', aud),
+              where(documentId(), 'in', unlockedProductIds.slice(0, 30)),
+            ),
+            snap => {
+              const rows = snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct));
+              setProductsByQueryKey(prev => ({ ...prev, [unlockedIdsKey]: rows }));
+              markSettled(unlockedIdsKey);
+            },
+            () => {
+              markSettled(unlockedIdsKey);
+            },
+          ),
+        );
+      }
+
       for (const pkgId of validContractedPackageIds) {
         const pkgKey = `pkg:${aud}:${pkgId}`;
         expectedKeys.add(pkgKey);
@@ -479,6 +568,10 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
     workspace.status,
     workspace.contractedPackageIds,
     workspace.activePackageIds,
+    workspace.purchasedProductIds,
+    workspace.activeSubscriptionStatus,
+    workspace.subscriptionEntitledCategories,
+    workspace.subscriptionEntitledProductIds,
     clientProfile?.onboardingComplete,
     allowedQueryAudiences,
     validContractedPackageIds,
@@ -494,6 +587,16 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
       activePackageIds: workspace.activePackageIds || [],
       activeServicePackageIds,
       packageEntitlements: workspace.packageEntitlements,
+      purchasedProductIds: workspace.purchasedProductIds || [],
+      activeSubscription: workspace.activeSubscriptionStatus
+        ? {
+            status: workspace.activeSubscriptionStatus,
+            expiresAt: workspace.subscriptionExpiresAt,
+            planId: workspace.activeSubscriptionPlanId,
+            entitledProductIds: workspace.subscriptionEntitledProductIds,
+            entitledCategories: workspace.subscriptionEntitledCategories,
+          }
+        : null,
     }),
     [
       clientBucket,
@@ -503,6 +606,12 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
       workspace.activePackageIds,
       activeServicePackageIds,
       workspace.packageEntitlements,
+      workspace.purchasedProductIds,
+      workspace.activeSubscriptionStatus,
+      workspace.subscriptionExpiresAt,
+      workspace.activeSubscriptionPlanId,
+      workspace.subscriptionEntitledProductIds,
+      workspace.subscriptionEntitledCategories,
     ],
   );
 
@@ -1507,6 +1616,7 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
                 const isFaved = favouriteIds.has(product.id);
                 const isBatchChecked = selectedBatchIds.includes(product.id);
                 const isNewDrop = newDropProductIds.has(product.id);
+                const purchaseTerms = resolveProductPurchaseTerms(product);
 
                 return (
                   <article
@@ -1584,11 +1694,11 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
                           <span className="text-neutral-200 truncate">{family}</span>
                           <span
                             className={`shrink-0 ${
-                              exportReady
+                              exportReady || accessSummary.state === 'purchased' || accessSummary.state === 'membership-unlocked'
                                 ? 'text-emerald-400'
                                 : accessSummary.state === 'workspace-assigned'
                                   ? 'text-white'
-                                  : accessSummary.state === 'included-in-package'
+                                  : accessSummary.state === 'included-in-package' || accessSummary.state === 'purchasable'
                                     ? 'text-amber-300'
                                     : 'text-neutral-300'
                             }`}
@@ -1596,8 +1706,14 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
                             {approvedFiles.length > 0
                               ? accessSummary.badgeLabel
                               : exportReady
-                                ? 'Instant Studio Pack'
-                                : accessSummary.badgeLabel}
+                                ? accessSummary.isPurchased
+                                  ? 'Purchased · Ready'
+                                  : accessSummary.isMembershipUnlocked
+                                    ? 'Membership · Ready'
+                                    : 'Instant Studio Pack'
+                                : purchaseTerms.purchasable
+                                  ? formatSubscriptionMoney(purchaseTerms.amount, purchaseTerms.currency)
+                                  : accessSummary.badgeLabel}
                           </span>
                         </div>
                       </div>
@@ -1682,13 +1798,33 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
                             <span>Export Pack</span>
                           </button>
                         )}
+                        {!exportReady && purchaseTerms.purchasable && (
+                          <button
+                            type="button"
+                            onClick={() => setCheckoutTarget({ mode: 'one_time_product', product })}
+                            className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white font-mono tabular-nums whitespace-nowrap"
+                          >
+                            <CreditCard size={12} />
+                            <span>Buy {formatSubscriptionMoney(purchaseTerms.amount, purchaseTerms.currency)}</span>
+                          </button>
+                        )}
+                        {!exportReady && product.accessType === 'IncludedInPackage' && (
+                          <button
+                            type="button"
+                            onClick={() => onNavigateSection('billing')}
+                            className="inline-flex items-center gap-1 border border-[#2E2E2E] bg-[#141414] hover:border-white px-2.5 py-1.5 text-xs font-semibold text-neutral-200 whitespace-nowrap"
+                          >
+                            <Sparkles size={12} className="text-amber-300" />
+                            <span>Membership</span>
+                          </button>
+                        )}
                         {!exportReady && (
                           <button
                             type="button"
                             onClick={() =>
                               onRequestProduction(buildProductRequestPrefill({ product, workspaceName: workspace.name }))
                             }
-                            className="inline-flex items-center gap-1 bg-[#FF1E1E] hover:bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
+                            className="inline-flex items-center gap-1 bg-[#FF1E1E] hover:bg-red-600 px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap"
                           >
                             <Send size={12} />
                             <span>Request Custom</span>
@@ -2469,13 +2605,51 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
                 </h4>
 
                 {!exportReady ? (
-                  <div className="border border-[#262626] bg-[#121212] p-4 flex items-start gap-2.5 text-neutral-300">
-                    <Lock size={14} className="text-[#FF1E1E] shrink-0 mt-0.5" />
-                    <p>
-                      {selectedProduct.accessType === 'IncludedInPackage'
-                        ? 'This Creative Product unlocks automatically with its contracted Studio Package or can be commissioned custom below.'
-                        : 'This Creative Product is prepared custom for your workspace via production request. Use the button below to commission your customized version.'}
-                    </p>
+                  <div className="border border-[#262626] bg-[#121212] p-4 space-y-3 text-neutral-300">
+                    <div className="flex items-start gap-2.5">
+                      <Lock size={14} className="text-[#FF1E1E] shrink-0 mt-0.5" />
+                      <p>
+                        {resolveProductPurchaseTerms(selectedProduct).purchasable
+                          ? `Unlock lifetime download & Studio customization rights for this resource via one-time purchase (${formatSubscriptionMoney(resolveProductPurchaseTerms(selectedProduct).amount, resolveProductPurchaseTerms(selectedProduct).currency)}) or an eligible Studio Membership.`
+                          : selectedProduct.accessType === 'IncludedInPackage'
+                            ? 'This Creative Product unlocks automatically with an active Creative Resource Membership or contracted Studio Package, or can be commissioned custom below.'
+                            : 'This Creative Product is prepared custom for your workspace via production request. Use the button below to commission your customized version.'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {resolveProductPurchaseTerms(selectedProduct).purchasable && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prod = selectedProduct;
+                            setSelectedProduct(null);
+                            setCheckoutTarget({ mode: 'one_time_product', product: prod });
+                          }}
+                          className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 px-3.5 py-2 text-xs font-semibold text-white font-mono tabular-nums"
+                        >
+                          <CreditCard size={13} />
+                          <span>
+                            Purchase Once ({formatSubscriptionMoney(
+                              resolveProductPurchaseTerms(selectedProduct).amount,
+                              resolveProductPurchaseTerms(selectedProduct).currency,
+                            )})
+                          </span>
+                        </button>
+                      )}
+                      {selectedProduct.accessType === 'IncludedInPackage' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedProduct(null);
+                            onNavigateSection('billing');
+                          }}
+                          className="inline-flex items-center gap-1.5 border border-[#2E2E2E] bg-[#181818] hover:border-white px-3.5 py-2 text-xs font-semibold text-white"
+                        >
+                          <Sparkles size={13} className="text-amber-300" />
+                          <span>Unlock via Membership</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -2634,6 +2808,18 @@ export const ClientCreativeHub: React.FC<ClientCreativeHubProps> = ({
           );
         })()}
       </Modal>
+
+      <CheckoutModal
+        isOpen={Boolean(checkoutTarget)}
+        target={checkoutTarget}
+        workspaceId={workspace.id}
+        workspaceName={workspace.name}
+        onClose={() => setCheckoutTarget(null)}
+        onVerifiedSuccess={result => {
+          setCheckoutTarget(null);
+          setDownloadNotice(result.message || 'Purchase verified and unlocked in your workspace.');
+        }}
+      />
     </div>
   );
 };

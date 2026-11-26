@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   collection,
   doc,
+  documentId,
   onSnapshot,
   query,
   setDoc,
@@ -16,6 +17,7 @@ import {
   Archive,
   Briefcase,
   CheckCircle2,
+  CreditCard,
   ExternalLink,
   FileCheck2,
   FileText,
@@ -61,9 +63,10 @@ import { useApp } from '../../context/AppContext';
 import { db, functions, storage } from '../../lib/firebase';
 import { deriveClientInvoiceStatus, formatMoney } from '../../lib/financeDocuments';
 import { ensureClientWorkspace, resolveClientProjectWorkspaceId } from '../../lib/clientWorkspace';
+import { isSubscriptionStatusEntitled } from '../../lib/subscriptions';
 import { defaultCategoryForAudience } from '../../lib/productionCategories';
 import { isInternalStoragePath } from '../../lib/productionPromotion';
-import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubMarkTransparent from '../../assets/images/keedohub_mark_transparent.png';
 import {
   ClientStudio,
   ClientStudioSection,
@@ -97,6 +100,9 @@ import {
 import { ProductionNotificationCenter } from '../common/ProductionNotificationCenter';
 import { ClientOnboarding } from './ClientOnboarding';
 import { ClientCreativeHub } from './ClientCreativeHub';
+import { ClientBillingCenter } from './ClientBillingCenter';
+import { CheckoutModal, type CheckoutTarget } from '../billing/CheckoutModal';
+import { verifyCheckoutTransaction } from '../../lib/subscriptions';
 import { WorkspaceHome } from './WorkspaceHome';
 import { WorkspaceStudioHub } from './WorkspaceStudioHub';
 import { WorkspaceSearchModal } from './WorkspaceSearchModal';
@@ -128,6 +134,7 @@ const TAB_ICONS: Record<ClientTab, React.ComponentType<{ size?: number; classNam
   requests: Inbox,
   deliverables: FileCheck2,
   updates: Activity,
+  billing: CreditCard,
   account: User,
   'artist-profile': Music2,
   profile: Music2,
@@ -237,6 +244,10 @@ export const ClientWorkspace: React.FC = () => {
   const [accountNotice, setAccountNotice] = useState('');
   const [accountError, setAccountError] = useState('');
   const [sendingResetEmail, setSendingResetEmail] = useState(false);
+
+  // Phase 7 Online Checkout & Payment Return Verification
+  const [invoiceCheckoutTarget, setInvoiceCheckoutTarget] = useState<CheckoutTarget | null>(null);
+  const [paymentReturnBanner, setPaymentReturnBanner] = useState('');
 
   useEffect(() => {
     if (canAccessAdminCenter) {
@@ -684,6 +695,77 @@ export const ClientWorkspace: React.FC = () => {
           () => {},
         ),
       );
+      const purchasableKey = `purchasable:${aud}`;
+      unsubs.push(
+        onSnapshot(
+          query(
+            collection(db, 'creativeProducts'),
+            where('status', '==', 'Published'),
+            where('audience', '==', aud),
+            where('isPurchasable', '==', true),
+          ),
+          snap => {
+            setPublishedProductsByKey(prev => ({
+              ...prev,
+              [purchasableKey]: snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct)),
+            }));
+          },
+          () => {},
+        ),
+      );
+      if (
+        isSubscriptionStatusEntitled(activeWorkspace.activeSubscriptionStatus) &&
+        Array.isArray(activeWorkspace.subscriptionEntitledCategories) &&
+        activeWorkspace.subscriptionEntitledCategories.length > 0
+      ) {
+        const subCatKey = `subcat:${aud}`;
+        unsubs.push(
+          onSnapshot(
+            query(
+              collection(db, 'creativeProducts'),
+              where('status', '==', 'Published'),
+              where('audience', '==', aud),
+              where('category', 'in', activeWorkspace.subscriptionEntitledCategories.slice(0, 10)),
+            ),
+            snap => {
+              setPublishedProductsByKey(prev => ({
+                ...prev,
+                [subCatKey]: snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct)),
+              }));
+            },
+            () => {},
+          ),
+        );
+      }
+      const unlockedProductIds = Array.from(
+        new Set([
+          ...(Array.isArray(activeWorkspace.purchasedProductIds) ? activeWorkspace.purchasedProductIds : []),
+          ...(isSubscriptionStatusEntitled(activeWorkspace.activeSubscriptionStatus) &&
+          Array.isArray(activeWorkspace.subscriptionEntitledProductIds)
+            ? activeWorkspace.subscriptionEntitledProductIds
+            : []),
+        ]),
+      ).filter(Boolean);
+      if (unlockedProductIds.length > 0) {
+        const unlockedIdsKey = `unlockedIds:${aud}`;
+        unsubs.push(
+          onSnapshot(
+            query(
+              collection(db, 'creativeProducts'),
+              where('status', '==', 'Published'),
+              where('audience', '==', aud),
+              where(documentId(), 'in', unlockedProductIds.slice(0, 30)),
+            ),
+            snap => {
+              setPublishedProductsByKey(prev => ({
+                ...prev,
+                [unlockedIdsKey]: snap.docs.map(d => ({ id: d.id, ...d.data() } as CreativeProduct)),
+              }));
+            },
+            () => {},
+          ),
+        );
+      }
       for (const pkgId of validPackageIds) {
         const pkgKey = `pkg:${aud}:${pkgId}`;
         unsubs.push(
@@ -707,7 +789,18 @@ export const ClientWorkspace: React.FC = () => {
       }
     }
     return () => unsubs.forEach(u => u());
-  }, [activeWorkspace?.id, activeWorkspace?.status, clientProfile?.onboardingComplete, contextClientProfile?.status, allowedQueryAudiences, validPackageIds]);
+  }, [
+    activeWorkspace?.id,
+    activeWorkspace?.status,
+    activeWorkspace?.activeSubscriptionStatus,
+    activeWorkspace?.subscriptionEntitledCategories,
+    activeWorkspace?.subscriptionEntitledProductIds,
+    activeWorkspace?.purchasedProductIds,
+    clientProfile?.onboardingComplete,
+    contextClientProfile?.status,
+    allowedQueryAudiences,
+    validPackageIds,
+  ]);
 
   const publishedProducts = useMemo(() => {
     if (!activeWorkspace) return [];
@@ -725,6 +818,16 @@ export const ClientWorkspace: React.FC = () => {
         activePackageIds: activeWorkspace.activePackageIds,
         activeServicePackageIds,
         packageEntitlements: activeWorkspace.packageEntitlements,
+        purchasedProductIds: activeWorkspace.purchasedProductIds,
+        activeSubscription: activeWorkspace.activeSubscriptionStatus
+          ? {
+              status: activeWorkspace.activeSubscriptionStatus,
+              expiresAt: activeWorkspace.subscriptionExpiresAt,
+              planId: activeWorkspace.activeSubscriptionPlanId,
+              entitledProductIds: activeWorkspace.subscriptionEntitledProductIds,
+              entitledCategories: activeWorkspace.subscriptionEntitledCategories,
+            }
+          : null,
       }),
     );
   }, [publishedProductsByKey, activeWorkspace, clientBucket, activeServicePackageIds]);
@@ -1235,9 +1338,55 @@ export const ClientWorkspace: React.FC = () => {
     }
   };
 
+  // Verify payment gateway redirect callback parameters cleanly once workspace loads
+  useEffect(() => {
+    if (!firebaseUser || !activeWorkspace?.id || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const reference =
+      params.get('reference') ||
+      params.get('trxref') ||
+      params.get('tx_ref') ||
+      params.get('checkout_ref');
+    if (!reference) return;
+
+    const providerParam = params.get('provider');
+    const provider =
+      providerParam === 'flutterwave'
+        ? 'flutterwave'
+        : providerParam === 'paystack'
+          ? 'paystack'
+          : params.get('tx_ref') || params.get('transaction_id')
+            ? 'flutterwave'
+            : 'paystack';
+    const providerTransactionId = params.get('transaction_id') || undefined;
+
+    window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+
+    void verifyCheckoutTransaction({
+      reference,
+      provider,
+      providerTransactionId,
+    })
+      .then(result => {
+        if (result.verified) {
+          setPaymentReturnBanner(
+            `${result.message}${result.receiptNumber ? ` (Receipt: ${result.receiptNumber})` : ''}`,
+          );
+          setActiveTab('billing');
+        } else {
+          setError(result.message || 'Payment verification did not complete.');
+        }
+      })
+      .catch(err => {
+        setError(messageFromError(err));
+      });
+  }, [firebaseUser, activeWorkspace?.id]);
+
   const handleSelectNotification = (notification: ProductionNotification) => {
     const type = (notification.type || '').toLowerCase();
-    if (type.includes('proposal')) {
+    if (type.includes('subscription') || type.includes('payment') || type.includes('membership')) {
+      selectTab('billing');
+    } else if (type.includes('proposal')) {
       selectTab('proposals');
     } else if (type.includes('invoice')) {
       selectTab('invoices');
@@ -1555,10 +1704,10 @@ export const ClientWorkspace: React.FC = () => {
       <div className="h-16 px-5 border-b border-[#1A1A1A] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <img
-            src={keedohubBrandLogo}
+            src={keedohubMarkTransparent}
             alt="KeedoHub Logo"
             referrerPolicy="no-referrer"
-            className="h-8 w-8 object-cover border border-[#222222] shrink-0"
+            className="h-7 w-7 object-contain bg-transparent shrink-0"
           />
           <span className="text-base font-black tracking-tighter text-white uppercase">
             KEEDOHUB
@@ -2272,6 +2421,25 @@ export const ClientWorkspace: React.FC = () => {
             </div>
           )}
 
+          {paymentReturnBanner && (
+            <div
+              role="status"
+              className="rounded border border-emerald-500/40 bg-emerald-950/25 p-3.5 text-xs text-emerald-200 flex items-center justify-between gap-3"
+            >
+              <span className="inline-flex items-center gap-2">
+                <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                <span>{paymentReturnBanner}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setPaymentReturnBanner('')}
+                className="underline text-emerald-300 shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {activeTab === 'creative-hub' ? (
             <ClientCreativeHub
               workspace={activeWorkspace}
@@ -2280,6 +2448,13 @@ export const ClientWorkspace: React.FC = () => {
               onRequestProduction={prefill => openRequestModal(prefill)}
               onNavigateSection={target => selectTab(target)}
               onOpenInStudio={launchStudioWithStarter}
+            />
+          ) : activeTab === 'billing' ? (
+            <ClientBillingCenter
+              workspace={activeWorkspace}
+              experience={experience}
+              invoices={invoices}
+              onNavigateTab={target => selectTab(target)}
             />
           ) : activeTab === 'studio' ? (
             <WorkspaceStudioHub
@@ -2327,6 +2502,7 @@ export const ClientWorkspace: React.FC = () => {
               onNavigateSection={target => selectTab(target)}
               onRequestProduction={prefill => openRequestModal(prefill)}
               onOpenInStudio={launchStudioWithStarter}
+              onPayInvoice={invoice => setInvoiceCheckoutTarget({ mode: 'invoice', invoice })}
             />
           ) : activeTab === 'overview' ? (
             renderOverview()
@@ -3488,6 +3664,15 @@ export const ClientWorkspace: React.FC = () => {
           </div>
         );
       })()}
+
+      <CheckoutModal
+        isOpen={Boolean(invoiceCheckoutTarget)}
+        onClose={() => setInvoiceCheckoutTarget(null)}
+        workspaceId={activeWorkspace.id}
+        workspaceName={activeWorkspace.name}
+        target={invoiceCheckoutTarget}
+        onVerifiedSuccess={res => setPaymentReturnBanner(res.message)}
+      />
     </div>
   );
 };

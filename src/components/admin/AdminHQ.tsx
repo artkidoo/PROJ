@@ -45,7 +45,7 @@ import { AdminFinanceConsole } from './AdminFinanceConsole';
 import { AdminPlatformSettingsConsole } from './AdminPlatformSettingsConsole';
 import { BrandRoom } from './brand-room/BrandRoom';
 import type { CanvasDesign } from '../../types/designStudio';
-import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubMarkTransparent from '../../assets/images/keedohub_mark_transparent.png';
 
 const SECTION_ICONS: Record<
   AdminHQSection,
@@ -428,10 +428,10 @@ export const AdminHQ: React.FC = () => {
       <div className="h-16 px-5 border-b border-[#1A1A1A] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <img
-            src={keedohubBrandLogo}
+            src={keedohubMarkTransparent}
             alt="KeedoHub Logo"
             referrerPolicy="no-referrer"
-            className="h-8 w-8 object-cover border border-[#222222] shrink-0"
+            className="h-7 w-7 object-contain bg-transparent shrink-0"
           />
           <span className="text-base font-black tracking-tighter text-white uppercase">
             KEEDOHUB

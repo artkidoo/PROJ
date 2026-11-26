@@ -78,7 +78,7 @@ function run() {
   );
   assert.deepEqual(
     ADMIN_HQ_SECTIONS.find(s => s.id === 'finance')?.subTabs,
-    ['overview', 'invoices', 'proposals'],
+    ['overview', 'subscriptions', 'plans', 'payments', 'invoices', 'proposals'],
   );
 
   // 2. Hash parsing, formatting & legacy alias backwards compatibility

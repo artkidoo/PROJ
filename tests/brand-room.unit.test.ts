@@ -613,10 +613,22 @@ async function run() {
   assert.ok(brandRoomSrc.includes('Export / Save Error:'), 'BrandRoom fullscreen overlay must render canvasError directly');
   assert.ok(designCanvasSrc.includes("toastType === 'error'"), 'DesignCanvasEditor must support error toast styling');
 
-  // 9. Official Red-K Brand Logo Asset & Cross-App Integration
+  // 9. Official Red-K Brand Logo Asset & Cross-App Integration (Clean Transparent Master Architecture)
   console.log('[TEST 9] Official Red-K KH brand logo file and integration verification');
-  const logoFile = path.join(root, 'src/assets/images/keedohub_brand_logo_1795340542093.jpg');
-  assert.ok(fs.existsSync(logoFile) && fs.statSync(logoFile).size > 5000, 'Generated Red-K KH logo JPG must exist');
+  const transparentMarkFile = path.join(root, 'src/assets/images/keedohub_mark_transparent.png');
+  const transparentLogoFile = path.join(root, 'src/assets/images/keedohub_logo_transparent.png');
+  const lightBgMarkFile = path.join(root, 'src/assets/images/keedohub_mark_light_bg.png');
+  const lightBgLogoFile = path.join(root, 'src/assets/images/keedohub_logo_light_bg.png');
+  const svgFaviconFile = path.join(root, 'public/favicon.svg');
+  const pngFaviconFile = path.join(root, 'public/favicon.png');
+
+  assert.ok(fs.existsSync(transparentMarkFile) && fs.statSync(transparentMarkFile).size > 1000, 'Transparent Red-K mark PNG must exist');
+  assert.ok(fs.existsSync(transparentLogoFile) && fs.statSync(transparentLogoFile).size > 1000, 'Transparent Red-K full logo PNG must exist');
+  assert.ok(fs.existsSync(lightBgMarkFile) && fs.statSync(lightBgMarkFile).size > 1000, 'Light-bg Red-K mark PNG must exist');
+  assert.ok(fs.existsSync(lightBgLogoFile) && fs.statSync(lightBgLogoFile).size > 1000, 'Light-bg Red-K full logo PNG must exist');
+  assert.ok(fs.existsSync(svgFaviconFile), 'Clean SVG favicon must exist');
+  assert.ok(fs.existsSync(pngFaviconFile), 'Clean PNG favicon must exist');
+
   const logoConsumers = [
     'src/components/public/PublicHeader.tsx',
     'src/components/public/PublicFooter.tsx',
@@ -632,8 +644,11 @@ async function run() {
   for (const relPath of logoConsumers) {
     const content = fs.readFileSync(path.join(root, relPath), 'utf8');
     assert.ok(
-      content.includes('keedohub_brand_logo_1795340542093.jpg'),
-      `${relPath} must reference the generated official Red-K brand logo`,
+      content.includes('keedohub_mark_transparent.png') ||
+      content.includes('keedohub_logo_transparent.png') ||
+      content.includes('keedohubMarkTransparent') ||
+      content.includes('keedohubLogoTransparent'),
+      `${relPath} must reference the official transparent Red-K brand logo`,
     );
     assert.ok(
       !content.includes('KEEDO<span'),

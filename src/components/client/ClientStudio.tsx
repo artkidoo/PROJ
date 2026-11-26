@@ -245,9 +245,10 @@ interface ClientStudioProps {
   primaryWorkspaceId?: string;
   externalData?: ClientStudioExternalData;
   isArtistOverride?: boolean;
-  onNavigateSection?: (section: ClientStudioSection | 'creative-hub' | 'studio' | 'projects' | 'deliverables' | 'requests') => void;
+  onNavigateSection?: (section: ClientStudioSection | 'creative-hub' | 'studio' | 'projects' | 'deliverables' | 'requests' | 'billing') => void;
   onRequestProduction?: (prefill: ProductionRequestPrefill) => void;
   onOpenInStudio?: (starter: CreativeStarterParams) => void;
+  onPayInvoice?: (invoice: InvoiceRecord) => void;
 }
 
 const EMPTY_ARTIST_PROFILE: ArtistProfileForm = {
@@ -364,6 +365,7 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
   onNavigateSection,
   onRequestProduction,
   onOpenInStudio,
+  onPayInvoice,
 }) => {
   const [artistProfile, setArtistProfile] = useState<ArtistProfileForm>(EMPTY_ARTIST_PROFILE);
   const [brandProfile, setBrandProfile] = useState<BrandWorkspaceProfile>(EMPTY_BRAND_PROFILE);
@@ -3842,6 +3844,18 @@ export const ClientStudio: React.FC<ClientStudioProps> = ({
                         Terms: {inv.paymentTerms || 'Due upon receipt'}
                       </p>
                       <div className="flex flex-wrap gap-2">
+                        {onPayInvoice &&
+                          effectiveStatus !== 'Paid' &&
+                          effectiveStatus !== 'Void' &&
+                          balance > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => onPayInvoice(inv)}
+                              className="rounded bg-[#FF1E1E] hover:bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white"
+                            >
+                              Pay Online
+                            </button>
+                          )}
                         <button
                           type="button"
                           onClick={() => setPreviewInvoice(inv)}

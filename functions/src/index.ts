@@ -8,6 +8,8 @@ import {
   validateAndComputeProposalPayload,
   validateClientProposalResponse,
 } from './financeValidation';
+import { ENTITLED_SUBSCRIPTION_STATUSES, SubscriptionStatus } from './subscriptionEngine';
+import { createSubscriptionFunctions } from './subscriptionFunctions';
 
 const DATABASE_ID = 'ai-studio-lyricalentbrandl-85ee0d5d-6fc2-41f3-a410-3e059e509c38';
 
@@ -973,7 +975,7 @@ export const adminUpdatePlatformSettings = functions.https.onCall(async (data, c
   }
   if (payload.defaultCurrency !== undefined) {
     const currency = requireStringField(payload, 'defaultCurrency', 3);
-    const allowedCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'KRW', 'INR'];
+    const allowedCurrencies = ['USD', 'EUR', 'GBP', 'NGN', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'KRW', 'INR'];
     if (!allowedCurrencies.includes(currency.toUpperCase())) {
       throw new functions.https.HttpsError('invalid-argument', 'Default currency is not supported.');
     }
@@ -2109,22 +2111,50 @@ export const verifyCreativeResourceAccess = functions.https.onCall(async (data, 
   const isFree = productData.accessType === 'Free' || productData.unlockedByDefault === true;
   const isAssigned = assignedIds.includes(workspaceId);
 
+  const purchasedProductIds = Array.isArray(workspaceSnap.get('purchasedProductIds'))
+    ? (workspaceSnap.get('purchasedProductIds') as unknown[])
+    : [];
+  const isPurchased = purchasedProductIds.includes(productId);
+
+  const subStatus = String(workspaceSnap.get('activeSubscriptionStatus') || '');
+  const subExpiresAt = String(workspaceSnap.get('subscriptionExpiresAt') || '');
+  const isSubActive =
+    ENTITLED_SUBSCRIPTION_STATUSES.has(subStatus as SubscriptionStatus) &&
+    (!subExpiresAt || Date.parse(subExpiresAt) > Date.now());
+  const subEntitledProducts = Array.isArray(workspaceSnap.get('subscriptionEntitledProductIds'))
+    ? (workspaceSnap.get('subscriptionEntitledProductIds') as unknown[])
+    : [];
+  const subEntitledCategories = Array.isArray(workspaceSnap.get('subscriptionEntitledCategories'))
+    ? (workspaceSnap.get('subscriptionEntitledCategories') as unknown[])
+        .filter((c): c is string => typeof c === 'string')
+        .map(c => c.trim().toLowerCase())
+    : [];
+  const productCategory = String(productData.category || '').trim().toLowerCase();
+  const isSubscriptionEligible =
+    isSubActive &&
+    (subEntitledProducts.includes(productId) ||
+      (productCategory.length > 0 && subEntitledCategories.includes(productCategory)));
+
   let isPackageEligible = false;
   if (productData.accessType === 'IncludedInPackage' && includedPkgIds.length > 0) {
     const activeIds = await computeActiveWorkspacePackageIds(
       workspaceSnap.get('contractedPackageIds'),
       workspaceSnap.get('packageEntitlements'),
     );
-    isPackageEligible = includedPkgIds.some((pid: unknown) => typeof pid === 'string' && activeIds.includes(pid));
+    const wsActiveIds = Array.isArray(workspaceSnap.get('activePackageIds'))
+      ? (workspaceSnap.get('activePackageIds') as unknown[])
+      : [];
+    const mergedPkgIds = new Set([...activeIds, ...wsActiveIds.filter((x): x is string => typeof x === 'string')]);
+    isPackageEligible = includedPkgIds.some((pid: unknown) => typeof pid === 'string' && mergedPkgIds.has(pid));
   }
 
-  const allowed = isFree || isAssigned || isPackageEligible;
+  const allowed = isFree || isAssigned || isPurchased || isSubscriptionEligible || isPackageEligible;
   if (!allowed) {
     return {
       allowed: false,
       reason: productData.accessType === 'RequestRequired'
-        ? 'Custom request required before download.'
-        : 'Requires an active linked service package or direct workspace assignment.',
+        ? 'Custom request required or direct purchase needed before download.'
+        : 'Requires an active membership, linked studio package, direct purchase, or workspace assignment.',
       authorizedFiles: [],
     };
   }
@@ -2148,7 +2178,15 @@ export const verifyCreativeResourceAccess = functions.https.onCall(async (data, 
 
   return {
     allowed: true,
-    reason: isFree ? 'Free resource' : isAssigned ? 'Assigned to workspace' : 'Included in active package',
+    reason: isFree
+      ? 'Free resource'
+      : isPurchased
+        ? 'Verified one-time purchase'
+        : isSubscriptionEligible
+          ? 'Included in active subscription membership'
+          : isAssigned
+            ? 'Assigned to workspace'
+            : 'Included in active package',
     instantStudioPackEligible: Boolean(productData.instantStudioPackEligible),
     authorizedFiles: files.map(f => ({
       id: f.id,
@@ -2310,5 +2348,34 @@ export const recordCreativeResourceEvent = functions.https.onCall(async (data, c
 
   return { success: true, deduplicated: false };
 });
+
+// ============================================================================
+// PHASE 7: SUBSCRIPTION & PAYMENT AUTOMATION CLOUD FUNCTIONS
+// ============================================================================
+
+const subscriptionFns = createSubscriptionFunctions({
+  db,
+  assertActiveAdmin,
+  notifyUser,
+  notifyAdmins,
+  isSuspendedProfileStatus,
+  requireSafeDocId,
+  matchesClientAudienceServer,
+});
+
+export const getPaymentSystemConfig = subscriptionFns.getPaymentSystemConfig;
+export const adminSaveSubscriptionPlan = subscriptionFns.adminSaveSubscriptionPlan;
+export const adminSetSubscriptionPlanStatus = subscriptionFns.adminSetSubscriptionPlanStatus;
+export const adminUpdatePaymentSettings = subscriptionFns.adminUpdatePaymentSettings;
+export const initializeCheckoutPayment = subscriptionFns.initializeCheckoutPayment;
+export const verifyPaymentTransaction = subscriptionFns.verifyPaymentTransaction;
+export const cancelWorkspaceSubscription = subscriptionFns.cancelWorkspaceSubscription;
+export const changeWorkspaceSubscriptionPlan = subscriptionFns.changeWorkspaceSubscriptionPlan;
+export const adminManageSubscription = subscriptionFns.adminManageSubscription;
+export const adminProcessRefund = subscriptionFns.adminProcessRefund;
+export const paystackWebhook = subscriptionFns.paystackWebhook;
+export const flutterwaveWebhook = subscriptionFns.flutterwaveWebhook;
+export const processSubscriptionLifecycles = subscriptionFns.processSubscriptionLifecycles;
+
 
 

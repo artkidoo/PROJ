@@ -1390,6 +1390,8 @@ export const AdminInvoicesManagement: React.FC<AdminInvoicesManagementProps> = (
                     onChange={e => setPaymentMethod(e.target.value as PaymentRecord['method'])}
                     className="w-full bg-[#151515] border border-[#262626] rounded-lg px-3 py-2 text-xs text-white outline-none"
                   >
+                    <option value="Paystack">Paystack</option>
+                    <option value="Flutterwave">Flutterwave</option>
                     <option value="Wire Transfer">Wire Transfer</option>
                     <option value="ACH">ACH Transfer</option>
                     <option value="Credit Card">Credit Card</option>

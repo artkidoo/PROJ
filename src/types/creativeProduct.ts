@@ -94,6 +94,10 @@ export interface CreativeProduct {
   assignedWorkspaceIds: string[];
   membershipTiers?: string[];
   priceUsd?: number;
+  isPurchasable?: boolean;
+  purchaseCurrency?: 'USD' | 'GBP' | 'EUR' | 'NGN' | 'CAD';
+  purchasePrice?: number;
+  pricesByCurrency?: Partial<Record<'USD' | 'GBP' | 'EUR' | 'NGN' | 'CAD', number>>;
   unlockedByDefault?: boolean;
   instantStudioPackEligible?: boolean;
   linkedServiceCategory: string;

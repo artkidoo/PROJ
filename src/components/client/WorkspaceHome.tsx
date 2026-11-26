@@ -44,6 +44,7 @@ import {
 } from '../../lib/clientOS';
 import { getProductDownloadStatusSummary, resolveClientAudienceBucket } from '../../lib/creativeProductAccess';
 import { deriveClientInvoiceStatus, formatMoney } from '../../lib/financeDocuments';
+import { isSubscriptionStatusEntitled } from '../../lib/subscriptions';
 import { loadStudioProductions } from '../../lib/creativeStudioEngine';
 import type { CreativeStarterParams } from '../../types/creativeProduction';
 import type { StudioAsset, StudioContentItem, StudioDocument, StudioRelease } from './ClientStudio';
@@ -743,6 +744,19 @@ export const WorkspaceHome: React.FC<WorkspaceHomeProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => onSelectTab('billing')}
+                className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Sparkles size={13} className={isSubscriptionStatusEntitled(workspace.activeSubscriptionStatus) ? 'text-emerald-400' : 'text-amber-400'} />
+                  <span className="truncate">
+                    Membership &amp; Billing ({workspace.activeSubscriptionStatus || 'Free Tier'})
+                  </span>
+                </span>
+                <ArrowRight size={13} />
+              </button>
+              <button
+                type="button"
                 onClick={() => onSelectTab(unpaidInvoices.length > 0 ? 'invoices' : 'proposals')}
                 className="flex items-center justify-between rounded border border-[#242424] bg-[#121212] px-3.5 py-2.5 text-xs font-medium text-neutral-200 hover:border-[#FF1E1E] hover:text-white"
               >
@@ -932,6 +946,16 @@ export const WorkspaceHome: React.FC<WorkspaceHomeProps> = ({
                   activePackageIds: workspace.activePackageIds,
                   activeServicePackageIds,
                   packageEntitlements: workspace.packageEntitlements,
+                  purchasedProductIds: workspace.purchasedProductIds,
+                  activeSubscription: workspace.activeSubscriptionStatus
+                    ? {
+                        status: workspace.activeSubscriptionStatus,
+                        expiresAt: workspace.subscriptionExpiresAt,
+                        planId: workspace.activeSubscriptionPlanId,
+                        entitledProductIds: workspace.subscriptionEntitledProductIds,
+                        entitledCategories: workspace.subscriptionEntitledCategories,
+                      }
+                    : null,
                 });
                 const usedRecently = recentHistoryIds.has(product.id);
                 return (

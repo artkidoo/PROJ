@@ -4,17 +4,72 @@
 import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { PublicRoute } from './PublicHeader';
-import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import { useWebsiteCms } from '../../context/WebsiteCmsContext';
+import keedohubMarkTransparent from '../../assets/images/keedohub_mark_transparent.png';
 
 interface PublicFooterProps {
   navigate: (route: PublicRoute, param?: string) => void;
 }
 
 export const PublicFooter: React.FC<PublicFooterProps> = ({ navigate }) => {
+  const { siteNavigation, siteSettings } = useWebsiteCms();
+
   const go = (r: PublicRoute) => {
     navigate(r);
     window.scrollTo(0, 0);
   };
+
+  const logoMark = siteSettings?.markDarkSurfaceUrl || keedohubMarkTransparent;
+  const brandName = siteSettings?.siteName || 'KEEDOHUB';
+  const bio = siteSettings?.footerBio || 'Creative direction, brand identity, music visual worlds, and structured creative production for artists, labels, and modern companies.';
+  const locations = siteSettings?.studioLocations || 'Lagos · London · Remote Global Studio';
+  const copyright = siteSettings?.copyrightText || `© ${new Date().getFullYear()} KeedoHub Creative Agency & Production OS. All rights reserved.`;
+
+  const footerCols = siteNavigation?.footerColumns && siteNavigation.footerColumns.length > 0
+    ? siteNavigation.footerColumns
+    : [
+        {
+          id: 'footer_studio',
+          title: 'Studio',
+          items: [
+            { id: 'f-home', label: 'Home', route: 'home' as PublicRoute, visible: true, order: 1, location: 'footer_studio' as const },
+            { id: 'f-about', label: 'About the Agency', route: 'about' as PublicRoute, visible: true, order: 2, location: 'footer_studio' as const },
+            { id: 'f-vision', label: 'Vision & Mission', route: 'vision' as PublicRoute, visible: true, order: 3, location: 'footer_studio' as const },
+            { id: 'f-services', label: 'Capabilities & Services', route: 'services' as PublicRoute, visible: true, order: 4, location: 'footer_studio' as const },
+            { id: 'f-portfolio', label: 'Portfolio Showcase', route: 'portfolio' as PublicRoute, visible: true, order: 5, location: 'footer_studio' as const },
+          ],
+        },
+        {
+          id: 'footer_ecosystem',
+          title: 'Ecosystem',
+          items: [
+            { id: 'f-artists', label: 'Artists & Visual Worlds', route: 'artists' as PublicRoute, visible: true, order: 1, location: 'footer_ecosystem' as const },
+            { id: 'f-journal', label: 'Studio Journal', route: 'journal' as PublicRoute, visible: true, order: 2, location: 'footer_ecosystem' as const },
+            { id: 'f-pricing', label: 'Packages & Scope', route: 'pricing' as PublicRoute, visible: true, order: 3, location: 'footer_ecosystem' as const },
+            { id: 'f-faq', label: 'FAQ', route: 'faq' as PublicRoute, visible: true, order: 4, location: 'footer_ecosystem' as const },
+            { id: 'f-contact', label: 'Contact & Enquiries', route: 'contact' as PublicRoute, visible: true, order: 5, location: 'footer_ecosystem' as const },
+          ],
+        },
+        {
+          id: 'footer_os',
+          title: 'Creative OS',
+          items: [
+            { id: 'f-reg', label: 'Create Client Workspace', route: 'register' as PublicRoute, visible: true, order: 1, location: 'footer_os' as const },
+            { id: 'f-login', label: 'Client Sign In', route: 'login' as PublicRoute, visible: true, order: 2, location: 'footer_os' as const },
+            { id: 'f-forgot', label: 'Reset Password', route: 'forgot-password' as PublicRoute, visible: true, order: 3, location: 'footer_os' as const },
+            { id: 'f-admin', label: 'Admin HQ Login', route: 'admin-login' as PublicRoute, visible: true, order: 4, location: 'footer_os' as const },
+          ],
+        },
+        {
+          id: 'footer_policies',
+          title: 'Policies',
+          items: [
+            { id: 'f-terms', label: 'Terms & Conditions', route: 'terms' as PublicRoute, visible: true, order: 1, location: 'footer_policies' as const },
+            { id: 'f-priv', label: 'Privacy Policy', route: 'privacy' as PublicRoute, visible: true, order: 2, location: 'footer_policies' as const },
+            { id: 'f-ref', label: 'Refund & Revision Policy', route: 'refund' as PublicRoute, visible: true, order: 3, location: 'footer_policies' as const },
+          ],
+        },
+      ];
 
   return (
     <footer className="bg-[#080808] border-t border-[#1A1A1A] py-14 px-4 sm:px-6 lg:px-8 mt-auto">
@@ -23,17 +78,17 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ navigate }) => {
           <div className="space-y-4 lg:col-span-1">
             <button type="button" onClick={() => go('home')} className="inline-flex items-center gap-2.5 text-left focus:outline-none">
               <img
-                src={keedohubBrandLogo}
-                alt="KeedoHub Logo"
+                src={logoMark}
+                alt={`${brandName} Logo`}
                 referrerPolicy="no-referrer"
-                className="h-10 w-10 object-cover border border-[#1E1E1E] shrink-0"
+                className="h-9 w-9 object-contain bg-transparent shrink-0"
               />
               <span className="text-lg font-black text-white tracking-tighter uppercase">
-                KEEDOHUB
+                {brandName}
               </span>
             </button>
             <p className="text-neutral-400 leading-relaxed text-xs max-w-xs">
-              Creative direction, brand identity, music visual worlds, and structured creative production for artists, labels, and modern companies.
+              {bio}
             </p>
             <button
               type="button"
@@ -45,45 +100,29 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ navigate }) => {
             </button>
           </div>
 
-          <div className="space-y-2.5">
-            <p className="text-white font-mono uppercase tracking-[0.18em] text-[10px]">Studio</p>
-            <button type="button" onClick={() => go('home')} className="block hover:text-white transition-colors">Home</button>
-            <button type="button" onClick={() => go('about')} className="block hover:text-white transition-colors">About the Agency</button>
-            <button type="button" onClick={() => go('vision')} className="block hover:text-white transition-colors">Vision &amp; Mission</button>
-            <button type="button" onClick={() => go('services')} className="block hover:text-white transition-colors">Capabilities &amp; Services</button>
-            <button type="button" onClick={() => go('portfolio')} className="block hover:text-white transition-colors">Portfolio Showcase</button>
-          </div>
-
-          <div className="space-y-2.5">
-            <p className="text-white font-mono uppercase tracking-[0.18em] text-[10px]">Ecosystem</p>
-            <button type="button" onClick={() => go('artists')} className="block hover:text-white transition-colors">Artists &amp; Visual Worlds</button>
-            <button type="button" onClick={() => go('journal')} className="block hover:text-white transition-colors">Studio Journal</button>
-            <button type="button" onClick={() => go('pricing')} className="block hover:text-white transition-colors">Packages &amp; Scope</button>
-            <button type="button" onClick={() => go('faq')} className="block hover:text-white transition-colors">FAQ</button>
-            <button type="button" onClick={() => go('contact')} className="block hover:text-white transition-colors">Contact &amp; Enquiries</button>
-          </div>
-
-          <div className="space-y-2.5">
-            <p className="text-white font-mono uppercase tracking-[0.18em] text-[10px]">Creative OS</p>
-            <button type="button" onClick={() => go('register')} className="block hover:text-white transition-colors">Create Client Workspace</button>
-            <button type="button" onClick={() => go('login')} className="block hover:text-white transition-colors">Client Sign In</button>
-            <button type="button" onClick={() => go('forgot-password')} className="block hover:text-white transition-colors">Reset Password</button>
-            <button type="button" onClick={() => go('admin-login')} className="block hover:text-white transition-colors">Admin HQ Login</button>
-          </div>
-
-          <div className="space-y-2.5">
-            <p className="text-white font-mono uppercase tracking-[0.18em] text-[10px]">Policies</p>
-            <button type="button" onClick={() => go('terms')} className="block hover:text-white transition-colors">Terms &amp; Conditions</button>
-            <button type="button" onClick={() => go('privacy')} className="block hover:text-white transition-colors">Privacy Policy</button>
-            <button type="button" onClick={() => go('refund')} className="block hover:text-white transition-colors">Refund &amp; Revision Policy</button>
-          </div>
+          {footerCols.map(col => (
+            <div key={col.id} className="space-y-2.5">
+              <p className="text-white font-mono uppercase tracking-[0.18em] text-[10px]">{col.title}</p>
+              {col.items.filter(i => i.visible !== false).map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => go(item.route)}
+                  className="block hover:text-white transition-colors text-left"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
 
         <div className="pt-6 border-t border-[#181818] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 font-mono text-[11px] text-neutral-500">
-          <p>© {new Date().getFullYear()} KeedoHub Creative Agency &amp; Production OS. All rights reserved.</p>
-          <p className="uppercase tracking-[0.18em]">Lagos · London · Remote Global Studio</p>
+          <p>{copyright}</p>
+          <p className="uppercase tracking-[0.18em]">{locations}</p>
         </div>
       </div>
     </footer>
   );
 };
+

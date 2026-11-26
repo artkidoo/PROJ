@@ -5,7 +5,8 @@
 
 import React from 'react';
 import { ClientCategory } from '../../types';
-import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubMarkTransparent from '../../assets/images/keedohub_mark_transparent.png';
+import keedohubMarkLightBg from '../../assets/images/keedohub_mark_light_bg.png';
 
 export type LogoTheme = 'light' | 'dark' | 'monochrome-black' | 'monochrome-white';
 
@@ -413,15 +414,17 @@ export const KeedohubLogo: React.FC<{
   className?: string;
   theme?: 'dark' | 'light';
 }> = ({ height = 32, className = '', theme = 'dark' }) => {
-  const text = theme === 'dark' ? '#FFFFFF' : '#000000';
+  const isLight = theme === 'light';
+  const text = isLight ? '#0B0B0B' : '#FFFFFF';
+  const markSrc = isLight ? keedohubMarkLightBg : keedohubMarkTransparent;
 
   return (
     <div className={`inline-flex items-center gap-2.5 select-none shrink-0 ${className}`} aria-label="KEEDOHUB Platform Logo">
       <img
-        src={keedohubBrandLogo}
+        src={markSrc}
         alt="KeedoHub Logo"
         referrerPolicy="no-referrer"
-        className="object-cover border border-[#1E1E1E] shrink-0"
+        className="object-contain bg-transparent shrink-0"
         style={{ width: height, height }}
       />
       <span

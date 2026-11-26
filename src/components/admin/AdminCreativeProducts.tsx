@@ -2009,6 +2009,61 @@ export const AdminCreativeProducts: React.FC<AdminCreativeProductsProps> = ({
                     />
                     <span>Unlocked by Default for Matching Audience</span>
                   </label>
+                  <label className="flex items-center gap-2 text-xs text-neutral-200 cursor-pointer sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editingProduct.isPurchasable)}
+                      onChange={e =>
+                        setEditingProduct({
+                          ...editingProduct,
+                          isPurchasable: e.target.checked,
+                          purchaseCurrency: editingProduct.purchaseCurrency || 'NGN',
+                        })
+                      }
+                      className="accent-[#FF1E1E]"
+                    />
+                    <span>Available for Direct One-Time Online Purchase (Paystack / Flutterwave)</span>
+                  </label>
+                  {editingProduct.isPurchasable && (
+                    <>
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-mono uppercase tracking-widest text-neutral-500">Purchase Currency</span>
+                        <select
+                          value={editingProduct.purchaseCurrency || 'NGN'}
+                          onChange={e =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              purchaseCurrency: e.target.value as 'NGN' | 'USD' | 'GBP' | 'EUR' | 'CAD',
+                            })
+                          }
+                          className="w-full border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs text-white font-mono"
+                        >
+                          <option value="NGN">NGN (₦)</option>
+                          <option value="USD">USD ($)</option>
+                          <option value="GBP">GBP (£)</option>
+                          <option value="EUR">EUR (€)</option>
+                          <option value="CAD">CAD ($)</option>
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-mono uppercase tracking-widest text-neutral-500">One-Time Purchase Price</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={editingProduct.purchasePrice ?? ''}
+                          onChange={e =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              purchasePrice: e.target.value === '' ? undefined : Number(e.target.value),
+                            })
+                          }
+                          placeholder="e.g. 15000"
+                          className="w-full border border-[#2E2E2E] bg-[#141414] px-3 py-2 text-xs text-white font-mono"
+                        />
+                      </label>
+                    </>
+                  )}
                 </div>
 
                 {/* Live Publish Readiness Gate Checklist */}

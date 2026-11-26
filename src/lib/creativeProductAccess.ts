@@ -179,11 +179,19 @@ export interface WorkspacePackageEntitlementInput {
   expiresAt?: string;
 }
 
+export interface WorkspaceSubscriptionEntitlementInput {
+  planId?: string;
+  status?: string;
+  expiresAt?: string;
+  entitledProductIds?: unknown;
+  entitledCategories?: unknown;
+}
+
 export interface ClientProductEligibilityParams {
   product: Pick<
     CreativeProduct,
     'status' | 'audience' | 'accessType' | 'assignedWorkspaceIds' | 'includedPackageIds' | 'unlockedByDefault' | 'instantStudioPackEligible' | 'files'
-  >;
+  > & Partial<Pick<CreativeProduct, 'id' | 'category' | 'isPurchasable' | 'purchasePrice' | 'purchaseCurrency' | 'priceUsd' | 'pricesByCurrency'>>;
   clientBucket: 'Artist' | 'Brand' | 'Business';
   workspaceId: string;
   workspaceStatus?: Workspace['status'] | string;
@@ -191,6 +199,8 @@ export interface ClientProductEligibilityParams {
   activePackageIds?: unknown;
   activeServicePackageIds?: readonly string[] | ReadonlySet<string>;
   packageEntitlements?: readonly WorkspacePackageEntitlementInput[];
+  purchasedProductIds?: unknown;
+  activeSubscription?: WorkspaceSubscriptionEntitlementInput | null;
   nowIso?: string;
 }
 
@@ -307,6 +317,76 @@ export function hasMatchingPackageEntitlement(params: ClientProductEligibilityPa
   return productPkgIds.some(pkgId => activeWorkspacePkgs.includes(pkgId));
 }
 
+const ENTITLED_SUBSCRIPTION_STATUSES = new Set(['Active', 'Trialing', 'Grace Period']);
+
+export function isSubscriptionEntitlementActive(
+  sub?: WorkspaceSubscriptionEntitlementInput | null,
+  nowIso?: string,
+): boolean {
+  if (!sub || !sub.status || !ENTITLED_SUBSCRIPTION_STATUSES.has(sub.status)) {
+    return false;
+  }
+  if (sub.expiresAt) {
+    const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
+    const expMs = Date.parse(sub.expiresAt);
+    if (!Number.isNaN(expMs) && expMs <= nowMs) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function hasPurchasedProductEntitlement(params: {
+  product: Pick<Partial<CreativeProduct>, 'id'>;
+  workspaceId: string;
+  workspaceStatus?: Workspace['status'] | string;
+  purchasedProductIds?: unknown;
+}): boolean {
+  if (!params.workspaceId || !params.workspaceId.trim() || !isWorkspaceStatusEligible(params.workspaceStatus)) {
+    return false;
+  }
+  const productId = typeof params.product.id === 'string' ? params.product.id.trim() : '';
+  if (!productId) return false;
+  const purchased = sanitizeIdList(params.purchasedProductIds);
+  return purchased.includes(productId);
+}
+
+export function hasSubscriptionProductEntitlement(params: ClientProductEligibilityParams): boolean {
+  if (!params.workspaceId || !params.workspaceId.trim() || !isWorkspaceStatusEligible(params.workspaceStatus)) {
+    return false;
+  }
+  const sub = params.activeSubscription;
+  if (!isSubscriptionEntitlementActive(sub, params.nowIso)) {
+    return false;
+  }
+  const productId = typeof params.product.id === 'string' ? params.product.id.trim() : '';
+  const entitledProducts = sanitizeIdList(sub?.entitledProductIds);
+  if (productId && entitledProducts.includes(productId)) {
+    return true;
+  }
+  const productCategory = typeof params.product.category === 'string' ? params.product.category.trim().toLowerCase() : '';
+  const entitledCategories = Array.isArray(sub?.entitledCategories)
+    ? sub!.entitledCategories.filter((c): c is string => typeof c === 'string' && c.trim().length > 0).map(c => c.trim().toLowerCase())
+    : [];
+  if (productCategory && entitledCategories.includes(productCategory)) {
+    return true;
+  }
+  return false;
+}
+
+export function isProductIndividuallyPurchasable(
+  product: Partial<Pick<CreativeProduct, 'status' | 'isPurchasable' | 'purchasePrice' | 'priceUsd' | 'pricesByCurrency'>>,
+): boolean {
+  if (product.status && product.status !== 'Published') return false;
+  if (product.isPurchasable !== true) return false;
+  const direct = Number(product.purchasePrice ?? product.priceUsd ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return true;
+  if (product.pricesByCurrency) {
+    return Object.values(product.pricesByCurrency).some(val => typeof val === 'number' && Number.isFinite(val) && val > 0);
+  }
+  return false;
+}
+
 export function isClientEligibleForProductView(params: ClientProductEligibilityParams): boolean {
   const { product, clientBucket, workspaceStatus } = params;
   if (product.status !== 'Published') return false;
@@ -314,6 +394,18 @@ export function isClientEligibleForProductView(params: ClientProductEligibilityP
   if (!matchesProductAudience(product.audience, clientBucket)) return false;
 
   if (product.unlockedByDefault === true) {
+    return true;
+  }
+
+  if (hasPurchasedProductEntitlement(params)) {
+    return true;
+  }
+
+  if (hasSubscriptionProductEntitlement(params)) {
+    return true;
+  }
+
+  if (isProductIndividuallyPurchasable(product)) {
     return true;
   }
 
@@ -338,6 +430,12 @@ export function isClientEligibleForProductDownload(params: ClientProductEligibil
   }
   const { product } = params;
   if (product.accessType === 'Free' || product.unlockedByDefault === true) {
+    return true;
+  }
+  if (hasPurchasedProductEntitlement(params)) {
+    return true;
+  }
+  if (hasSubscriptionProductEntitlement(params)) {
     return true;
   }
   if (product.accessType === 'AdminAssigned') {
@@ -374,7 +472,10 @@ export interface ProductAccessSummary {
     | 'download-ready'
     | 'free-catalog'
     | 'included-in-package'
+    | 'membership-unlocked'
+    | 'purchased'
     | 'workspace-assigned'
+    | 'purchasable'
     | 'request-required'
     | 'access-restricted';
   badgeLabel: string;
@@ -382,6 +483,8 @@ export interface ProductAccessSummary {
   canDownload: boolean;
   approvedFilesCount: number;
   isAssignedToWorkspace: boolean;
+  isPurchased?: boolean;
+  isMembershipUnlocked?: boolean;
 }
 
 export function getProductDownloadStatusSummary(
@@ -391,6 +494,9 @@ export function getProductDownloadStatusSummary(
   const canView = isClientEligibleForProductView(params);
   const canDownload = canView && isClientEligibleForProductDownload(params);
   const isAssignedToWorkspace = canView && hasExplicitWorkspaceAssignment(params);
+  const isPurchased = canView && hasPurchasedProductEntitlement(params);
+  const isMembershipUnlocked = canView && hasSubscriptionProductEntitlement(params);
+  const isPurchasable = isProductIndividuallyPurchasable(product);
   const hasPackageAccess =
     canView && product.accessType === 'IncludedInPackage' && hasMatchingPackageEntitlement(params);
 
@@ -398,10 +504,10 @@ export function getProductDownloadStatusSummary(
     return {
       state: 'access-restricted',
       badgeLabel:
-        product.accessType === 'IncludedInPackage' ? 'Package Entitlement Required' : 'Access Restricted',
+        product.accessType === 'IncludedInPackage' ? 'Package or Membership Required' : 'Access Restricted',
       explanation:
         product.accessType === 'IncludedInPackage'
-          ? 'This product requires an active contracted studio package linked to your workspace or explicit Admin HQ assignment.'
+          ? 'This product requires an active subscription membership, contracted studio package, or explicit Admin HQ assignment.'
           : 'This product is not unlocked for your workspace.',
       canDownload: false,
       approvedFilesCount: 0,
@@ -414,19 +520,53 @@ export function getProductDownloadStatusSummary(
   if (canDownload && approvedFiles.length > 0) {
     return {
       state: 'download-ready',
-      badgeLabel: isAssignedToWorkspace
-        ? `Assigned · Download Ready (${approvedFiles.length})`
-        : hasPackageAccess
-          ? `Package · Download Ready (${approvedFiles.length})`
-          : `Download Ready (${approvedFiles.length})`,
-      explanation: isAssignedToWorkspace
-        ? 'Prepared specifically for your workspace and approved by Admin HQ for immediate download.'
-        : hasPackageAccess
-          ? 'Unlocked by your active contracted studio package and ready for immediate download.'
-          : 'Approved studio deliverable files are published and ready for immediate download.',
+      badgeLabel: isPurchased
+        ? `Purchased · Download Ready (${approvedFiles.length})`
+        : isAssignedToWorkspace
+          ? `Assigned · Download Ready (${approvedFiles.length})`
+          : isMembershipUnlocked
+            ? `Membership · Download Ready (${approvedFiles.length})`
+            : hasPackageAccess
+              ? `Package · Download Ready (${approvedFiles.length})`
+              : `Download Ready (${approvedFiles.length})`,
+      explanation: isPurchased
+        ? 'Unlocked via verified one-time purchase and permanently ready for download in this workspace.'
+        : isAssignedToWorkspace
+          ? 'Prepared specifically for your workspace and approved by Admin HQ for immediate download.'
+          : isMembershipUnlocked
+            ? 'Included in your active Creative Resource Membership and ready for immediate download.'
+            : hasPackageAccess
+              ? 'Unlocked by your active contracted studio package and ready for immediate download.'
+              : 'Approved studio deliverable files are published and ready for immediate download.',
       canDownload: true,
       approvedFilesCount: approvedFiles.length,
       isAssignedToWorkspace,
+      isPurchased,
+      isMembershipUnlocked,
+    };
+  }
+
+  if (isPurchased) {
+    return {
+      state: 'purchased',
+      badgeLabel: 'Purchased',
+      explanation: 'Verified one-time purchase owned by your workspace. Approved deliverables are ready or customizable in Studio.',
+      canDownload: true,
+      approvedFilesCount: 0,
+      isAssignedToWorkspace: false,
+      isPurchased: true,
+    };
+  }
+
+  if (isMembershipUnlocked) {
+    return {
+      state: 'membership-unlocked',
+      badgeLabel: 'Included in Membership',
+      explanation: 'Unlocked by your active Creative Resource Membership.',
+      canDownload: true,
+      approvedFilesCount: 0,
+      isAssignedToWorkspace: false,
+      isMembershipUnlocked: true,
     };
   }
 
@@ -442,11 +582,31 @@ export function getProductDownloadStatusSummary(
   }
 
   if (product.accessType === 'IncludedInPackage') {
+    if (hasPackageAccess) {
+      return {
+        state: 'included-in-package',
+        badgeLabel: 'Included in Package',
+        explanation: 'Unlocked by your active contracted studio package. Commission a customized deliverable pack below.',
+        canDownload: true,
+        approvedFilesCount: 0,
+        isAssignedToWorkspace: false,
+      };
+    }
+    if (isPurchasable) {
+      return {
+        state: 'purchasable',
+        badgeLabel: 'One-Time Purchase Available',
+        explanation: 'Available for direct one-time purchase or via an eligible studio subscription plan.',
+        canDownload: false,
+        approvedFilesCount: 0,
+        isAssignedToWorkspace: false,
+      };
+    }
     return {
-      state: 'included-in-package',
-      badgeLabel: 'Included in Package',
-      explanation: 'Unlocked by your active contracted studio package. Commission a customized deliverable pack below.',
-      canDownload: true,
+      state: 'access-restricted',
+      badgeLabel: 'Membership or Package Required',
+      explanation: 'Subscribe to an eligible Creative Resource Membership or studio package to unlock downloads.',
+      canDownload: false,
       approvedFilesCount: 0,
       isAssignedToWorkspace: false,
     };
@@ -458,6 +618,17 @@ export function getProductDownloadStatusSummary(
       badgeLabel: 'Free Resource',
       explanation: 'Free Creative Hub resource for eligible accounts. Request studio customization or await file release.',
       canDownload: true,
+      approvedFilesCount: 0,
+      isAssignedToWorkspace: false,
+    };
+  }
+
+  if (isPurchasable) {
+    return {
+      state: 'purchasable',
+      badgeLabel: 'Purchase or Request Custom',
+      explanation: 'Available for direct one-time purchase or custom studio production request.',
+      canDownload: false,
       approvedFilesCount: 0,
       isAssignedToWorkspace: false,
     };

@@ -25,7 +25,9 @@ import {
   uploadBrandIdentityAsset,
 } from '../../../lib/brandRoomService';
 import { DEFAULT_BRAND_IDENTITY } from '../../../lib/brandRoomStudio';
-import keedohubBrandLogo from '../../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubLogoTransparent from '../../../assets/images/keedohub_logo_transparent.png';
+import keedohubLogoLightBg from '../../../assets/images/keedohub_logo_light_bg.png';
+import keedohubMarkTransparent from '../../../assets/images/keedohub_mark_transparent.png';
 
 interface BrandIdentityPanelProps {
   identity: KeedoBrandIdentity;
@@ -213,37 +215,65 @@ export const BrandIdentityPanel: React.FC<BrandIdentityPanelProps> = ({
         </div>
       )}
 
-      {/* Official KeedoHub Master Brand Emblem (Red-K KH Mark) */}
+      {/* Official KeedoHub Master Brand Emblem (Transparent Alpha-Channel Architecture) */}
       <section className="border border-[#1E1E1E] bg-[#0B0B0B] p-5 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex flex-col sm:flex-row sm:items-center gap-5">
-          <div className="w-28 h-28 bg-black border border-[#262626] p-1.5 flex items-center justify-center shrink-0">
-            <img
-              src={keedohubBrandLogo}
-              alt="Official KeedoHub Master Brand Logo"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-contain"
-            />
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Dark surface preview */}
+            <div className="w-28 h-28 bg-[#090909] border border-[#262626] p-2 flex items-center justify-center shrink-0">
+              <img
+                src={keedohubLogoTransparent}
+                alt="KeedoHub Master Logo (Dark Background)"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-contain bg-transparent"
+              />
+            </div>
+            {/* Light surface preview */}
+            <div className="w-28 h-28 bg-[#F4F4F4] border border-[#CCCCCC] p-2 flex items-center justify-center shrink-0">
+              <img
+                src={keedohubLogoLightBg}
+                alt="KeedoHub Master Logo (Light Background)"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-contain bg-transparent"
+              />
+            </div>
           </div>
           <div className="space-y-1.5 max-w-xl">
             <p className="text-[10px] font-mono uppercase tracking-widest text-[#FF1E1E]">
-              Official Master Brand Mark
+              Official Master Brand Mark · Clean Transparent PNG
             </p>
             <h3 className="text-base font-black text-white uppercase tracking-tight">
               KH Monogram · Distressed Studio Signature
             </h3>
             <p className="text-xs text-neutral-400 leading-relaxed">
-              Canonical brand lockup featuring the signature vertical-bristle KH monogram with Signal Red (<span className="font-mono text-[#FF1E1E]">#FF1E1E</span>) applied exclusively to the left <strong className="text-white">K</strong>, crisp White (<span className="font-mono text-white">#FFFFFF</span>) on the <strong className="text-white">H</strong>, and solid White across the full <strong className="text-white">KEEDOHUB</strong> wordmark below.
+              Canonical brand lockup featuring the signature vertical-bristle KH monogram with Signal Red (<span className="font-mono text-[#FF1E1E]">#FF1E1E</span>) on the left <strong className="text-white">K</strong>, crisp White (<span className="font-mono text-white">#FFFFFF</span>) / Obsidian (<span className="font-mono text-white">#0B0B0B</span>) on the <strong className="text-white">H</strong>, and crisp typography below. Rendered with clean alpha transparency and no black bounding boxes.
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <a
-            href={keedohubBrandLogo}
-            download="keedohub-official-master-logo.jpg"
+            href={keedohubLogoTransparent}
+            download="keedohub-logo-dark-surface-transparent.png"
             className="inline-flex items-center gap-2 border border-[#2A2A2A] bg-[#141414] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:border-[#FF1E1E] transition-colors"
           >
             <Download size={14} className="text-[#FF1E1E]" />
-            <span>Download Master JPG</span>
+            <span>Dark PNG</span>
+          </a>
+          <a
+            href={keedohubLogoLightBg}
+            download="keedohub-logo-light-surface-transparent.png"
+            className="inline-flex items-center gap-2 border border-[#2A2A2A] bg-[#141414] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:border-[#FF1E1E] transition-colors"
+          >
+            <Download size={14} className="text-[#FF1E1E]" />
+            <span>Light PNG</span>
+          </a>
+          <a
+            href="/favicon.svg"
+            download="keedohub-mark-transparent.svg"
+            className="inline-flex items-center gap-2 border border-[#2A2A2A] bg-[#141414] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:border-[#FF1E1E] transition-colors"
+          >
+            <Download size={14} className="text-[#FF1E1E]" />
+            <span>SVG Mark</span>
           </a>
         </div>
       </section>

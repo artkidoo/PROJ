@@ -955,12 +955,39 @@ service cloud.firestore {
         );
     }
 
+    function clientHasPurchasedProduct(productId) {
+      return clientHasOpenWorkspace() &&
+        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['purchasedProductIds']) &&
+        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.purchasedProductIds is list &&
+        productId in get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.purchasedProductIds;
+    }
+
+    function clientHasSubscriptionAccessToProduct(productId, category) {
+      return clientHasOpenWorkspace() &&
+        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['activeSubscriptionStatus']) &&
+        get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.activeSubscriptionStatus in ['Active', 'Trialing', 'Grace Period'] &&
+        (
+          (
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['subscriptionEntitledProductIds']) &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledProductIds is list &&
+            productId in get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledProductIds
+          ) ||
+          (
+            category is string &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.keys().hasAny(['subscriptionEntitledCategories']) &&
+            get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledCategories is list &&
+            category in get(/databases/$(database)/documents/workspaces/$(get(/databases/$(database)/documents/clientProfiles/$(request.auth.uid)).data.workspaceId)).data.subscriptionEntitledCategories
+          )
+        );
+    }
+
     function validCreativeProduct(productId, data) {
       return data.keys().hasOnly([
           'id', 'title', 'slug', 'audience', 'productFamily', 'category', 'subcategory',
           'resourceType', 'industryTag', 'summary', 'description', 'status', 'reviewStatus',
           'accessType', 'assignedWorkspaceIds', 'includedPackageIds',
-          'membershipTiers', 'priceUsd', 'unlockedByDefault', 'instantStudioPackEligible',
+          'membershipTiers', 'priceUsd', 'isPurchasable', 'purchaseCurrency', 'purchasePrice',
+          'pricesByCurrency', 'unlockedByDefault', 'instantStudioPackEligible',
           'linkedServiceCategory', 'version', 'supportedFormats', 'deliverablesSummary',
           'includedItems', 'dimensionSpecs', 'variationOptions', 'previewImageUrl',
           'previewStoragePath', 'previewAlt', 'previewGallery', 'files',
@@ -987,6 +1014,10 @@ service cloud.firestore {
         (!data.keys().hasAny(['includedPackageIds']) || (data.includedPackageIds is list && data.includedPackageIds.size() <= 50)) &&
         (!data.keys().hasAny(['membershipTiers']) || (data.membershipTiers is list && data.membershipTiers.size() <= 15)) &&
         (!data.keys().hasAny(['priceUsd']) || (data.priceUsd is number && data.priceUsd >= 0)) &&
+        (!data.keys().hasAny(['isPurchasable']) || data.isPurchasable is bool) &&
+        (!data.keys().hasAny(['purchaseCurrency']) || data.purchaseCurrency in ['USD', 'GBP', 'EUR', 'NGN', 'CAD']) &&
+        (!data.keys().hasAny(['purchasePrice']) || (data.purchasePrice is number && data.purchasePrice >= 0)) &&
+        (!data.keys().hasAny(['pricesByCurrency']) || data.pricesByCurrency is map) &&
         (!data.keys().hasAny(['unlockedByDefault']) || data.unlockedByDefault is bool) &&
         (!data.keys().hasAny(['instantStudioPackEligible']) || data.instantStudioPackEligible is bool) &&
         (data.status != 'Published' || (
@@ -1045,7 +1076,7 @@ service cloud.firestore {
         data.updatedAt is string;
     }
 
-    // Phase 6 & Phase 4 Creative Products Catalog & Deliverables
+    // Phase 6, Phase 4 & Phase 7 Creative Products Catalog & Deliverables
     match /creativeProducts/{productId} {
       allow read: if isPlatformAdmin() || (
         isWorkspaceAccountActive() &&
@@ -1055,6 +1086,9 @@ service cloud.firestore {
         (
           resource.data.accessType in ['Free', 'RequestRequired'] ||
           resource.data.get('unlockedByDefault', false) == true ||
+          resource.data.get('isPurchasable', false) == true ||
+          clientHasPurchasedProduct(productId) ||
+          clientHasSubscriptionAccessToProduct(productId, resource.data.category) ||
           clientHasWorkspaceAccessToProduct(resource.data.assignedWorkspaceIds) ||
           (
             resource.data.accessType == 'IncludedInPackage' &&
@@ -1195,6 +1229,112 @@ service cloud.firestore {
         resource.data.status in ['Issued', 'Sent', 'Under Review', 'Revision Requested', 'Approved', 'Declined', 'Expired']
       );
       allow create, update, delete: if false;
+    }
+
+    // Phase 7: Server-Governed Subscription Plans, Subscriptions, One-Time Purchases & Payment Transactions
+    match /subscriptionPlans/{planId} {
+      allow read: if isPlatformAdmin() || (
+        resource.data.status == 'Published' &&
+        resource.data.visibility != 'Hidden'
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow get, list: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.workspaceId is string &&
+        isWorkspaceMember(resource.data.workspaceId)
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /subscriptionEvents/{eventId} {
+      allow get, list: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.workspaceId is string &&
+        isWorkspaceMember(resource.data.workspaceId)
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /paymentTransactions/{transactionId} {
+      allow get, list: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.workspaceId is string &&
+        isWorkspaceMember(resource.data.workspaceId)
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /oneTimePurchases/{purchaseId} {
+      allow get, list: if isPlatformAdmin() || (
+        isWorkspaceAccountActive() &&
+        resource.data.workspaceId is string &&
+        isWorkspaceMember(resource.data.workspaceId)
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /paymentWebhookEvents/{eventId} {
+      allow read: if isPlatformAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Website CMS & Dynamic Studio Journal
+    function validJournalArticle(articleId, data) {
+      return isValidId(articleId) &&
+        data.id == articleId &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 220 &&
+        data.slug is string && data.slug.size() > 0 && data.slug.size() <= 160 &&
+        data.status in ['Draft', 'Published', 'Scheduled', 'Archived'] &&
+        data.category is string && data.category.size() > 0 && data.category.size() <= 80 &&
+        data.tags is list && data.tags.size() <= 25 &&
+        data.previousSlugs is list && data.previousSlugs.size() <= 25 &&
+        data.inlineImages is list && data.inlineImages.size() <= 30 &&
+        data.featured is bool &&
+        data.readingTimeMinutes is number && data.readingTimeMinutes >= 1 &&
+        data.createdAt is string && data.updatedAt is string;
+    }
+
+    match /journalArticles/{articleId} {
+      allow get, list: if isPlatformAdmin() || resource.data.status == 'Published';
+      allow create, update: if isPlatformAdmin() && validJournalArticle(articleId, request.resource.data);
+      allow delete: if isPlatformAdmin() && isValidId(articleId);
+    }
+
+    match /siteCms/{docId} {
+      allow get, list: if true;
+      allow create, update: if isPlatformAdmin() &&
+        docId in ['homepage', 'navigation', 'settings'] &&
+        request.resource.data.id == docId &&
+        request.resource.data.updatedAt is string;
+      allow delete: if isPlatformAdmin() && docId in ['homepage', 'navigation', 'settings'];
+    }
+
+    match /sitePages/{pageId} {
+      allow get, list: if true;
+      allow create, update: if isPlatformAdmin() &&
+        pageId in ['about', 'vision', 'services', 'portfolio', 'artists', 'journal', 'pricing', 'faq', 'contact'] &&
+        request.resource.data.id == pageId &&
+        request.resource.data.title is string &&
+        request.resource.data.title.size() > 0 &&
+        request.resource.data.title.size() <= 220 &&
+        request.resource.data.isVisible is bool;
+      allow delete: if isPlatformAdmin() &&
+        pageId in ['about', 'vision', 'services', 'portfolio', 'artists', 'journal', 'pricing', 'faq', 'contact'];
+    }
+
+    match /cmsMedia/{assetId} {
+      allow get, list: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() &&
+        isValidId(assetId) &&
+        request.resource.data.id == assetId &&
+        request.resource.data.title is string && request.resource.data.title.size() > 0 &&
+        request.resource.data.folder in ['journal', 'homepage', 'pages', 'branding', 'general'] &&
+        request.resource.data.url is string && request.resource.data.url.size() > 0 &&
+        request.resource.data.storagePath is string;
+      allow delete: if isPlatformAdmin() && isValidId(assetId);
     }
   }
 }

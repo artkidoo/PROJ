@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { WebsiteCmsProvider, useWebsiteCms } from '../../context/WebsiteCmsContext';
+import type { PublicPageId } from '../../types/cms';
 import { PublicHomepage } from './PublicHomepage';
 import { PublicRoute } from './PublicHeader';
 import { AboutPage } from './AboutPage';
@@ -39,8 +41,9 @@ const TITLES: Record<PublicRoute, string> = {
   'admin-login': 'Admin HQ Sign In — KeedoHub',
 };
 
-export const PublicSite: React.FC = () => {
+const PublicSiteInner: React.FC = () => {
   const { clearAuthError } = useApp();
+  const { isPageVisible } = useWebsiteCms();
   const [route, setRoute] = useState<PublicRoute>('home');
   const [param, setParam] = useState<string | null>(null);
   const routeRef = useRef<PublicRoute>('home');
@@ -85,32 +88,59 @@ export const PublicSite: React.FC = () => {
     window.scrollTo(0, 0);
   };
 
-  useEffect(() => { document.title = TITLES[route]; }, [route]);
-
-  interface Props {
-    navigate: (r: PublicRoute, p?: string) => void;
-  }
+  useEffect(() => {
+    document.title = TITLES[route];
+  }, [route]);
 
   const common = { navigate };
 
+  const canShow = (id: PublicPageId) => isPageVisible(id);
+
   switch (route) {
-    case 'about': return <AboutPage {...common} />;
-    case 'vision': return <VisionMissionPage {...common} />;
-    case 'services': return <ServicesPage {...common} />;
-    case 'portfolio': return <PortfolioPage {...common} />;
-    case 'artists': return <ArtistsPage {...common} />;
-    case 'journal': return <JournalPage {...common} />;
-    case 'article': return <ArticlePage {...common} param={param} />;
-    case 'pricing': return <PricingPage {...common} />;
-    case 'contact': return <ContactPage {...common} serviceParam={param} />;
-    case 'faq': return <FaqPage {...common} />;
-    case 'terms': return <TermsPage {...common} />;
-    case 'privacy': return <PrivacyPage {...common} />;
-    case 'refund': return <RefundPolicyPage {...common} />;
-    case 'login': return <LoginPage {...common} />;
-    case 'register': return <RegisterPage {...common} />;
-    case 'forgot-password': return <ForgotPasswordPage {...common} />;
-    case 'admin-login': return <AdminLoginPage {...common} />;
-    default: return <PublicHomepage navigate={navigate} />;
+    case 'about':
+      return canShow('about') ? <AboutPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'vision':
+      return canShow('vision') ? <VisionMissionPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'services':
+      return canShow('services') ? <ServicesPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'portfolio':
+      return canShow('portfolio') ? <PortfolioPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'artists':
+      return canShow('artists') ? <ArtistsPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'journal':
+      return canShow('journal') ? <JournalPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'article':
+      return <ArticlePage {...common} param={param} />;
+    case 'pricing':
+      return canShow('pricing') ? <PricingPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'contact':
+      return canShow('contact') ? <ContactPage {...common} serviceParam={param} /> : <PublicHomepage navigate={navigate} />;
+    case 'faq':
+      return canShow('faq') ? <FaqPage {...common} /> : <PublicHomepage navigate={navigate} />;
+    case 'terms':
+      return <TermsPage {...common} />;
+    case 'privacy':
+      return <PrivacyPage {...common} />;
+    case 'refund':
+      return <RefundPolicyPage {...common} />;
+    case 'login':
+      return <LoginPage {...common} />;
+    case 'register':
+      return <RegisterPage {...common} />;
+    case 'forgot-password':
+      return <ForgotPasswordPage {...common} />;
+    case 'admin-login':
+      return <AdminLoginPage {...common} />;
+    default:
+      return <PublicHomepage navigate={navigate} />;
   }
 };
+
+export const PublicSite: React.FC = () => {
+  return (
+    <WebsiteCmsProvider>
+      <PublicSiteInner />
+    </WebsiteCmsProvider>
+  );
+};
+

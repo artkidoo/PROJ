@@ -14,6 +14,7 @@ import {
   Disc3,
   FileCheck2,
   FolderKanban,
+  Globe,
   Inbox,
   Layers,
   Plus,
@@ -460,6 +461,16 @@ export const AdminHQOverview: React.FC<AdminHQOverviewProps> = ({ onNavigate }) 
           >
             <Sparkles size={13} className="text-[#FF1E1E]" />
             <span>Creative Products</span>
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onNavigate('platform-settings', undefined, { subTab: 'website-cms' })
+            }
+            className="inline-flex items-center gap-1.5 border border-[#333] bg-[#141414] hover:border-white px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+          >
+            <Globe size={13} className="text-[#FF1E1E]" />
+            <span>Website CMS</span>
           </button>
           <button
             type="button"

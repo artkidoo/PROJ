@@ -9,7 +9,17 @@ import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../../lib/firebase';
 import { useApp } from '../../context/AppContext';
-import { Settings, Save, CheckCircle2, ShieldAlert, Globe, Mail, Building, Sliders } from 'lucide-react';
+import {
+  adminUpdatePaymentSettingsAction,
+  fetchPaymentSystemConfig,
+} from '../../lib/subscriptions';
+import type {
+  CommercialCurrency,
+  PaymentGatewayRuntimeStatus,
+  PaymentProviderId,
+  PaymentProviderSettings,
+} from '../../types';
+import { Settings, Save, CheckCircle2, ShieldAlert, Globe, Mail, Building, Sliders, CreditCard } from 'lucide-react';
 
 interface PlatformSettings {
   platformName: string;
@@ -45,6 +55,24 @@ export const PlatformSettingsManagement: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState<PaymentGatewayRuntimeStatus | null>(null);
+  const [paymentSettings, setPaymentSettings] = useState<PaymentProviderSettings>({
+    activeProvider: 'paystack',
+    enabledProviders: ['paystack', 'flutterwave'],
+    defaultCurrency: 'NGN',
+    supportedCurrencies: ['NGN', 'USD', 'GBP', 'EUR', 'CAD'],
+    supportedMethods: ['Card', 'Bank Transfer', 'USSD', 'Paystack', 'Flutterwave'],
+    maxPaymentRetries: 3,
+    retryIntervalHours: 24,
+    defaultGracePeriodDays: 5,
+    cancellationPolicy: 'immediate_or_period_end',
+    refundWindowDays: 14,
+    enableSubscriptions: true,
+    enableOneTimePurchases: true,
+    autoGenerateInvoices: true,
+    autoGenerateReceipts: true,
+  });
+  const [savingPaymentSettings, setSavingPaymentSettings] = useState(false);
 
   useEffect(() => {
     if (!firebaseUser || !canAccessAdminCenter) {
@@ -52,10 +80,17 @@ export const PlatformSettingsManagement: React.FC = () => {
       return;
     }
     let active = true;
-    void getDoc(doc(db, 'settings', 'platform')).then(snapshot => {
+    void Promise.all([
+      getDoc(doc(db, 'settings', 'platform')),
+      fetchPaymentSystemConfig().catch(() => null),
+    ]).then(([snapshot, gwConfig]) => {
       if (!active) return;
       if (snapshot.exists()) {
         setSettings({ ...DEFAULT_SETTINGS, ...(snapshot.data() as PlatformSettings) });
+      }
+      if (gwConfig) {
+        setPaymentStatus(gwConfig);
+        setPaymentSettings(gwConfig.settings);
       }
       setLoading(false);
     }).catch(err => {
@@ -123,6 +158,26 @@ export const PlatformSettingsManagement: React.FC = () => {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSavePaymentSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingPaymentSettings(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const res = await adminUpdatePaymentSettingsAction(paymentSettings);
+      setSuccessMessage(res.message || 'Payment gateway & subscription automation settings saved.');
+      const refreshed = await fetchPaymentSystemConfig().catch(() => null);
+      if (refreshed) {
+        setPaymentStatus(refreshed);
+        setPaymentSettings(refreshed.settings);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save payment gateway settings.');
+    } finally {
+      setSavingPaymentSettings(false);
     }
   };
 
@@ -224,9 +279,11 @@ export const PlatformSettingsManagement: React.FC = () => {
                   onChange={e => setSettings({ ...settings, defaultCurrency: e.target.value })}
                   className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FF1E1E]"
                 >
+                  <option value="NGN">NGN (₦)</option>
                   <option value="USD">USD ($)</option>
                   <option value="EUR">EUR (€)</option>
                   <option value="GBP">GBP (£)</option>
+                  <option value="CAD">CAD ($)</option>
                 </select>
               </div>
               <div>
@@ -287,6 +344,189 @@ export const PlatformSettingsManagement: React.FC = () => {
             </button>
           </div>
         </section>
+      </form>
+
+      {/* Payment Gateway & Subscription Automation Settings */}
+      <form onSubmit={e => void handleSavePaymentSettings(e)} className="rounded-xl border border-[#222] bg-[#0D0D0D] p-5 sm:p-6 space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1C1C1C] pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-white">
+              <CreditCard size={18} className="text-[#FF1E1E]" />
+              <h3 className="text-base font-bold">Payment Gateway &amp; Subscription Automation</h3>
+            </div>
+            <p className="text-xs text-neutral-400">
+              Configure Paystack &amp; Flutterwave gateway routing, NGN/multi-currency defaults, grace periods, retry rules, and cancellation policy. API secrets are managed exclusively via Cloud Functions environment variables.
+            </p>
+          </div>
+          {paymentStatus && (
+            <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase">
+              <span className={`border px-2.5 py-1 ${paymentStatus.providers.paystack.ready ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-300' : 'border-amber-700/60 bg-amber-950/30 text-amber-300'}`}>
+                Paystack: {paymentStatus.providers.paystack.secretConfigured ? 'Secret Ready' : 'Env Secret Unset'}
+              </span>
+              <span className={`border px-2.5 py-1 ${paymentStatus.providers.flutterwave.ready ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-300' : 'border-amber-700/60 bg-amber-950/30 text-amber-300'}`}>
+                Flutterwave: {paymentStatus.providers.flutterwave.secretConfigured ? 'Secret Ready' : 'Env Secret Unset'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <label className="block">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Primary Checkout Provider</span>
+            <select
+              value={paymentSettings.activeProvider}
+              onChange={e => setPaymentSettings({ ...paymentSettings, activeProvider: e.target.value as PaymentProviderId })}
+              className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2 text-white"
+            >
+              <option value="paystack">Paystack (Nigeria-First)</option>
+              <option value="flutterwave">Flutterwave</option>
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Default Billing Currency</span>
+            <select
+              value={paymentSettings.defaultCurrency}
+              onChange={e => setPaymentSettings({ ...paymentSettings, defaultCurrency: e.target.value as CommercialCurrency })}
+              className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2 text-white font-mono"
+            >
+              {(['NGN', 'USD', 'GBP', 'EUR', 'CAD'] as const).map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Cancellation Policy</span>
+            <select
+              value={paymentSettings.cancellationPolicy}
+              onChange={e =>
+                setPaymentSettings({
+                  ...paymentSettings,
+                  cancellationPolicy: e.target.value as PaymentProviderSettings['cancellationPolicy'],
+                })
+              }
+              className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2 text-white"
+            >
+              <option value="immediate_or_period_end">Client Chooses Immediate or Period End</option>
+              <option value="period_end_only">End of Billing Period Only</option>
+              <option value="immediate_only">Immediate Cancellation Only</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+          <label className="block">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Default Grace Period (Days)</span>
+            <input
+              type="number"
+              min={0}
+              max={60}
+              value={paymentSettings.defaultGracePeriodDays}
+              onChange={e => setPaymentSettings({ ...paymentSettings, defaultGracePeriodDays: Number(e.target.value) || 0 })}
+              className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2 text-white font-mono"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Max Payment Retries</span>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              value={paymentSettings.maxPaymentRetries}
+              onChange={e => setPaymentSettings({ ...paymentSettings, maxPaymentRetries: Number(e.target.value) || 0 })}
+              className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2 text-white font-mono"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Retry Interval (Hours)</span>
+            <input
+              type="number"
+              min={1}
+              max={168}
+              value={paymentSettings.retryIntervalHours}
+              onChange={e => setPaymentSettings({ ...paymentSettings, retryIntervalHours: Number(e.target.value) || 24 })}
+              className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2 text-white font-mono"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Refund Window (Days)</span>
+            <input
+              type="number"
+              min={0}
+              max={365}
+              value={paymentSettings.refundWindowDays}
+              onChange={e => setPaymentSettings({ ...paymentSettings, refundWindowDays: Number(e.target.value) || 0 })}
+              className="w-full rounded border border-[#303030] bg-[#141414] px-3 py-2 text-white font-mono"
+            />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs pt-1">
+          {(['paystack', 'flutterwave'] as const).map(prov => (
+            <label key={prov} className="flex items-center gap-2.5 text-neutral-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={paymentSettings.enabledProviders.includes(prov)}
+                onChange={e => {
+                  const next = e.target.checked
+                    ? Array.from(new Set([...paymentSettings.enabledProviders, prov]))
+                    : paymentSettings.enabledProviders.filter(p => p !== prov);
+                  setPaymentSettings({ ...paymentSettings, enabledProviders: next });
+                }}
+                className="accent-[#FF1E1E]"
+              />
+              <span className="capitalize">Enable {prov} checkout gateway</span>
+            </label>
+          ))}
+          <label className="flex items-center gap-2.5 text-neutral-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={paymentSettings.enableSubscriptions}
+              onChange={e => setPaymentSettings({ ...paymentSettings, enableSubscriptions: e.target.checked })}
+              className="accent-[#FF1E1E]"
+            />
+            <span>Allow new subscription signups</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-neutral-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={paymentSettings.enableOneTimePurchases}
+              onChange={e => setPaymentSettings({ ...paymentSettings, enableOneTimePurchases: e.target.checked })}
+              className="accent-[#FF1E1E]"
+            />
+            <span>Allow one-time resource &amp; package purchases</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-neutral-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={paymentSettings.autoGenerateInvoices}
+              onChange={e => setPaymentSettings({ ...paymentSettings, autoGenerateInvoices: e.target.checked })}
+              className="accent-[#FF1E1E]"
+            />
+            <span>Auto-generate Firestore invoices on settlement</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-neutral-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={paymentSettings.autoGenerateReceipts}
+              onChange={e => setPaymentSettings({ ...paymentSettings, autoGenerateReceipts: e.target.checked })}
+              className="accent-[#FF1E1E]"
+            />
+            <span>Auto-issue verified receipts (RCP-*)</span>
+          </label>
+        </div>
+
+        <div className="pt-3 border-t border-[#1C1C1C] flex justify-end">
+          <button
+            type="submit"
+            disabled={savingPaymentSettings}
+            className="inline-flex items-center gap-2 rounded bg-[#FF1E1E] px-5 py-2.5 text-xs font-semibold text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+          >
+            <Save size={14} />
+            <span>{savingPaymentSettings ? 'Saving Payment Rules…' : 'Save Payment & Automation Rules'}</span>
+          </button>
+        </div>
       </form>
     </div>
   );

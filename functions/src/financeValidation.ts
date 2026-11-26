@@ -23,7 +23,7 @@ export type AllowedProposalStatus =
   | 'Approved'
   | 'Declined'
   | 'Expired';
-export type AllowedPaymentMethod = 'Wire Transfer' | 'ACH' | 'Credit Card' | 'Check' | 'Crypto' | 'Other';
+export type AllowedPaymentMethod = 'Wire Transfer' | 'ACH' | 'Credit Card' | 'Paystack' | 'Flutterwave' | 'Check' | 'Crypto' | 'Other';
 
 export interface ValidatedLineItem {
   description: string;
@@ -59,6 +59,8 @@ export const ALLOWED_PAYMENT_METHODS = new Set<AllowedPaymentMethod>([
   'Wire Transfer',
   'ACH',
   'Credit Card',
+  'Paystack',
+  'Flutterwave',
   'Check',
   'Crypto',
   'Other',

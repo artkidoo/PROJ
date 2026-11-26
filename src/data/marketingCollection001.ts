@@ -7,7 +7,7 @@ import type {
   MarketingTargetAudience,
 } from '../types/brandRoom';
 import type { CanvasDesign, CanvasElement } from '../types/designStudio';
-import keedohubBrandLogo from '../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubLogoTransparent from '../assets/images/keedohub_logo_transparent.png';
 import plate01CreativeUniverse from '../assets/images/kh_01_creative_universe_1795343242542.jpg';
 import plate02IdeasExecution from '../assets/images/kh_02_ideas_execution_1795343245441.jpg';
 import plate03CreativeEcosystem from '../assets/images/kh_03_creative_ecosystem_1795343242857.jpg';
@@ -117,7 +117,7 @@ function makeLogoSeal(
     opacity: 0.98,
     zIndex: zIndex + 1,
     visible: true,
-    src: keedohubBrandLogo,
+    src: keedohubLogoTransparent,
     objectFit: 'contain',
     filter: 'none',
   });

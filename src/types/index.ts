@@ -4,6 +4,7 @@
  */
 
 export * from './creativeProduct';
+export * from './subscription';
 
 export type UserRole = 
   | 'Executive'
@@ -353,6 +354,13 @@ export interface Workspace {
   contractedPackageIds?: string[];
   activePackageIds?: string[];
   packageEntitlements?: WorkspacePackageEntitlement[];
+  activeSubscriptionId?: string;
+  activeSubscriptionPlanId?: string;
+  activeSubscriptionStatus?: string;
+  subscriptionExpiresAt?: string;
+  subscriptionEntitledCategories?: string[];
+  subscriptionEntitledProductIds?: string[];
+  purchasedProductIds?: string[];
   createdAt: string;
   updatedAt?: string;
 }
@@ -387,6 +395,8 @@ export interface ServicePackage {
   description: string;
   deliverables: string[];
   priceUsd: number;
+  currency?: CommercialCurrency;
+  isPurchasableOneTime?: boolean;
   billingType: 'One-Time' | 'Per-Release' | 'Monthly Retainer';
   revisionLimit: number; // e.g. 2, 3, or -1 for unlimited
   turnaroundDays: number; // e.g. 3, 5, 10
@@ -739,7 +749,7 @@ export interface PaymentRecord {
   amount: number;
   date: string;
   reference: string;
-  method: 'Wire Transfer' | 'ACH' | 'Credit Card' | 'Check' | 'Crypto' | 'Other';
+  method: 'Wire Transfer' | 'ACH' | 'Credit Card' | 'Paystack' | 'Flutterwave' | 'Check' | 'Crypto' | 'Other';
   recordedBy: string;
   recordedByUid?: string;
   notes?: string;
@@ -1030,3 +1040,4 @@ export interface BrandGuidelinesData {
 }
 
 export * from './creativeProduction';
+export * from './cms';

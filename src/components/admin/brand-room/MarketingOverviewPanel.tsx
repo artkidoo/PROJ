@@ -18,7 +18,7 @@ import type {
 } from '../../../types/brandRoom';
 import { computeBrandRoomAnalytics } from '../../../lib/brandRoomService';
 import { BrandRoomCanvasPreview } from './BrandRoomCanvasPreview';
-import keedohubBrandLogo from '../../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubMarkTransparent from '../../../assets/images/keedohub_mark_transparent.png';
 
 interface MarketingOverviewPanelProps {
   identity: KeedoBrandIdentity;
@@ -63,10 +63,10 @@ export const MarketingOverviewPanel: React.FC<MarketingOverviewPanelProps> = ({
       <section className="border border-[#1E1E1E] bg-[#0B0B0B] p-5 sm:p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-5">
         <div className="flex items-start gap-4 max-w-3xl">
           <img
-            src={keedohubBrandLogo}
+            src={keedohubMarkTransparent}
             alt="KeedoHub Official Logo"
             referrerPolicy="no-referrer"
-            className="h-16 w-16 object-cover border border-[#262626] shrink-0"
+            className="h-14 w-14 object-contain bg-transparent shrink-0"
           />
           <div className="space-y-1.5">
             <div className="text-[10px] font-mono uppercase tracking-widest text-[#FF1E1E]">

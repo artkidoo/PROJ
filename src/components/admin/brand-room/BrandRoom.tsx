@@ -62,7 +62,7 @@ import { MarketingAssetLibraryPanel, StudioLaunchPreset } from './MarketingAsset
 import { MarketingOverviewPanel } from './MarketingOverviewPanel';
 import { MarketingStudioPanel } from './MarketingStudioPanel';
 import { PortfolioShowcasesPanel } from './PortfolioShowcasesPanel';
-import keedohubBrandLogo from '../../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import keedohubMarkTransparent from '../../../assets/images/keedohub_mark_transparent.png';
 
 interface BrandRoomNavEntry {
   id: BrandRoomSection;
@@ -366,10 +366,10 @@ export const BrandRoom: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
           <div className="flex items-center gap-2.5">
             <img
-              src={keedohubBrandLogo}
+              src={keedohubMarkTransparent}
               alt="KeedoHub Logo"
               referrerPolicy="no-referrer"
-              className="h-7 w-7 object-cover border border-[#262626] shrink-0"
+              className="h-6 w-6 object-contain bg-transparent shrink-0"
             />
             <span className="text-[10px] font-mono uppercase tracking-widest text-[#FF1E1E]">
               KeedoHub Brand Room · 16 Marketing Modules

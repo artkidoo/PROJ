@@ -24,6 +24,8 @@ import {
   STUDIO_MEDIA,
   type PortfolioItem,
 } from '../../data/publicContent';
+import { useWebsiteCms } from '../../context/WebsiteCmsContext';
+import type { HomepageSectionId } from '../../types/cms';
 
 interface Props {
   navigate: (route: PublicRoute, param?: string) => void;
@@ -196,6 +198,7 @@ const SHOWCASE_COMMUNITIES: Array<{
 
 export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
   const { enterWorkspace, isAuthenticated } = useApp();
+  const { homepageCms, publishedArticles } = useWebsiteCms();
   const [activeWorkFilter, setActiveWorkFilter] = useState<'all' | 'music' | 'brand' | 'motion'>('all');
   const [selectedProject, setSelectedProject] = useState<PortfolioItem | null>(null);
 
@@ -223,7 +226,7 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
         <section id="top" className="relative isolate overflow-hidden border-b border-[#1E1E1E]">
           <div className="absolute inset-0 -z-10">
             <StudioImage
-              src={STUDIO_MEDIA.lyricalStudioHero}
+              src={homepageCms.heroBackgroundImageUrl || STUDIO_MEDIA.lyricalStudioHero}
               alt="KeedoHub creative direction and studio lighting environment"
               loading="eager"
               className="h-full w-full object-cover object-center opacity-35"
@@ -237,46 +240,57 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
               <div className="min-w-0 space-y-6">
                 <div className="flex items-center gap-3 font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-[#FF1E1E]">
                   <span className="h-px w-7 bg-[#FF1E1E]" aria-hidden="true" />
-                  <span>KeedoHub · Creative Agency &amp; Production OS</span>
+                  <span>{homepageCms.heroKicker || 'KeedoHub · Creative Agency & Production OS'}</span>
                 </div>
 
                 <h1 className="text-balance text-[clamp(1.85rem,6.8vw,4.85rem)] font-black uppercase leading-[0.9] tracking-[-0.04em] text-white">
-                  A Creative Ecosystem.{' '}
-                  <span className="block">
-                    A Creative <span className="text-[#FF1E1E]">Operations</span> Platform.
-                  </span>
+                  {homepageCms.heroHeadline ? (
+                    homepageCms.heroHeadline
+                  ) : (
+                    <>
+                      A Creative Ecosystem.{' '}
+                      <span className="block">
+                        A Creative <span className="text-[#FF1E1E]">Operations</span> Platform.
+                      </span>
+                    </>
+                  )}
                 </h1>
 
                 <p className="max-w-2xl text-sm leading-7 text-neutral-300 sm:text-base">
-                  KeedoHub combines senior creative production—brand identity, music artwork, motion systems, and executive collateral—with structured studio operations from brief intake and internal QA to final workspace handover.
+                  {homepageCms.heroSubheadline ||
+                    'KeedoHub combines senior creative production—brand identity, music artwork, motion systems, and executive collateral—with structured studio operations from brief intake and internal QA to final workspace handover.'}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <button
                     type="button"
                     onClick={() => {
-                      const el = document.getElementById('ecosystem');
-                      el?.scrollIntoView({ behavior: 'smooth' });
+                      if (!homepageCms.heroPrimaryCtaTarget || homepageCms.heroPrimaryCtaTarget === '#ecosystem') {
+                        const el = document.getElementById('ecosystem');
+                        el?.scrollIntoView({ behavior: 'smooth' });
+                      } else {
+                        navigate(homepageCms.heroPrimaryCtaTarget as PublicRoute);
+                      }
                     }}
                     className="inline-flex min-h-11 items-center gap-2 bg-[#FF1E1E] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-white hover:text-black whitespace-nowrap shrink-0"
                   >
-                    <span>Explore Ecosystem</span>
+                    <span>{homepageCms.heroPrimaryCtaLabel || 'Explore Ecosystem'}</span>
                     <ArrowDownRight size={14} />
                   </button>
                   <button
                     type="button"
-                    onClick={() => (isAuthenticated ? enterWorkspace() : navigate('register'))}
+                    onClick={() => (isAuthenticated ? enterWorkspace() : navigate(homepageCms.heroSecondaryCtaTarget || 'register'))}
                     className="inline-flex min-h-11 items-center gap-2 bg-white px-5 py-3 text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-[#FF1E1E] hover:text-white whitespace-nowrap shrink-0"
                   >
-                    <span>{isAuthenticated ? 'Open Workspace' : 'Create Client Workspace'}</span>
+                    <span>{isAuthenticated ? 'Open Workspace' : (homepageCms.heroSecondaryCtaLabel || 'Create Client Workspace')}</span>
                     <ArrowRight size={14} />
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigate('contact')}
+                    onClick={() => navigate(homepageCms.heroTertiaryCtaTarget || 'contact')}
                     className="inline-flex min-h-11 items-center gap-2 border border-white/25 px-5 py-3 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:border-white hover:bg-white/5 whitespace-nowrap shrink-0"
                   >
-                    <span>Submit Project Brief</span>
+                    <span>{homepageCms.heroTertiaryCtaLabel || 'Submit Project Brief'}</span>
                     <MoveUpRight size={14} />
                   </button>
                 </div>
@@ -287,18 +301,18 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
                 <div className="border border-[#262626] bg-[#0D0D0D] overflow-hidden flex flex-col min-w-0">
                   <div className="aspect-[4/5] w-full overflow-hidden bg-[#121212]">
                     <StudioImage
-                      src={STUDIO_MEDIA.creativeDirectorStudio}
-                      alt="KeedoHub studio creative direction desk with visual proofs"
+                      src={homepageCms.heroVisualLeftImageUrl || STUDIO_MEDIA.creativeDirectorStudio}
+                      alt={homepageCms.heroVisualLeftAlt || 'KeedoHub studio creative direction desk with visual proofs'}
                       loading="eager"
                       className="h-full w-full object-cover transition-transform duration-700 hover:scale-[1.03]"
                     />
                   </div>
                   <div className="p-3 sm:p-4 border-t border-[#1E1E1E] space-y-1">
                     <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#FF1E1E]">
-                      Studio Craft
+                      {homepageCms.heroVisualLeftLabel || 'Studio Craft'}
                     </p>
                     <p className="text-xs sm:text-sm font-semibold text-white">
-                      Direction &amp; Production
+                      {homepageCms.heroVisualLeftTitle || 'Direction & Production'}
                     </p>
                   </div>
                 </div>
@@ -306,18 +320,18 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
                 <div className="border border-[#262626] bg-[#0D0D0D] overflow-hidden flex flex-col min-w-0">
                   <div className="aspect-[4/5] w-full overflow-hidden bg-[#121212]">
                     <StudioImage
-                      src={STUDIO_MEDIA.vinylPressMockup}
-                      alt="Monochrome vinyl sleeve master production study"
+                      src={homepageCms.heroVisualRightImageUrl || STUDIO_MEDIA.studioWorkstationHero}
+                      alt={homepageCms.heroVisualRightAlt || 'KeedoHub architectural design workstation displaying bold Swiss typography and brand guidelines'}
                       loading="eager"
                       className="h-full w-full object-cover transition-transform duration-700 hover:scale-[1.03]"
                     />
                   </div>
                   <div className="p-3 sm:p-4 border-t border-[#1E1E1E] space-y-1">
                     <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-400">
-                      Concept 01
+                      {homepageCms.heroVisualRightLabel || 'Creative Production'}
                     </p>
                     <p className="text-xs sm:text-sm font-semibold text-white">
-                      Release &amp; Brand Masters
+                      {homepageCms.heroVisualRightTitle || 'Workstation & Identity Desk'}
                     </p>
                   </div>
                 </div>
@@ -727,157 +741,245 @@ export const PublicHomepage: React.FC<Props> = ({ navigate }) => {
         </section>
 
         {/* =========================================================================
-            8. JOURNAL & CREATIVE INSIGHTS (4-CARD MULTI-COLUMN GRID)
+            7.5 TESTIMONIALS & TRUST (CMS-DRIVEN)
         ========================================================================= */}
-        <section id="journal" className="border-b border-[#1E1E1E] px-4 py-16 sm:px-8 sm:py-24 lg:px-12">
-          <div className="mx-auto max-w-[1440px] space-y-10">
-            <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1E1E1E] pb-8">
+        {(homepageCms.sectionVisibility ? homepageCms.sectionVisibility.testimonials !== false : true) && (
+          <section id="testimonials" className="border-b border-[#1E1E1E] bg-[#0A0A0A] px-4 py-16 sm:px-8 sm:py-24 lg:px-12">
+            <div className="mx-auto max-w-[1440px] space-y-10">
               <div className="space-y-2.5">
                 <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.2em]">
                   <span className="text-[#FF1E1E] tabular-nums">07</span>
-                  <span className="text-neutral-400">Journal &amp; Insights</span>
+                  <span className="text-neutral-400">Client Perspectives &amp; Trust</span>
                 </div>
-                <h2 className="text-2xl font-black uppercase tracking-[-0.03em] text-white sm:text-4xl">
-                  Perspectives On Craft &amp; Operations.
+                <h2 className="text-balance text-2xl font-black uppercase leading-tight tracking-[-0.03em] text-white sm:text-4xl">
+                  {homepageCms.testimonialsHeading || 'Client Trust & Studio Testimonials.'}
                 </h2>
               </div>
-              <button
-                type="button"
-                onClick={() => navigate('journal')}
-                className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-neutral-300 hover:text-white transition-colors"
-              >
-                <span>All Journal Stories</span>
-                <MoveUpRight size={14} />
-              </button>
-            </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
-              {BLOG_POSTS.map(post => (
-                <button
-                  key={post.id}
-                  type="button"
-                  onClick={() => navigate('article', post.id)}
-                  className="group min-w-0 border border-[#222222] bg-[#0B0B0B] hover:border-[#FF1E1E] text-left flex flex-col justify-between transition-colors"
-                >
-                  <div>
-                    <div className="aspect-[16/10] w-full overflow-hidden border-b border-[#1E1E1E] bg-[#121212]">
-                      <StudioImage
-                        src={post.image}
-                        alt={post.title}
-                        className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
-                      />
-                    </div>
-                    <div className="p-3 sm:p-5 space-y-2 min-w-0">
-                      <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#FF1E1E] truncate">
-                        {post.category} · {post.readTime}
-                      </p>
-                      <h3 className="text-xs sm:text-base font-bold leading-snug text-white group-hover:text-[#FF1E1E] break-words">
-                        {post.title}
-                      </h3>
-                      <p className="text-[11px] sm:text-xs leading-relaxed text-neutral-400 break-words">
-                        {post.excerpt}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {(homepageCms.testimonials && homepageCms.testimonials.length > 0
+                  ? homepageCms.testimonials
+                  : [
+                      {
+                        id: 'test-1',
+                        quote:
+                          'KeedoHub unified our album release visual language from initial vinyl proofs to 60fps stage graphics without a single dropped asset.',
+                        author: 'A&R Direction Lead',
+                        role: 'Creative Director',
+                        company: 'Indie Sound Group',
+                      },
+                      {
+                        id: 'test-2',
+                        quote:
+                          'Having our corporate collateral, contracts, and pitch templates live in the same workspace as our master logo files saved our executive team weeks.',
+                        author: 'Managing Director',
+                        role: 'Founding Partner',
+                        company: 'Obsidian Capital Labs',
+                      },
+                      {
+                        id: 'test-3',
+                        quote:
+                          'The separation between internal QA and client review proofs gave our roster artists absolute confidence in every deliverable version.',
+                        author: 'Operations Head',
+                        role: 'Label Manager',
+                        company: 'Global Talent Management',
+                      },
+                    ]
+                ).map(t => (
+                  <div
+                    key={t.id}
+                    className="border border-[#222222] bg-[#0D0D0D] p-6 sm:p-8 flex flex-col justify-between space-y-6 hover:border-[#333] transition-colors"
+                  >
+                    <blockquote className="text-sm sm:text-base leading-relaxed text-neutral-300 italic">
+                      “{t.quote}”
+                    </blockquote>
+                    <div className="border-t border-[#1C1C1C] pt-4 font-mono text-xs">
+                      <p className="font-bold text-white uppercase tracking-wider">{t.author}</p>
+                      <p className="text-[#FF1E1E] text-[11px] mt-0.5">
+                        {t.role} · <span className="text-neutral-400">{t.company}</span>
                       </p>
                     </div>
                   </div>
-                  <div className="px-3 pb-3 sm:px-5 sm:pb-4 pt-2 border-t border-[#181818] flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-500">
-                    <span>{post.date}</span>
-                    <MoveUpRight size={13} className="text-neutral-400 group-hover:text-white" />
-                  </div>
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
+
+        {/* =========================================================================
+            8. JOURNAL & CREATIVE INSIGHTS (4-CARD MULTI-COLUMN GRID)
+        ========================================================================= */}
+        {(homepageCms.sectionVisibility ? homepageCms.sectionVisibility.journal !== false : true) && (
+          <section id="journal" className="border-b border-[#1E1E1E] px-4 py-16 sm:px-8 sm:py-24 lg:px-12">
+            <div className="mx-auto max-w-[1440px] space-y-10">
+              <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1E1E1E] pb-8">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.2em]">
+                    <span className="text-[#FF1E1E] tabular-nums">08</span>
+                    <span className="text-neutral-400">Journal &amp; Insights</span>
+                  </div>
+                  <h2 className="text-2xl font-black uppercase tracking-[-0.03em] text-white sm:text-4xl">
+                    {homepageCms.journalHeading || 'Perspectives On Craft & Operations.'}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('journal')}
+                  className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-neutral-300 hover:text-white transition-colors"
+                >
+                  <span>All Journal Stories</span>
+                  <MoveUpRight size={14} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+                {(publishedArticles && publishedArticles.length > 0 ? publishedArticles.slice(0, 4) : BLOG_POSTS.slice(0, 4)).map(post => {
+                  const articleSlug = ('slug' in post && post.slug) ? post.slug : post.id;
+                  const coverImg = ('coverImageUrl' in post && post.coverImageUrl) ? post.coverImageUrl : ('image' in post ? post.image : '');
+                  const readTimeText = ('readingTimeMinutes' in post && post.readingTimeMinutes)
+                    ? `${post.readingTimeMinutes} min read`
+                    : (('readTime' in post) ? post.readTime : '5 min read');
+                  const displayDate = ('publishedAt' in post && post.publishedAt)
+                    ? new Date(post.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : (('date' in post) ? post.date : '');
+
+                  return (
+                    <button
+                      key={post.id}
+                      type="button"
+                      onClick={() => navigate('article', articleSlug)}
+                      className="group min-w-0 border border-[#222222] bg-[#0B0B0B] hover:border-[#FF1E1E] text-left flex flex-col justify-between transition-colors"
+                    >
+                      <div>
+                        <div className="aspect-[16/10] w-full overflow-hidden border-b border-[#1E1E1E] bg-[#121212]">
+                          <StudioImage
+                            src={coverImg}
+                            alt={post.title}
+                            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+                          />
+                        </div>
+                        <div className="p-3 sm:p-5 space-y-2 min-w-0">
+                          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#FF1E1E] truncate">
+                            {post.category} · {readTimeText}
+                          </p>
+                          <h3 className="text-xs sm:text-base font-bold leading-snug text-white group-hover:text-[#FF1E1E] break-words">
+                            {post.title}
+                          </h3>
+                          <p className="text-[11px] sm:text-xs leading-relaxed text-neutral-400 break-words line-clamp-3">
+                            {post.excerpt}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="px-3 pb-3 sm:px-5 sm:pb-4 pt-2 border-t border-[#181818] flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-500">
+                        <span>{displayDate}</span>
+                        <MoveUpRight size={13} className="text-neutral-400 group-hover:text-white" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* =========================================================================
             9. INDICATIVE PACKAGES + CLOSING CTA
         ========================================================================= */}
-        <section id="packages" className="border-b border-[#1E1E1E] bg-[#0B0B0B] px-4 py-16 sm:px-8 sm:py-20 lg:px-12">
-          <div className="mx-auto max-w-[1440px] space-y-8">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.2em]">
-                  <span className="text-[#FF1E1E] tabular-nums">08</span>
-                  <span className="text-neutral-400">Packages &amp; Scope</span>
+        {(homepageCms.sectionVisibility ? homepageCms.sectionVisibility.packages !== false : true) && (
+          <section id="packages" className="border-b border-[#1E1E1E] bg-[#0B0B0B] px-4 py-16 sm:px-8 sm:py-20 lg:px-12">
+            <div className="mx-auto max-w-[1440px] space-y-8">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.2em]">
+                    <span className="text-[#FF1E1E] tabular-nums">09</span>
+                    <span className="text-neutral-400">Packages &amp; Scope</span>
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-[-0.03em] text-white">
+                    {homepageCms.packagesHeading || 'Structured Scopes For Every Engagement.'}
+                  </h2>
                 </div>
-                <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-[-0.03em] text-white">
-                  Structured Scopes For Every Engagement.
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate('pricing')}
-                className="inline-flex items-center gap-2 border-b border-[#444] pb-1 text-xs font-bold uppercase tracking-[0.14em] text-white hover:border-[#FF1E1E] self-start sm:self-end"
-              >
-                <span>View All Packages</span>
-                <ArrowRight size={14} />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
-              {PRICING_PACKAGES.map((pkg, idx) => (
                 <button
-                  key={pkg.id}
                   type="button"
                   onClick={() => navigate('pricing')}
-                  className="group min-w-0 border border-[#222222] bg-[#080808] hover:border-[#FF1E1E] p-3.5 sm:p-5 text-left flex flex-col justify-between gap-3 transition-colors"
+                  className="inline-flex items-center gap-2 border-b border-[#444] pb-1 text-xs font-bold uppercase tracking-[0.14em] text-white hover:border-[#FF1E1E] self-start sm:self-end"
                 >
-                  <div className="space-y-2 min-w-0">
-                    <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.12em]">
-                      <span className="text-[#FF1E1E] tabular-nums">{String(idx + 1).padStart(2, '0')}</span>
-                      <span className="text-neutral-500 truncate">{pkg.audience}</span>
-                    </div>
-                    <h3 className="text-xs sm:text-base font-bold text-white group-hover:text-[#FF1E1E] break-words">
-                      {pkg.name}
-                    </h3>
-                    <p className="text-[11px] text-neutral-400 leading-relaxed break-words">
-                      {pkg.summary}
-                    </p>
-                  </div>
-                  <div className="border-t border-[#181818] pt-2.5 flex items-center justify-between gap-2 font-mono text-[10px] uppercase text-neutral-400">
-                    <span className="truncate">{pkg.turnaround}</span>
-                    <MoveUpRight size={12} className="shrink-0 group-hover:text-white" />
-                  </div>
+                  <span>View All Packages</span>
+                  <ArrowRight size={14} />
                 </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="contact" className="px-4 py-16 sm:px-8 sm:py-24 lg:px-12">
-          <div className="mx-auto max-w-[1440px] border border-[#242424] bg-[#0C0C0C] p-6 sm:p-10 lg:p-12 grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.2em]">
-                <span className="text-[#FF1E1E] tabular-nums">09</span>
-                <span className="text-neutral-400">Begin With KeedoHub</span>
               </div>
-              <h2 className="text-balance text-3xl font-black uppercase leading-[0.94] tracking-[-0.04em] text-white sm:text-5xl lg:text-6xl">
-                Launch Your Next Release Or Brand Inside <span className="text-[#FF1E1E]">One Creative OS.</span>
-              </h2>
-              <p className="max-w-xl text-sm leading-7 text-neutral-400">
-                Submit a creative brief to our studio team or register your Artist or Brand account to enter your private production room right away.
-              </p>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+                {PRICING_PACKAGES.map((pkg, idx) => (
+                  <button
+                    key={pkg.id}
+                    type="button"
+                    onClick={() => navigate('pricing')}
+                    className="group min-w-0 border border-[#222222] bg-[#080808] hover:border-[#FF1E1E] p-3.5 sm:p-5 text-left flex flex-col justify-between gap-3 transition-colors"
+                  >
+                    <div className="space-y-2 min-w-0">
+                      <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.12em]">
+                        <span className="text-[#FF1E1E] tabular-nums">{String(idx + 1).padStart(2, '0')}</span>
+                        <span className="text-neutral-500 truncate">{pkg.audience}</span>
+                      </div>
+                      <h3 className="text-xs sm:text-base font-bold text-white group-hover:text-[#FF1E1E] break-words">
+                        {pkg.name}
+                      </h3>
+                      <p className="text-[11px] text-neutral-400 leading-relaxed break-words">
+                        {pkg.summary}
+                      </p>
+                    </div>
+                    <div className="border-t border-[#181818] pt-2.5 flex items-center justify-between gap-2 font-mono text-[10px] uppercase text-neutral-400">
+                      <span className="truncate">{pkg.turnaround}</span>
+                      <MoveUpRight size={12} className="shrink-0 group-hover:text-white" />
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => navigate('contact')}
-                className="inline-flex min-h-12 items-center gap-2 bg-[#FF1E1E] px-6 py-3.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-white hover:text-black whitespace-nowrap shrink-0"
-              >
-                <span>Submit Project Brief</span>
-                <ArrowRight size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={() => (isAuthenticated ? enterWorkspace() : navigate('register'))}
-                className="inline-flex min-h-12 items-center gap-2 border border-[#333] px-6 py-3.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:border-white whitespace-nowrap shrink-0"
-              >
-                <span>{isAuthenticated ? 'Enter Workspace' : 'Create Account'}</span>
-                <MoveUpRight size={15} />
-              </button>
+          </section>
+        )}
+
+        {(homepageCms.sectionVisibility ? homepageCms.sectionVisibility.cta !== false : true) && (
+          <section id="contact" className="px-4 py-16 sm:px-8 sm:py-24 lg:px-12">
+            <div className="mx-auto max-w-[1440px] border border-[#242424] bg-[#0C0C0C] p-6 sm:p-10 lg:p-12 grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.2em]">
+                  <span className="text-[#FF1E1E] tabular-nums">10</span>
+                  <span className="text-neutral-400">Begin With KeedoHub</span>
+                </div>
+                <h2 className="text-balance text-3xl font-black uppercase leading-[0.94] tracking-[-0.04em] text-white sm:text-5xl lg:text-6xl">
+                  {homepageCms.ctaHeading || (
+                    <>
+                      Launch Your Next Release Or Brand Inside <span className="text-[#FF1E1E]">One Creative OS.</span>
+                    </>
+                  )}
+                </h2>
+                <p className="max-w-xl text-sm leading-7 text-neutral-400">
+                  {homepageCms.ctaDescription ||
+                    'Submit a creative brief to our studio team or register your Artist or Brand account to enter your private production room right away.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('contact')}
+                  className="inline-flex min-h-12 items-center gap-2 bg-[#FF1E1E] px-6 py-3.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-white hover:text-black whitespace-nowrap shrink-0"
+                >
+                  <span>{homepageCms.ctaPrimaryLabel || 'Submit Project Brief'}</span>
+                  <ArrowRight size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (isAuthenticated ? enterWorkspace() : navigate('register'))}
+                  className="inline-flex min-h-12 items-center gap-2 border border-[#333] px-6 py-3.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:border-white whitespace-nowrap shrink-0"
+                >
+                  <span>{isAuthenticated ? 'Enter Workspace' : (homepageCms.ctaSecondaryLabel || 'Create Account')}</span>
+                  <MoveUpRight size={15} />
+                </button>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
       </main>
 
       {/* =========================================================================

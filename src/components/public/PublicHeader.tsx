@@ -8,7 +8,8 @@
 import React, { useState } from 'react';
 import { Menu, X, ArrowRight, LogIn, LayoutDashboard } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import keedohubBrandLogo from '../../assets/images/keedohub_brand_logo_1795340542093.jpg';
+import { useWebsiteCms } from '../../context/WebsiteCmsContext';
+import keedohubMarkTransparent from '../../assets/images/keedohub_mark_transparent.png';
 
 export type PublicRoute =
   | 'home' | 'about' | 'vision' | 'services' | 'portfolio' | 'artists'
@@ -44,7 +45,19 @@ const MOBILE_NAV_ITEMS: { label: string; route: PublicRoute }[] = [
 
 export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate }) => {
   const { isAuthenticated, authError, enterWorkspace } = useApp();
+  const { siteNavigation, siteSettings } = useWebsiteCms();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const desktopItems = (siteNavigation?.headerItems && siteNavigation.headerItems.length > 0)
+    ? siteNavigation.headerItems.filter(i => i.visible)
+    : DESKTOP_NAV_ITEMS;
+
+  const mobileItems = (siteNavigation?.mobileItems && siteNavigation.mobileItems.length > 0)
+    ? siteNavigation.mobileItems.filter(i => i.visible)
+    : MOBILE_NAV_ITEMS;
+
+  const logoMarkSrc = siteSettings?.markDarkSurfaceUrl || keedohubMarkTransparent;
+  const brandName = siteSettings?.siteName || 'KEEDOHUB';
 
   const go = (route: PublicRoute) => {
     navigate(route);
@@ -62,19 +75,19 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
           aria-label="KeedoHub Home"
         >
           <img
-            src={keedohubBrandLogo}
-            alt="KeedoHub Logo"
+            src={logoMarkSrc}
+            alt={`${brandName} Logo`}
             referrerPolicy="no-referrer"
-            className="h-10 w-10 object-cover border border-[#1E1E1E] shrink-0"
+            className="h-9 w-9 object-contain bg-transparent shrink-0"
           />
           <span className="text-lg md:text-xl font-black tracking-tighter text-white uppercase whitespace-nowrap select-none">
-            KEEDOHUB
+            {brandName}
           </span>
         </button>
 
         {/* Zone 2: Concise Navigation (5 single-line items) */}
         <nav aria-label="Primary navigation" className="hidden lg:flex items-center gap-7 text-xs font-medium tracking-wide text-neutral-400">
-          {DESKTOP_NAV_ITEMS.map(item => {
+          {desktopItems.map(item => {
             const isActive = current === item.route || (item.route === 'journal' && current === 'article');
             return (
               <button
@@ -150,7 +163,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({ current, navigate })
       {mobileOpen && (
         <div id="public-mobile-menu" className="lg:hidden absolute left-0 right-0 top-full border-b border-[#222222] bg-[#080808] px-4 py-5 shadow-2xl">
           <div className="grid grid-cols-2 gap-1">
-            {MOBILE_NAV_ITEMS.map(item => (
+            {mobileItems.map(item => (
               <button
                 key={item.route}
                 type="button"
